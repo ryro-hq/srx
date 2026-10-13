@@ -53,7 +53,12 @@ pub fn artifacts(output: &str) -> Result<BTreeMap<String, PathBuf>> {
         let is_test = message["profile"]["test"] == true;
         let key = if is_test && name == "syrox_engine" {
             "syrox-engine/lib".to_owned()
-        } else if is_test && message["target"]["kind"] == json!(["test"]) {
+        } else if is_test && name == "syrox_lang" {
+            "syrox-lang/lib".to_owned()
+        } else if is_test
+            && (message["target"]["kind"] == json!(["bin"])
+                || message["target"]["kind"] == json!(["test"]))
+        {
             format!("syrox/{name}")
         } else if !is_test && (name == "srx" || name == "syrox-worker") {
             name.to_owned()

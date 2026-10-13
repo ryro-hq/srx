@@ -166,7 +166,7 @@ pub fn main(arguments: &[String]) -> Result<()> {
     let mut args = arguments.to_vec();
     if args.iter().any(|value| value == "--help") {
         println!(
-            "cargo test --locked --test vm -- --prepare [--install-runtime] [--build-firmware] [--image REGISTRY/IMAGE@sha256:DIGEST | --image-archive /absolute/guest.tar] [--runtime /absolute/msb --firmware /absolute/libkrunfw.so] [--preparation-image IMAGE@sha256:DIGEST | sha256:IMAGE_ID]\nWithout inputs, diagnose the saved configuration and KVM. --install-runtime downloads 0.7.3 only into target/vm-runtime. --build-firmware builds the SDK kernel with Landlock using Docker. Pins and diagnostics are stored in target/."
+            "cargo test --locked --test vm -- --prepare [--install-runtime] [--build-firmware] [--image REGISTRY/IMAGE@sha256:DIGEST | --image-archive /absolute/guest.tar] [--runtime /absolute/msb --firmware /absolute/libkrunfw.so] [--preparation-image IMAGE@sha256:DIGEST | sha256:IMAGE_ID] [--profile acceptance|native] [--candidate-bundle /absolute/directory]\nWithout inputs, diagnose the saved configuration and KVM. --install-runtime downloads 0.7.3 only into target/vm-runtime. --build-firmware builds the SDK kernel with Landlock using Docker. Pins and diagnostics are stored in target/."
         );
         return Ok(());
     }
@@ -224,6 +224,8 @@ pub fn main(arguments: &[String]) -> Result<()> {
                 "--runtime",
                 "--firmware",
                 "--preparation-image",
+                "--profile",
+                "--candidate-bundle",
             ]
             .contains(&key.as_str())
             {
@@ -298,13 +300,27 @@ pub fn main(arguments: &[String]) -> Result<()> {
                 .clone()
         };
         let firmware_sha256 = super::snapshot::digest(&firmware)?;
-        let firmware_provenance =
-            fs::read(super::config::root().join("target/vm-runtime/landlock/provenance.json"))
-                .ok()
-                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-                .filter(|value| value["firmware_sha256"] == firmware_sha256);
+        let firmware_provenance = fs::read(
+            firmware
+                .parent()
+                .ok_or("firmware parent")?
+                .join("provenance.json"),
+        )
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .filter(|value| value["firmware_sha256"] == firmware_sha256);
         let config = super::config::Config {
             sdk: common::SDK_VERSION.into(),
+            profile: match values.get("--profile").map(String::as_str) {
+                None | Some("acceptance") => super::config::Profile::Acceptance,
+                Some("native") => super::config::Profile::Native,
+                _ => return Err("--profile requires acceptance or native".into()),
+            },
+            candidate_bundle: values
+                .get("--candidate-bundle")
+                .map(PathBuf::from)
+                .map(|path| path.canonicalize())
+                .transpose()?,
             image,
             preparation_image: values.get("--preparation-image").cloned(),
             runtime_sha256: super::snapshot::digest(&runtime)?,

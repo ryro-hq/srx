@@ -1,5 +1,6 @@
 pub mod artifacts;
 pub mod cache;
+pub mod candidate_bundle;
 #[cfg(feature = "vm-tests")]
 pub mod candidates;
 pub mod catalogue;
@@ -15,6 +16,7 @@ pub mod guest;
 pub mod host;
 pub mod inventory;
 pub mod measure;
+pub mod native;
 #[cfg(feature = "vm-tests")]
 pub mod prepare;
 pub mod process;

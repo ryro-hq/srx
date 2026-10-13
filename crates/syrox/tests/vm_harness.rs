@@ -659,8 +659,7 @@ fn source_capture_includes_dirty_and_new_bytes_and_omits_build_state() {
     fs::write(root.join("new.rs"), "new").unwrap();
     fs::create_dir(root.join("target")).unwrap();
     fs::write(root.join("target/should-not-copy"), "build").unwrap();
-    fs::create_dir(root.join("docs")).unwrap();
-    fs::write(root.join("docs/PLANO.md"), "local plan").unwrap();
+    fs::write(root.join("local-notes.md"), "ignored notes").unwrap();
     let destination = temporary.path().join("snapshot");
     let manifest = vm_support::snapshot::snapshot(&root, &destination).unwrap();
     assert_eq!(
@@ -672,7 +671,7 @@ fn source_capture_includes_dirty_and_new_bytes_and_omits_build_state() {
         "new"
     );
     assert!(!destination.join("target").exists());
-    assert!(destination.join("docs/PLANO.md").is_file());
+    assert!(!destination.join("local-notes.md").exists());
     assert_eq!(
         fs::metadata(destination.join("new.rs"))
             .unwrap()
@@ -1021,4 +1020,102 @@ fn byte_identical_captures_reuse_times_and_failed_attempt_reversions_stay_fresh(
         "reversion must invalidate outputs from the failed attempt"
     );
     assert_eq!(prepare(b"first", 500), 400);
+}
+
+#[test]
+fn native_suite_requires_complete_counts_and_cannot_accept_gate_filters() {
+    use vm_support::{common::Suite, native::require_complete};
+    let args = ["--suite", "native"].map(str::to_owned);
+    assert_eq!(
+        common::Selection::parse(&args).unwrap().suite,
+        Suite::Native
+    );
+    assert!(
+        common::Selection::parse(&args)
+            .unwrap()
+            .selected()
+            .is_empty()
+    );
+    for extra in ["fixture", "--exact", "--skip"] {
+        let mut args = args.to_vec();
+        args.extend([extra.to_owned(), "fixture".to_owned()]);
+        assert!(common::Selection::parse(&args).is_err());
+    }
+    let valid = "test result: ok. 7 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out;";
+    require_complete(valid, 10, 3).unwrap();
+    for invalid in [
+        valid.replace("7 passed", "6 passed"),
+        valid.replace("3 ignored", "2 ignored"),
+        valid.replace("0 filtered", "1 filtered"),
+        valid.replace("ok.", "FAILED."),
+    ] {
+        assert!(require_complete(&invalid, 10, 3).is_err());
+    }
+    assert!(require_complete(valid, 0, 0).is_err());
+    require_complete(
+        "test result: ok. 0 passed; 0 failed; 3 ignored; 0 filtered out;",
+        3,
+        3,
+    )
+    .unwrap();
+}
+
+#[test]
+fn native_evidence_rejects_omitted_duplicate_and_incomplete_targets() {
+    use serde_json::json;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("report.json");
+    let rows = vm_support::native::REQUIRED_TARGETS
+        .map(|target| json!({"target":target,"status":"passed","total":10,"passed":7,"ignored":3}));
+    let report =
+        json!({"status":"passed","profile":"native","selected":[],"gates":[],"native":rows});
+    vm_support::evidence::save(&path, &report).unwrap();
+    let mut omitted = report.clone();
+    omitted["native"].as_array_mut().unwrap().pop();
+    assert!(vm_support::evidence::save(&path, &omitted).is_err());
+    let mut duplicate = report.clone();
+    duplicate["native"]
+        .as_array_mut()
+        .unwrap()
+        .push(rows[0].clone());
+    assert!(vm_support::evidence::save(&path, &duplicate).is_err());
+    let mut incomplete = report;
+    incomplete["native"][0]["passed"] = json!(6);
+    assert!(vm_support::evidence::save(&path, &incomplete).is_err());
+}
+
+#[test]
+fn release_bundle_rejects_different_sources_targets_and_executable_bytes() {
+    use serde_json::json;
+    let directory = tempfile::tempdir().unwrap();
+    let mut elf = vec![0; 128];
+    elf[..6].copy_from_slice(b"\x7fELF\x02\x01");
+    elf[16] = 3;
+    elf[18] = 62;
+    elf[32] = 64;
+    elf[52] = 64;
+    elf[54] = 56;
+    elf[56] = 1;
+    elf[64] = 1;
+    for name in ["srx", "syrox-worker"] {
+        fs::write(directory.path().join(name), &elf).unwrap();
+    }
+    let pin = vm_support::snapshot::digest(&directory.path().join("srx")).unwrap();
+    let sources = BTreeMap::from([("Cargo.lock".to_owned(), "1".repeat(64))]);
+    let manifest = json!({"schema":1,"target":"x86_64-unknown-linux-musl","rust":"1.98.1","sources":sources,"binaries":{"srx":pin,"syrox-worker":pin}});
+    let path = directory.path().join("manifest.json");
+    common::save(&path, &manifest).unwrap();
+    vm_support::candidate_bundle::load(directory.path(), &sources, "1.98.1").unwrap();
+    assert!(
+        vm_support::candidate_bundle::load(directory.path(), &BTreeMap::new(), "1.98.1").is_err()
+    );
+    assert!(vm_support::candidate_bundle::load(directory.path(), &sources, "1.99.0").is_err());
+    let mut invalid = manifest.clone();
+    invalid["target"] = json!("aarch64-unknown-linux-musl");
+    common::save(&path, &invalid).unwrap();
+    assert!(vm_support::candidate_bundle::load(directory.path(), &sources, "1.98.1").is_err());
+    common::save(&path, &manifest).unwrap();
+    elf[127] = 1;
+    fs::write(directory.path().join("syrox-worker"), elf).unwrap();
+    assert!(vm_support::candidate_bundle::load(directory.path(), &sources, "1.98.1").is_err());
 }

@@ -49,13 +49,21 @@ pub fn gates() -> Vec<Gate> {
     serde_json::from_str(include_str!("gates.json")).expect("checked-in gate registry")
 }
 
+#[derive(Debug, Default, PartialEq, Eq)]
+pub enum Suite {
+    #[default]
+    Essential,
+    Full,
+    Native,
+}
+
 #[derive(Debug, Default)]
 pub struct Selection {
     pub filters: Vec<String>,
     pub skips: Vec<String>,
     pub exact: bool,
     pub list: bool,
-    pub full: bool,
+    pub suite: Suite,
 }
 
 impl Selection {
@@ -66,9 +74,10 @@ impl Selection {
             match arg.as_str() {
                 "--list" => selection.list = true,
                 "--suite" => match arguments.next().map(String::as_str) {
-                    Some("full") => selection.full = true,
-                    Some("essential") => selection.full = false,
-                    _ => return Err("--suite requires essential or full".into()),
+                    Some("full") => selection.suite = Suite::Full,
+                    Some("essential") => selection.suite = Suite::Essential,
+                    Some("native") => selection.suite = Suite::Native,
+                    _ => return Err("--suite requires essential, full or native".into()),
                 },
                 "--exact" => selection.exact = true,
                 "--skip" => selection.skips.push(
@@ -94,16 +103,24 @@ impl Selection {
                 value => selection.filters.push(value.to_owned()),
             }
         }
+        if selection.suite == Suite::Native
+            && (!selection.filters.is_empty() || !selection.skips.is_empty() || selection.exact)
+        {
+            return Err("native suite cannot be combined with gate filters".into());
+        }
         Ok(selection)
     }
 
     pub fn selected(&self) -> Vec<Gate> {
+        if self.suite == Suite::Native {
+            return Vec::new();
+        }
         let mut selected: Vec<_> = gates()
             .into_iter()
             .filter(|gate| gate.category == Category::Gate)
             .filter(|gate| {
                 (self.filters.is_empty()
-                    && (self.full || ESSENTIAL_GATES.contains(&gate.name.as_str())))
+                    && (self.suite == Suite::Full || ESSENTIAL_GATES.contains(&gate.name.as_str())))
                     || self.filters.iter().any(|filter| {
                         if self.exact {
                             gate.label() == *filter || gate.name == *filter

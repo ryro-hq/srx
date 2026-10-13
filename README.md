@@ -83,7 +83,7 @@ the explicit ecosystem route.
 
 Initial setup requires Linux x86_64, KVM, Docker, an image with systemd >=254,
 a non-root `syrox` user with UID/GID 1000, the C tools and namespace/cgroup
-capabilities. [Containerfile](tests/vm/Containerfile) builds the guest from pinned
+capabilities. [guest recipe](tests/vm/guest.Containerfile) builds the guest from pinned
 Debian and Rust images. Export it with `docker save`. Supply the Docker image ID
 or digest separately when the SDK's imported OCI digest differs:
 
@@ -98,8 +98,8 @@ Preparation records runtime, firmware and image hashes in `target/vm-config.json
 and refuses to overwrite an existing configuration. `SYROX_VM_CONFIG` selects
 another configuration. The official SDK firmware lacks the required Landlock
 support; use `--prepare --build-firmware` or an explicitly pinned qualified
-firmware. Historical proofs and current limitations are recorded in
-[PLANO.md](docs/PLANO.md).
+firmware. The [firmware recipe](tests/vm/firmware.Containerfile) builds that
+kernel from the pinned SDK revision; preparation records its provenance.
 
 Evidence under `target/test-evidence/<run-id>` includes source manifests,
 selected gates, effective container/VM limits, release hashes, logs, journals,
@@ -135,24 +135,51 @@ The required default run passed with **one CPU/512 MiB**: all eight microVM
 scenarios and 1686 native test entries (including auxiliary fixtures), with
 zero failures and 59 classified ignored tests. The effective SDK configuration
 confirmed the initial and maximum limits, and VM destruction was confirmed.
-The earlier Shell-state close failure did not reproduce in this run; its prior
-evidence remains in the plan. Clippy and 27 harness regressions passed.
+Clippy and the harness regressions passed alongside the required suite.
 
 Cold preparation took 768 s outside the VM at one CPU/2 GiB, including release
 product builds and test-profile fixtures/SDK. This compilation budget is separate
 from the 512 MiB guest. Other full-suite scenarios, editor hosts and broader
 product workloads retain their separate qualification requirements. Source and
-binary hashes and exact results are recorded in
-[PLANO.md](docs/PLANO.md#correção-de-intenção-microvm-obrigatória-em-cargo-test-512-mib-2026-10-12).
+binary hashes and exact results remain in the run's evidence directory.
 
 `cargo test --features ecosystem-tests --test ecosystem` adds catalogue/editor
 checks with `SYROX_ECOSYSTEM_CONFIG` (default `target/ecosystem-config.json`),
 containing absolute paths and full revisions for `syrox`, `syrox-pkgs`,
 `syrox-vscode`, `syrox-opencode`, and `syrox.nvim`. These integrations and real
 editor hosts, seed, Hello/glibc, recovery, logout and boot retain separate
-requirements. The current CI explicitly runs the native diagnostic subset with
-`--no-default-features`; VM CI coverage remains pending a qualified KVM runner.
-This override does not qualify the default required microVM suite.
+requirements. CI uses the following required matrix. Its separation of style,
+platform builds and qualified-kernel jobs follows the
+[Rust libc workflow](https://github.com/rust-lang/libc/blob/main/.github/workflows/ci.yaml).
+
+| Job | Matrix | Checks |
+| --- | --- | --- |
+| Quality | Pinned Rust 1.98.1 | Format, structure, private rustdoc, doctests, dependency policy |
+| Clippy | All features; no default features | All workspace targets, warnings as errors |
+| Portable tests | Linux x86_64 host | Language, CLI, formatter, LSP and harness regressions without VM features |
+| Static build | GNU; musl | Worker before embedded CLI, static ELF, installed worker/CLI, source manifest |
+| Kernel suite | GNU, Linux 6.12.109, 1 CPU / 2 GiB | Complete nonignored workspace libtests, classified ignored inventory, kernel qualification |
+| Acceptance | GNU; musl, Linux 6.12.109, 1 CPU / 512 MiB | Eight product journeys, resource limits, byte identity and cleanup |
+| Success | Every required job | Reject any failed, cancelled or skipped dependency |
+
+The Ubuntu host can restrict unprivileged namespaces, so the complete engine
+suite runs inside the qualified kernel. The native profile uses 512 MiB of
+workspace tmpfs; the acceptance profile keeps 128 MiB. Both compile libtests
+before boot. To run the complete kernel suite locally, prepare a separate
+configuration with `--profile native`, select it with `SYROX_VM_CONFIG`, then
+run `cargo test --locked -p syrox --test vm -- --suite native`.
+
+Build jobs publish CLI/worker pairs with exact source and binary hashes. Kernel
+jobs import those pairs through `--candidate-bundle /absolute/directory` and
+refuse a different source inventory, toolchain, target or executable hash. They
+compile only the required GNU libtests and C fixtures. Firmware and the guest
+image are built once, cached with pinned inputs and checked before each row.
+A second kernel belongs in this matrix only after the same capability probes
+and journeys qualify it. Weekly and manual runs repeat the required matrix.
+
+Every kernel row checks KVM and Docker and preserves reports, logs and journals
+even after failure. Preparation uses the host evidence owner's UID/GID while the
+guest keeps its fixed test user. Missing prerequisites fail the job.
 
 ## Check a project
 
@@ -326,7 +353,8 @@ Only explicit lock operations acquire project inputs. Transitive projects keep
 their own pins. Snapshots are retained in `demo/.syrox/github`; the HTTPS transport
 and bounded archive reader are built in. The native resolver follows supported NSS
 ordering and fallback rules, with hosts/DNS and local `systemd-resolved` support.
-See the [resolver contract](docs/PLANO.md#rede-incorporada-tls-dns-e-cancelamento) for its limits.
+See the [transport contract](crates/syrox-engine/src/acquire/https/mod.rs) and
+[DNS resolver](crates/syrox-engine/src/acquire/https/dns/mod.rs) for their limits.
 Completion and navigation use cached sources;
 remote definitions open as read-only virtual documents and reload when the Lock
 changes.
@@ -384,7 +412,8 @@ Engine consumers inspect a pure `Plan` and keep a `PreparedPlan` for realization
 Typed output selections can be realized, retained under generation roots and
 reopened with `RetainedOutput`; `RetainedRuntime` reopens verified application
 closures for the native runtime launcher. See the
-[integration contract](docs/PLANO.md#gerações-manifesto-e-identidades-duráveis).
+[retained output contract](crates/syrox-engine/src/result/materialize/retention.rs)
+and [Os generation flow](crates/syrox-engine/src/deployment/os/mod.rs).
 
 `srx shell PROJECT#OUTPUT --command NAME --non-interactive -- ARGS` runs one
 exposed command from a locked `Shell` plan. Service commands can bind arguments
@@ -697,8 +726,8 @@ The explanations for contributors follow the
 [rust-analyzer architecture guide](https://rust-analyzer.github.io/book/contributing/architecture.html),
 which connects code structure to the decisions behind it. The
 [checker](tools/check_structure.rs) checks crate entries and module layout without
-requiring a header in every file. Reorganization and API history remain in
-[PLANO](docs/PLANO.md).
+requiring a header in every file. Follow the linked source contracts when
+changing ownership, publication or recovery behavior.
 
 To check the reading guide and its links, generate private-item documentation and
 run the examples and layout regressions:
@@ -730,7 +759,7 @@ cargo run --locked -p syrox --example check_editors -- \
 
 Add `--hosts` to run the installed editor hosts and OpenCode packaging. Logs,
 candidate hashes and results remain under `target/test-evidence/editors-*`.
-[Session gates](docs/SESSION_GATES.md) also run directly through Cargo.
+The default VM gates also run directly with `cargo test --locked -p syrox --test vm`.
 
 
 ## Rust source consolidation (2026-10-13)
@@ -773,8 +802,7 @@ Two additional real service shutdown/retention gates passed. Every VM, runtime
 home and preparation container was cleaned up; compilation inherited host
 resources without imposed CPU or memory quotas. The corrected static candidate,
 installation, catalogue and editor protocol checks passed. The
-[batch record](docs/PLANO.md) and
-`target/test-evidence/shell-close-reconnect-20261013/summary.json` hold the final
+`target/test-evidence/shell-close-reconnect-20261013/summary.json` holds the final
 acceptance, hashes and source comparisons. Earlier failed attempts remain in
 `target/test-evidence/fragmentation-20261012/` as historical evidence.
 
@@ -805,8 +833,7 @@ were removed. Production `BodyEffects`, observational replay, body partition
 parity and retention/budget tests remain. The workspace permits `too_many_lines`
 for cohesive operations whose resources share a lifecycle; other lints remain strict.
 
-Verification for this batch is recorded in [PLANO.md](docs/PLANO.md), under
-“Operações componíveis e fluxo claro”, with evidence in
+Verification evidence for this batch remains in
 `target/test-evidence/composable-20261013/`.
 
 The completed batch passed the full workspace and all eight mandatory VM gates,

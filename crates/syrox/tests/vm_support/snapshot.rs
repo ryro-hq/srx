@@ -164,10 +164,6 @@ pub fn snapshot(root: &Path, destination: &Path) -> Result<Value> {
     {
         names.insert(String::from_utf8(name.to_vec())?);
     }
-    // Documentation is ignored in older checkouts; include the requested plan.
-    if root.join("docs/PLANO.md").is_file() {
-        names.insert("docs/PLANO.md".into());
-    }
     private(destination)?;
     let mut files = BTreeMap::new();
     for name in names {

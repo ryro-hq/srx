@@ -34,7 +34,33 @@ pub fn prepare(
 ) -> Result<Value> {
     let selected: Vec<common::Gate> =
         serde_json::from_slice(&fs::read(evidence.join("selected.json"))?)?;
-    let targets = targets(&selected);
+    let native = config.profile == super::config::Profile::Native;
+    let mut targets = targets(&selected);
+    if native {
+        targets.extend([
+            ("syrox-lang".into(), "lib".into()),
+            ("syrox".into(), "srx".into()),
+            ("syrox".into(), "syrox-worker".into()),
+            ("syrox".into(), "cli".into()),
+            ("syrox".into(), "vm_harness".into()),
+        ]);
+    }
+    let external = config
+        .candidate_bundle
+        .as_ref()
+        .map(|directory| {
+            super::candidate_bundle::load(
+                directory,
+                &serde_json::from_value::<BTreeMap<String, String>>(
+                    serde_json::from_slice::<Value>(&fs::read(
+                        evidence.join("source-manifest.json"),
+                    )?)?["files"]
+                        .clone(),
+                )?,
+                env!("CARGO_PKG_RUST_VERSION"),
+            )
+        })
+        .transpose()?;
     let source_manifest: Value =
         serde_json::from_slice(&fs::read(evidence.join("source-manifest.json"))?)?;
     let source_pins = serde_json::from_value(source_manifest["files"].clone())?;
@@ -77,27 +103,33 @@ cd /work/src
 rustc --version --verbose > /evidence/preparation-toolchain.log
 test "$(rustc --version | cut -d' ' -f2)" = "$(sed -n 's/channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
 sha256sum "$(command -v rustc)" "$(command -v gcc)" >> /evidence/preparation-toolchain.log
-cargo build --release --locked --offline -p syrox --bins --target x86_64-unknown-linux-gnu --message-format=json > /evidence/release-build.jsonl
 "#,
     );
+    if external.is_none() {
+        script.push_str("cargo build --release --locked --offline -p syrox --bins --target x86_64-unknown-linux-gnu --message-format=json > /evidence/release-build.jsonl\n");
+    }
     let mut build = String::from(
         "cargo test --locked --offline --no-default-features --no-run --target x86_64-unknown-linux-gnu --features vm-guest -p syrox -p syrox-engine --lib",
     );
-    for (package, target) in &targets {
-        if !["syrox", "syrox-engine"].contains(&package.as_str())
-            || ![
-                "lib",
-                "vm_guest",
-                "build",
-                "shell",
-                "usability",
-            ]
-            .contains(&target.as_str())
-        {
-            return Err("unregistered preparation target".into());
-        }
-        if target != "lib" {
-            write!(build, " --test {target}")?;
+    if native {
+        build = "cargo test --workspace --locked --offline --no-default-features --no-run --target x86_64-unknown-linux-gnu --features vm-guest".into();
+    } else {
+        for (package, target) in &targets {
+            if !["syrox", "syrox-engine"].contains(&package.as_str())
+                || ![
+                    "lib",
+                    "vm_guest",
+                    "build",
+                    "shell",
+                    "usability",
+                ]
+                .contains(&target.as_str())
+            {
+                return Err("unregistered preparation target".into());
+            }
+            if target != "lib" {
+                write!(build, " --test {target}")?;
+            }
         }
     }
     writeln!(
@@ -180,20 +212,32 @@ gcc -std=c11 -O2 -Wall -Wextra -Werror crates/syrox/tests/vm_support/capabilitie
         let mut compiled = artifacts::artifacts(&process::read_log(
             &evidence.join("candidate-build.jsonl"),
         )?)?;
-        let release = artifacts::artifacts(&process::read_log(
-            &evidence.join("release-build.jsonl"),
-        )?)?;
+        for path in compiled.values_mut() {
+            *path = compilation.join(path.strip_prefix("/target")?);
+        }
+        let release = if let Some(bundle) = &external {
+            bundle.paths.clone()
+        } else {
+            artifacts::artifacts(&process::read_log(
+                &evidence.join("release-build.jsonl"),
+            )?)?
+            .into_iter()
+            .map(|(name, path)| {
+                Ok((
+                    name,
+                    compilation.join(path.strip_prefix("/target")?),
+                ))
+            })
+            .collect::<Result<BTreeMap<_, _>>>()?
+        };
         for name in ["srx", "syrox-worker"] {
             compiled.insert(
-                name.to_owned(),
+                name.into(),
                 release
                     .get(name)
                     .ok_or("release candidate missing")?
                     .clone(),
             );
-        }
-        for path in compiled.values_mut() {
-            *path = compilation.join(path.strip_prefix("/target")?);
         }
         for key in targets
             .iter()
@@ -205,6 +249,13 @@ gcc -std=c11 -O2 -Wall -Wextra -Werror crates/syrox/tests/vm_support/capabilitie
             }
         }
         let frozen = artifacts::freeze(&compiled, evidence, control)?;
+        if let Some(bundle) = &external {
+            for (name, pin) in &bundle.pins {
+                if snapshot::digest(&frozen[name])? != *pin {
+                    return Err("imported release candidate changed during preparation".into());
+                }
+            }
+        }
         let manifest: BTreeMap<_, _> = frozen
             .iter()
             .map(|(key, path)| {
@@ -241,7 +292,7 @@ gcc -std=c11 -O2 -Wall -Wextra -Werror crates/syrox/tests/vm_support/capabilitie
             .collect::<Result<_>>()?;
         common::save(&evidence.join("prepared-pins.json"), &pins)?;
         Ok(
-            json!({"image_id":image_id,"targets":targets,"candidate_profile":"release","fixture_profile":"test","features":["vm-guest"],"default_features":false,"resource_policy":"host-inherited","configuration":host,"state":state[0]["State"],"artifacts":manifest,"pins":pins, "resource_measurement":{"memory_peak_bytes":fs::read_to_string(evidence.join("preparation-memory-peak.txt"))?.trim().parse::<u64>()?,"cpu_initial":fs::read_to_string(evidence.join("preparation-cpu-initial.txt"))?,"cpu_final":fs::read_to_string(evidence.join("preparation-cpu-final.txt"))?,"effective_limits":fs::read_to_string(evidence.join("preparation-effective-limits.txt"))?}}),
+            json!({"image_id":image_id,"targets":targets,"release_bundle":external.as_ref().map(|bundle|&bundle.target),"candidate_profile":"release","fixture_profile":"test","features":["vm-guest"],"default_features":false,"resource_policy":"host-inherited","configuration":host,"state":state[0]["State"],"artifacts":manifest,"pins":pins, "resource_measurement":{"memory_peak_bytes":fs::read_to_string(evidence.join("preparation-memory-peak.txt"))?.trim().parse::<u64>()?,"cpu_initial":fs::read_to_string(evidence.join("preparation-cpu-initial.txt"))?,"cpu_final":fs::read_to_string(evidence.join("preparation-cpu-final.txt"))?,"effective_limits":fs::read_to_string(evidence.join("preparation-effective-limits.txt"))?}}),
         )
     })();
     if !evidence.join("preparation-final.json").exists() {

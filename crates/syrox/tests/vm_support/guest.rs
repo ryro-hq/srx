@@ -48,8 +48,17 @@ pub fn main(args: &[String]) -> Result<()> {
     let fault: Option<common::Fault> =
         serde_json::from_slice(&fs::read(evidence.join("fault.json"))?)?;
     let ecosystem = evidence.join("ecosystem-plan.json").is_file();
-    common::validate_selection(&selected, ecosystem)?;
-    let mut report = json!({"status":"preparing","selected":selected,"fault":fault,"gates":selected.iter().enumerate().map(|(index, gate)| json!({"name":gate.name,"package":gate.package,"target":gate.target,"status":"not_run","log":format!("gate-{index}.log"),"workspace":format!("/work/g{index}")})).collect::<Vec<_>>(),"qualification":"pending"});
+    let profile: super::resources::Profile =
+        serde_json::from_slice(&fs::read(evidence.join("profile.json"))?)?;
+    let native = profile == super::resources::Profile::Native;
+    if native {
+        if !selected.is_empty() || ecosystem || fault.is_some() {
+            return Err("native profile cannot select acceptance gates or injected faults".into());
+        }
+    } else {
+        common::validate_selection(&selected, ecosystem)?;
+    }
+    let mut report = json!({"status":"preparing","profile":profile,"selected":selected,"fault":fault,"gates":selected.iter().enumerate().map(|(index, gate)| json!({"name":gate.name,"package":gate.package,"target":gate.target,"status":"not_run","log":format!("gate-{index}.log"),"workspace":format!("/work/g{index}")})).collect::<Vec<_>>(),"qualification":"pending"});
     super::evidence::save(&evidence.join("guest-report.json"), &report)?;
     let outcome = (|| {
         let sources: Value =
@@ -116,6 +125,15 @@ pub fn main(args: &[String]) -> Result<()> {
             "passed: PID 1, non-root manager >=254, namespaces, pidfs ioctls, cgroup v2, PTY, Landlock >=6"
         );
         super::evidence::save(&evidence.join("guest-report.json"), &report)?;
+        if native {
+            common::private(Path::new("/work/native-tmp"))?;
+            report["native"] = serde_json::to_value(super::native::run(
+                &artifacts, &evidence, &control,
+            )?)?;
+            verify_candidates(&evidence, &pinned)?;
+            verify_artifacts(&artifacts, &report["artifact_pins"])?;
+            return Ok(());
+        }
         let mut failures = 0_usize;
         for (index, gate) in selected.iter().enumerate() {
             control.check()?;
@@ -145,7 +163,7 @@ pub fn main(args: &[String]) -> Result<()> {
                         .args([
                             "--test",
                             "--edition=2024",
-                            "tests/vm/timeout.rs",
+                            "tests/fixtures/stalled-test.rs",
                             "-o",
                         ])
                         .arg(&fixture),

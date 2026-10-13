@@ -1,8 +1,34 @@
 //! Observe host resources and enforce VM startup admission, including ancestor limits.
 use super::Result;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::fs;
 use std::path::Path;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Profile {
+    #[default]
+    Acceptance,
+    Native,
+}
+impl Profile {
+    pub const fn memory_mib(self) -> u32 {
+        match self {
+            Self::Acceptance => 512,
+            Self::Native => 2048,
+        }
+    }
+    pub const fn workspace_mib(self) -> u32 {
+        match self {
+            Self::Acceptance => 128,
+            Self::Native => 512,
+        }
+    }
+    pub const fn host_margin(self) -> u64 {
+        (self.memory_mib() as u64 + HOST_RESERVE_MIB as u64) * 1024 * 1024
+    }
+}
 
 pub const CPUS: u8 = 1;
 pub const MEMORY_MIB: u32 = 512;
@@ -103,14 +129,17 @@ pub fn require_host_for(required: u64) -> Result<Value> {
 }
 
 pub fn verify_vm(config: &Value) -> Result<()> {
+    verify_vm_for(config, MEMORY_MIB)
+}
+pub fn verify_vm_for(config: &Value, memory_mib: u32) -> Result<()> {
     let resources = &config["resources"];
     if resources["cpus"] != CPUS
         || resources["max_cpus"] != CPUS
-        || resources["memory_mib"] != MEMORY_MIB
-        || resources["max_memory_mib"] != MEMORY_MIB
+        || resources["memory_mib"] != memory_mib
+        || resources["max_memory_mib"] != memory_mib
     {
         return Err(format!(
-            "SDK effective VM resources exceed or differ from 1 CPU/{MEMORY_MIB} MiB: {resources}"
+            "SDK effective VM resources exceed or differ from 1 CPU/{memory_mib} MiB: {resources}"
         )
         .into());
     }

@@ -70,5 +70,51 @@ pub fn save(path: &Path, document: &Value) -> Result<()> {
             return Err("passed report did not execute every selected gate".into());
         }
     }
+    if report.status == RunStatus::Passed && document["profile"] == "native" {
+        let targets = document["native"]
+            .as_array()
+            .ok_or("native report omitted target evidence")?;
+        let mut identities = std::collections::BTreeSet::new();
+        if targets.is_empty()
+            || targets.iter().any(|target| {
+                let Some(name) = target["target"].as_str() else {
+                    return true;
+                };
+                if !identities.insert(name) {
+                    return true;
+                }
+                !(target["status"] == "passed"
+                    && target["total"].as_u64().is_some_and(|total| {
+                        let passed = target["passed"].as_u64();
+                        let ignored = target["ignored"].as_u64();
+                        total > 0
+                            && passed.is_some_and(|passed| passed > 0)
+                            && passed
+                                .zip(ignored)
+                                .is_some_and(|(passed, ignored)| {
+                                    passed.checked_add(ignored) == Some(total)
+                                })
+                    })
+                    || target["status"] == "ignored"
+                        && target["total"]
+                            .as_u64()
+                            .is_some_and(|total| total > 0)
+                        && target["ignored"] == target["total"]
+                        && target["passed"] == 0
+                    || target["status"] == "empty"
+                        && target["total"] == 0
+                        && target["ignored"] == 0)
+            })
+            || super::native::REQUIRED_TARGETS
+                .iter()
+                .any(|required| {
+                    !targets
+                        .iter()
+                        .any(|row| row["target"] == *required && row["status"] == "passed")
+                })
+        {
+            return Err("native report has incomplete target results".into());
+        }
+    }
     super::common::save(path, &report)
 }

@@ -592,7 +592,7 @@ fn prepared_consumer_keeps_asset_owner_and_does_not_force_other_factories() {
         }
         mod factories { mod data { pub fn recipe() -> std::Recipe { project::make() } } }
         pub publish(factories, recipe): std::Recipe;
-        
+
     "#,
     );
     workspace.write(

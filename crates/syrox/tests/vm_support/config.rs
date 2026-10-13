@@ -4,10 +4,16 @@ use serde_json::{Value, json};
 use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 
+pub use super::resources::Profile;
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub sdk: String,
+    #[serde(default)]
+    pub profile: Profile,
+    #[serde(default)]
+    pub candidate_bundle: Option<PathBuf>,
     pub image: String,
     #[serde(default)]
     pub preparation_image: Option<String>,
@@ -53,6 +59,13 @@ pub fn read_config() -> Result<Config> {
 
 impl Config {
     pub fn validate(&self) -> Result<()> {
+        if self
+            .candidate_bundle
+            .as_ref()
+            .is_some_and(|path| !path.is_absolute() || !path.join("manifest.json").is_file())
+        {
+            return Err("candidate bundle requires an absolute directory and manifest".into());
+        }
         if self.sdk != common::SDK_VERSION {
             return Err("VM SDK must be pinned to 0.7.3".into());
         }

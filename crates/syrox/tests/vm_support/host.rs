@@ -54,7 +54,7 @@ pub fn main(args: &[String]) -> Result<()> {
 
 pub fn main_with_ecosystem(args: &[String], ecosystem: bool) -> Result<()> {
     let selection = common::Selection::parse(args)?;
-    let selected = if ecosystem {
+    let selected = if ecosystem || (selection.suite == common::Suite::Native) {
         Vec::new()
     } else {
         selection.selected()
@@ -64,13 +64,17 @@ pub fn main_with_ecosystem(args: &[String], ecosystem: bool) -> Result<()> {
             println!("ecosystem::local_catalogue_and_editors: test");
             return Ok(());
         }
+        if selection.suite == common::Suite::Native {
+            println!("native::workspace: test");
+            return Ok(());
+        }
         for gate in &selected {
             println!("{}: test", gate.label());
         }
         println!("\n{} tests, 0 benchmarks", selected.len());
         return Ok(());
     }
-    if selected.is_empty() && !ecosystem {
+    if selected.is_empty() && !ecosystem && !(selection.suite == common::Suite::Native) {
         return Err("VM filter selected no registered gates".into());
     }
     if ecosystem
@@ -99,11 +103,20 @@ pub fn main_with_ecosystem(args: &[String], ecosystem: bool) -> Result<()> {
     if evidence.join("report.json").exists() {
         return Err("evidence run already exists".into());
     }
-    let mut report = json!({"schema":1,"status":"preparing","sdk":common::SDK_VERSION,
-        "cpus":super::resources::CPUS,"max_cpus":super::resources::CPUS,"memory_mib":super::resources::MEMORY_MIB,"max_memory_mib":super::resources::MEMORY_MIB,"cache_quota_mib":32768,"workspace_filesystem":"guest tmpfs","workspace_limit_mib":super::resources::WORKSPACE_MIB,"selected":selected,"vm_cleanup":"not-started",
+    let profile = if selection.suite == common::Suite::Native {
+        super::config::Profile::Native
+    } else {
+        super::config::Profile::Acceptance
+    };
+    common::save(
+        &evidence.join("profile.json"),
+        &serde_json::to_value(profile)?,
+    )?;
+    let mut report = json!({"schema":1,"status":"preparing","profile":profile,"sdk":common::SDK_VERSION,
+        "cpus":super::resources::CPUS,"max_cpus":super::resources::CPUS,"memory_mib":profile.memory_mib(),"max_memory_mib":profile.memory_mib(),"cache_quota_mib":32768,"workspace_filesystem":"guest tmpfs","workspace_limit_mib":profile.workspace_mib(),"selected":selected,"vm_cleanup":"not-started",
         "harness_sha256":super::snapshot::digest(&std::env::current_exe()?)?,
         "fault":fault,
-        "coverage":"selected VM gates only",
+        "coverage":if profile == super::config::Profile::Native {"complete nonignored workspace libtests in qualified kernel"} else {"selected VM gates only"},
         "pending":common::gates().into_iter().filter(|gate|gate.category != common::Category::Gate).collect::<Vec<_>>()});
     super::evidence::save(&evidence.join("report.json"), &report)?;
     eprintln!("VM evidence: {}", evidence.display());
@@ -133,6 +146,9 @@ pub fn main_with_ecosystem(args: &[String], ecosystem: bool) -> Result<()> {
             return Err("VM host preflight failed; inspect report.json".into());
         }
         let config = read_config()?;
+        if profile != config.profile || ((selection.suite == common::Suite::Native) && ecosystem) {
+            return Err("suite and configured VM profile differ".into());
+        }
         report["environment"] = serde_json::to_value(&config)?;
         let vendor = prepare_vendor(&evidence, &control)?;
         report["vendor"] = json!(vendor);
@@ -210,15 +226,17 @@ async fn run_vm(
     let environment_key = format!(
         "{:x}",
         sha2::Sha256::digest(serde_json::to_vec(&json!({
-            "schema":4, "environment":config, "lock":super::snapshot::digest(&evidence.join("sources/Cargo.lock"))?,
+            "schema":5, "sdk":config.sdk, "preparation_image":config.preparation_image.as_deref().unwrap_or(&config.image),
+            "lock":super::snapshot::digest(&evidence.join("sources/Cargo.lock"))?,
             "target":"x86_64-unknown-linux-gnu", "rustflags":"-C target-feature=+crt-static",
-            "cpus":super::resources::CPUS, "memory_mib":super::resources::MEMORY_MIB, "workspace_mib":super::resources::WORKSPACE_MIB, "incremental":false, "debug_info":false, "jobs":1, "candidate_profile":"release", "fixture_profile":"test", "policy":"single-producer-host-inherited-v2"
+            "incremental":false, "debug_info":false, "jobs":1,
+            "candidate_profile":"release", "fixture_profile":"test", "policy":"single-producer-host-inherited-v2"
         }))?)
     );
     let cache_key = format!(
         "{:x}",
         sha2::Sha256::digest(serde_json::to_vec(&json!({
-            "schema":2, "environment":environment_key, "sources":report["sources"]["sha256"], "selected":report["selected"]
+            "schema":3, "compilation":environment_key, "environment":config, "release_bundle":config.candidate_bundle.as_ref().map(|directory| super::snapshot::digest(&directory.join("manifest.json"))).transpose()?, "sources":report["sources"]["sha256"], "selected":report["selected"]
         }))?)
     );
     fs::write(evidence.join("cache-key"), &cache_key)?;
@@ -248,8 +266,8 @@ async fn run_vm(
         control,
     )?;
     report["resource_admission_before_vm"] =
-        super::resources::host_for(super::resources::VM_HOST_MARGIN)?;
-    super::resources::require_host_for(super::resources::VM_HOST_MARGIN)?;
+        super::resources::host_for(config.profile.host_margin())?;
+    super::resources::require_host_for(config.profile.host_margin())?;
     super::evidence::save(&evidence.join("report.json"), report)?;
     let runtime_directory = tempfile::Builder::new()
         .prefix("srx-vm-")
@@ -327,8 +345,8 @@ async fn run_vm(
                     .init("/usr/lib/systemd/systemd")
                     .cpus(super::resources::CPUS)
                     .max_cpus(super::resources::CPUS)
-                    .memory(super::resources::MEMORY_MIB)
-                    .max_memory(super::resources::MEMORY_MIB)
+                    .memory(config.profile.memory_mib())
+                    .max_memory(config.profile.memory_mib())
                     .volume("/sources", |volume| {
                         volume.bind(evidence.join("sources")).readonly()
                     })
@@ -403,9 +421,9 @@ async fn run_vm(
         report["vm_id"] = json!(sandbox.id().to_string());
         let saved = super::evidence::save(&evidence.join("report.json"), report);
         let effective = (|| -> Result<()> {
-            let config = serde_json::to_value(sandbox.config())?;
-            report["sdk_effective_config"] = config.clone();
-            super::resources::verify_vm(&config)?;
+            let effective_config = serde_json::to_value(sandbox.config())?;
+            report["sdk_effective_config"] = effective_config.clone();
+            super::resources::verify_vm_for(&effective_config, config.profile.memory_mib())?;
             super::evidence::save(&evidence.join("report.json"), report)?;
             Ok(())
         })();
@@ -414,7 +432,10 @@ async fn run_vm(
         } else {
             execute(
                 &sandbox,
-                BOOTSTRAP,
+                &BOOTSTRAP.replace(
+                    "size=128M",
+                    &format!("size={}M", config.profile.workspace_mib()),
+                ),
                 "guest.log",
                 evidence,
                 control,
@@ -483,8 +504,14 @@ async fn run_vm(
         }
         outcome?;
         let guest = report["guest"].clone();
-        if guest["status"] != "passed" || guest["selected"] != report["selected"] {
+        if guest["status"] != "passed"
+            || guest["selected"] != report["selected"]
+            || guest["profile"] != serde_json::to_value(config.profile)?
+        {
             return Err("guest did not prove every selected gate".into());
+        }
+        if config.profile == super::config::Profile::Native {
+            report["native"] = guest["native"].clone();
         }
         report["guest"] = guest;
         Ok(())
@@ -578,6 +605,12 @@ const BOOTSTRAP: &str = r#"
 test "$(cat /proc/1/comm)" = systemd
 for attempt in {1..100}; do test -d /run/systemd/system && break; sleep .1; done
 test -d /run/systemd/system
+for attempt in {1..300}; do
+    if test -S /run/systemd/private && systemctl show --property=Version --value >/dev/null; then break; fi
+    sleep .1
+done
+test -S /run/systemd/private
+systemctl show --property=Version --value
 test "$(id -u syrox)" = "$(stat -c %u /evidence)"
 mkdir -p /cache/target /cache/cargo /work
 mount -t tmpfs -o size=128M,nosuid,nodev tmpfs /work

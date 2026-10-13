@@ -74,7 +74,7 @@ fn homonymous_imported_builds_preserve_runtime_aliases_and_asset_origins() {
                 source_directory = "app-1"; timeout_seconds = 30;
             }));
             build_inputs = std::Option::Some(std::BuildInputs { selected = [std::recipe_output(left::selected, "dev")]; });
-            commands = [std::Command { name = "main"; output = "out"; path = "usr/bin/app"; 
+            commands = [std::Command { name = "main"; output = "out"; path = "usr/bin/app";
                 loader = [std::RuntimeFile { output = std::recipe_output(left::selected, "out"); path = "usr/lib/ld-linux-x86-64.so.2"; }];
                 libraries = [std::recipe_output(left::selected, "out")];
             }];

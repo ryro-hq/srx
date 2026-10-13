@@ -66,3 +66,7 @@ required-features = ["vm-guest"]
 [[example]]
 name = "verify_vm_harness"
 required-features = ["vm-tests"]
+
+[[example]]
+name = "ci_candidates"
+required-features = ["vm-tests"]

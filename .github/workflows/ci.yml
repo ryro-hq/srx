@@ -4,120 +4,256 @@ on:
   pull_request:
   push:
     branches: [main]
+  merge_group:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 4 * * 1'
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: '1'
+
 jobs:
-  rust:
-    runs-on: ubuntu-latest
+  quality:
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - name: Install pinned Rust toolchain
-        run: rustup show active-toolchain
-      - name: Format
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      - name: Format and module layout
         run: |
           cargo fmt --all -- --check
-          rustfmt --edition 2024 --check tools/check_structure.rs
-      - name: Rust module layout and crate docs
-        run: |
+          rustfmt --edition 2024 --check tools/check_structure.rs tests/fixtures/stalled-test.rs
           rustc --edition 2024 -D warnings tools/check_structure.rs -o /tmp/syrox-check-structure
           rustc --edition 2024 -D warnings --test tools/check_structure.rs -o /tmp/syrox-check-structure-tests
           /tmp/syrox-check-structure-tests
           /tmp/syrox-check-structure
       - name: Rustdoc and examples
+        env:
+          RUSTDOCFLAGS: -D warnings
         run: |
-          RUSTDOCFLAGS="-D warnings" cargo doc --workspace --locked --all-features --no-deps --document-private-items
-          RUSTDOCFLAGS="-D warnings" cargo test --workspace --locked --all-features --doc
-      - name: Test native subset
-        run: cargo test --workspace --locked --no-default-features
-      - name: Clippy all targets and features
-        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-      - name: Clippy without default features
-        run: cargo clippy --workspace --all-targets --locked --no-default-features -- -D warnings
+          cargo doc --workspace --locked --all-features --no-deps --document-private-items
+          cargo test --workspace --locked --all-features --doc
       - name: Dependency policy
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
 
-  microvm:
+  clippy:
+    name: clippy (${{ matrix.features }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    env:
-      SYROX_VM_EVIDENCE: ${{ github.workspace }}/target/test-evidence/ci-vm
-      SYROX_VM_CONFIG: ${{ github.workspace }}/target/ci-vm-config.json
+    strategy:
+      fail-fast: false
+      matrix:
+        features: [all-features, no-default-features]
     steps:
       - uses: actions/checkout@v7
-      - name: Install pinned Rust toolchain
-        run: rustup show active-toolchain
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: clippy-${{ matrix.features }}
+      - name: Check all targets
+        env:
+          FEATURES: ${{ matrix.features }}
+        run: cargo clippy --workspace --all-targets --locked "--$FEATURES" -- -D warnings
+
+  portable-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      - name: Language and CLI tests
+        run: |
+          cargo test --locked -p syrox-lang
+          cargo test --locked -p syrox --no-default-features --bins --test cli --test format --test lsp --test vm_harness
+
+  build:
+    name: build (${{ matrix.target }})
+    needs: [quality, clippy, portable-tests]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64-unknown-linux-gnu, x86_64-unknown-linux-musl]
+    env:
+      TARGET: ${{ matrix.target }}
+      RUSTFLAGS: -C target-feature=+crt-static
+      LZMA_API_STATIC: '1'
+      CC_x86_64_unknown_linux_musl: musl-gcc
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install toolchain and native link tools
+        run: |
+          rustup show active-toolchain
+          rustup target add "$TARGET"
+          sudo apt-get update
+          sudo apt-get install -y musl-tools liblzma-dev pkg-config
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+      - name: Build worker before CLI
+        run: |
+          cargo build --release --locked -p syrox --bin syrox-worker --target "$TARGET"
+          SYROX_EMBED_WORKER="$PWD/target/$TARGET/release/syrox-worker" \
+            cargo build --release --locked -p syrox --bin srx --target "$TARGET"
+      - name: Verify release and bind its source identity
+        run: |
+          RUSTFLAGS="" cargo run --locked -p syrox-engine --example verify_release -- "target/$TARGET/release"
+          mkdir -p "target/candidates/$TARGET"
+          cp "target/$TARGET/release/srx" "target/$TARGET/release/syrox-worker" "target/candidates/$TARGET/"
+          RUSTFLAGS="" cargo run --locked -p syrox --example ci_candidates -- "$PWD/target/candidates/$TARGET" "$TARGET"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.target }}
+          path: target/candidates/${{ matrix.target }}/*
+          if-no-files-found: error
+
+  vm-environment:
+    needs: [quality, clippy, portable-tests]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      SYROX_VM_CONFIG: ${{ github.workspace }}/target/environment-config.json
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
       - name: Require KVM and Docker
         run: |
           test -c /dev/kvm
           sudo chown "$(id -u):$(id -g)" /dev/kvm
           sudo chmod 660 /dev/kvm
-          test -r /dev/kvm && test -w /dev/kvm
           docker info
-      - name: Build guest and preparation image
+      - uses: actions/cache@v6
+        id: environment-cache
+        with:
+          path: |
+            target/ci-environment
+            target/vm-runtime
+          key: vm-linux-6.12.109-sdk-0.7.3-${{ hashFiles('tests/vm/*.Containerfile', 'crates/syrox/tests/vm_support/prepare.rs') }}
+      - name: Build pinned guest and firmware
+        if: steps.environment-cache.outputs.cache-hit != 'true'
         run: |
-          mkdir -p target
-          docker build --iidfile target/ci-vm-image.id \
+          mkdir -p target/ci-environment
+          docker build --iidfile target/ci-environment/image.id \
             --build-arg RUST_IMAGE=rust@sha256:4cd829461bd5c4d511c32e269da9cb8929223b666519d8004e35fc8d1d771ab7 \
             --build-arg BASE_IMAGE=debian@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f \
-            -f tests/vm/Containerfile -t syrox-vm:ci tests/vm
-          docker save --output target/ci-vm-image.tar syrox-vm:ci
-      - name: Prepare pinned runtime and Landlock firmware
+            -f tests/vm/guest.Containerfile -t syrox-vm:ci tests/vm
+          docker save --output target/ci-environment/image.tar syrox-vm:ci
+          cargo test --locked -p syrox --test vm -- --prepare --install-runtime --build-firmware \
+            --image-archive "$PWD/target/ci-environment/image.tar" \
+            --preparation-image "$(cat target/ci-environment/image.id)"
+      - name: Publish verified runtime inputs
+        env:
+          CACHE_HIT: ${{ steps.environment-cache.outputs.cache-hit }}
+        run: |
+          if [ "$CACHE_HIT" = true ]; then
+            (cd target/ci-environment && sha256sum -c SHA256SUMS)
+          fi
+          cp target/vm-runtime/bin/msb target/ci-environment/msb
+          cp target/vm-runtime/landlock/libkrunfw.so.5.6.1 target/ci-environment/firmware.so
+          cp target/vm-runtime/landlock/provenance.json target/ci-environment/provenance.json
+          jq -e '.kernel == "6.12.109" and .sdk == "0.7.3"' target/ci-environment/provenance.json
+          test "$(sha256sum target/ci-environment/firmware.so | cut -d' ' -f1)" = "$(jq -r .firmware_sha256 target/ci-environment/provenance.json)"
+          cd target/ci-environment
+          sha256sum msb firmware.so image.tar image.id provenance.json > SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vm-linux-6.12.109
+          path: target/ci-environment/*
+          if-no-files-found: error
+          compression-level: 0
+
+  kernel:
+    name: kernel (${{ matrix.profile }}, ${{ matrix.target }}, ${{ matrix.kernel }})
+    needs: [build, vm-environment]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: native
+            target: x86_64-unknown-linux-gnu
+            kernel: '6.12.109'
+          - profile: acceptance
+            target: x86_64-unknown-linux-gnu
+            kernel: '6.12.109'
+          - profile: acceptance
+            target: x86_64-unknown-linux-musl
+            kernel: '6.12.109'
+    env:
+      PROFILE: ${{ matrix.profile }}
+      KERNEL: ${{ matrix.kernel }}
+      SYROX_VM_CONFIG: ${{ github.workspace }}/target/ci-vm-config.json
+      SYROX_VM_EVIDENCE: ${{ github.workspace }}/target/test-evidence/ci-vm
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: vm-harness-${{ matrix.profile }}-${{ matrix.target }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-${{ matrix.target }}
+          path: target/ci-candidates
+      - uses: actions/download-artifact@v8
+        with:
+          name: vm-linux-${{ matrix.kernel }}
+          path: target/ci-environment
+      - name: Check pinned environment and require KVM
+        run: |
+          (cd target/ci-environment && sha256sum -c SHA256SUMS)
+          jq -e --arg kernel "$KERNEL" '.kernel == $kernel' target/ci-environment/provenance.json
+          chmod 700 target/ci-environment/msb target/ci-candidates/srx target/ci-candidates/syrox-worker
+          test -c /dev/kvm
+          sudo chown "$(id -u):$(id -g)" /dev/kvm
+          sudo chmod 660 /dev/kvm
+          docker load --input target/ci-environment/image.tar
+      - name: Configure the explicit resource profile and imported candidates
         run: |
           cargo test --locked -p syrox --test vm -- --prepare \
-            --install-runtime --build-firmware \
-            --image-archive "$PWD/target/ci-vm-image.tar" \
-            --preparation-image "$(cat target/ci-vm-image.id)"
-      - name: Run eight default VM gates
-        run: cargo test --locked -p syrox --test vm
-      - name: Preserve VM evidence
+            --runtime "$PWD/target/ci-environment/msb" \
+            --firmware "$PWD/target/ci-environment/firmware.so" \
+            --image-archive "$PWD/target/ci-environment/image.tar" \
+            --preparation-image "$(cat target/ci-environment/image.id)" \
+            --profile "$PROFILE" --candidate-bundle "$PWD/target/ci-candidates"
+      - name: Run complete kernel suite or eight minimum-environment gates
+        run: |
+          if [ "$PROFILE" = native ]; then
+            cargo test --locked -p syrox --test vm -- --suite native
+          else
+            cargo test --locked -p syrox --test vm
+          fi
+      - name: Preserve kernel evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: microvm-evidence
+          name: kernel-${{ matrix.profile }}-${{ matrix.target }}-${{ matrix.kernel }}
           if-no-files-found: warn
           path: |
-            target/test-evidence/ci-vm/report.json
-            target/test-evidence/ci-vm/guest-report.json
             target/test-evidence/ci-vm/**/*.log
             target/test-evidence/ci-vm/**/*.json
             target/test-evidence/ci-vm/**/*.jsonl
             target/test-evidence/ci-vm/**/*.tar
-            target/firmware-evidence/**
-            target/vm-runtime/landlock/provenance.json
             target/ci-vm-config.json
-            target/ci-vm-image.id
             target/vm-doctor.json
 
-  static-linux:
-    runs-on: ubuntu-latest
-    env:
-      CC_x86_64_unknown_linux_musl: musl-gcc
-      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
-      LZMA_API_STATIC: "1"
+  success:
+    if: always()
+    needs: [quality, clippy, portable-tests, build, vm-environment, kernel]
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - name: Install pinned Rust toolchain and musl target
-        run: rustup target add x86_64-unknown-linux-musl
-      - name: Install build-time C toolchain
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - name: Build static worker
-        run: cargo build --release --locked -p syrox --bin syrox-worker --target x86_64-unknown-linux-musl
-      - name: Embed worker in static srx
-        run: cargo build --release --locked -p syrox --bin srx --target x86_64-unknown-linux-musl
+      - name: Require every mandatory job to succeed
         env:
-          SYROX_EMBED_WORKER: ${{ github.workspace }}/target/x86_64-unknown-linux-musl/release/syrox-worker
-      - name: Verify static ELF and installation without distribution utilities
-        run: cargo run --locked -p syrox-engine --example verify_release -- target/x86_64-unknown-linux-musl/release
-      - name: Exercise static CLI and descriptor transport
-        run: |
-          cargo test --locked --target x86_64-unknown-linux-musl -p syrox --test cli
-          cargo test --locked --target x86_64-unknown-linux-musl -p syrox-engine platform::linux::fd::transport::tests::
-          cargo test --locked --target x86_64-unknown-linux-musl -p syrox-engine platform::linux::fd::terminal::tests::
-          cargo test --locked --target x86_64-unknown-linux-musl -p syrox-engine execution::launcher::
-          cargo test --locked --target x86_64-unknown-linux-musl -p syrox-engine execution::
-          cargo test --locked --target x86_64-unknown-linux-musl -p syrox-engine acquire::https::
-          cargo test --locked --target x86_64-unknown-linux-musl -p syrox-engine prepared_action_hits_before_source_acquisition_and_detects_toolchain_changes
+          NEEDS: ${{ toJson(needs) }}
+        run: jq --exit-status 'all(.result == "success")' <<< "$NEEDS"
