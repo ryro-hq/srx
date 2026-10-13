@@ -1,3 +1,7 @@
+/// Operation-local identity of a top-level publication declaration, never an output.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PublicationId(pub(super) u32);
+
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ModuleId(pub(super) u32);
 
@@ -79,6 +83,7 @@ pub enum ResolvedItemKind {
     Value,
     Function,
     OutputValue,
+    PublishedMember,
     OutputType,
 }
 
@@ -103,6 +108,7 @@ impl ResolvedItemKind {
             Self::Resource => "resource",
             Self::Value => "value",
             Self::Function => "function",
+            Self::PublishedMember => "published member",
             Self::OutputValue => "output value",
             Self::OutputType => "exported type",
         }
@@ -226,14 +232,37 @@ pub struct ResolvedProgram {
     pub(super) references: Vec<ResolvedReference>,
     pub(super) locals: Vec<ResolvedLocal>,
     pub(super) module_exports:
-        std::collections::BTreeMap<(usize, u32, u32), Vec<ResolvedModuleExport>>,
+        std::collections::BTreeMap<(usize, u32, u32), std::sync::Arc<[ResolvedModuleExport]>>,
+    pub(super) publications:
+        std::collections::BTreeMap<PublicationId, std::sync::Arc<[ResolvedModuleExport]>>,
+    pub(super) visible_members:
+        std::collections::BTreeMap<SourceDomainId, std::collections::BTreeMap<String, ItemId>>,
+    pub(super) catalog_members: std::collections::BTreeMap<ItemId, PublishedMember>,
     pub(super) editor: Option<std::sync::Arc<super::editor::Namespace>>,
     pub(super) ambiguous_names: std::sync::OnceLock<std::collections::BTreeSet<ItemId>>,
 }
 
+/// A lazy member of a publication. Symbol identity belongs to the member;
+/// navigation and evaluation preserve the canonical factory origin.
+#[derive(Clone, Debug)]
+pub struct PublishedMember {
+    pub publication: PublicationId,
+    pub(super) inventory: std::sync::Arc<[ResolvedModuleExport]>,
+    pub(super) index: usize,
+}
+
+impl PublishedMember {
+    pub fn factory(&self) -> ItemId {
+        self.inventory[self.index].item()
+    }
+    pub fn key(&self) -> &str {
+        self.inventory[self.index].key()
+    }
+}
+
 /// A public function selected from an authenticated module namespace.
 /// Reexports retain the canonical item identity; keys describe the exporting module.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ResolvedModuleExport {
     pub(super) key: String,
     pub(super) item: ItemId,
@@ -249,6 +278,30 @@ impl ResolvedModuleExport {
 }
 
 impl ResolvedProgram {
+    pub fn item(&self, id: ItemId) -> Option<&ResolvedItem> {
+        self.items.get(id.index())
+    }
+    /// Public publication members visible at this domain root; excludes merely imported dependencies.
+    pub fn visible_published_members(
+        &self,
+        domain: SourceDomainId,
+    ) -> impl Iterator<Item = (&str, ItemId)> {
+        self.visible_members
+            .get(&domain)
+            .into_iter()
+            .flat_map(|entries| {
+                entries
+                    .iter()
+                    .map(|(name, id)| (name.as_str(), *id))
+            })
+    }
+    pub fn published_member(&self, item: ItemId) -> Option<&PublishedMember> {
+        self.catalog_members.get(&item)
+    }
+
+    pub fn publication(&self, item: PublicationId) -> Option<&[ResolvedModuleExport]> {
+        self.publications.get(&item).map(AsRef::as_ref)
+    }
     pub(crate) fn ambiguous_type_name(&self, id: ItemId) -> bool {
         self.ambiguous_names
             .get_or_init(|| {
@@ -270,7 +323,7 @@ impl ResolvedProgram {
     pub fn module_exports(&self, span: Span) -> Option<&[ResolvedModuleExport]> {
         self.module_exports
             .get(&(span.source_id().index(), span.start(), span.end()))
-            .map(Vec::as_slice)
+            .map(AsRef::as_ref)
     }
 
     pub const fn parsed(&self) -> &ParsedSources {
@@ -300,4 +353,4 @@ impl ResolvedProgram {
             .filter(|reference| reference.target == ResolvedTarget::ContextualEnumVariant)
     }
 }
-use crate::{ParsedSources, SourceDomainId, Span};
+use crate::{source::SourceDomainId, source::Span, syntax::ParsedSources};

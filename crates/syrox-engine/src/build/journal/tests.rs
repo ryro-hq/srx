@@ -6,7 +6,9 @@ fn active_operations_are_skipped_and_unlaunched_orphans_recover_idempotently() {
     let store = Store::open(root.path()).unwrap();
     let lease = store.operation().unwrap();
     let operation = Operation::create(&lease).unwrap();
-    operation.write_stage("source", b"input", false).unwrap();
+    operation
+        .write_stage("source", b"input", false)
+        .unwrap();
     let path = operation.path.clone();
     assert_eq!(
         recover(&store).unwrap().entries[0].state,
@@ -46,7 +48,9 @@ fn revoked_and_removed_operations_cannot_launch_even_with_old_open_descriptors()
 #[test]
 fn recovery_refuses_symlinks_hardlinks_unknown_files_and_namespace_swaps() {
     use std::os::unix::fs::symlink;
-    for corruption in ["symlink", "hardlink", "unknown", "identity"] {
+    for corruption in [
+        "symlink", "hardlink", "unknown", "identity",
+    ] {
         let root = tempfile::tempdir().unwrap();
         let store = Store::open(root.path()).unwrap();
         let operation = Operation::create(&store.operation().unwrap()).unwrap();
@@ -91,7 +95,9 @@ fn uncertain_journal_write_never_authorizes_launch_and_cleanup_failure_is_retrya
     let root = tempfile::tempdir().unwrap();
     let store = Store::open(root.path()).unwrap();
     let operation = Operation::create(&store.operation().unwrap()).unwrap();
-    operation.write_stage("source", b"input", false).unwrap();
+    operation
+        .write_stage("source", b"input", false)
+        .unwrap();
     fd::fail_next_lock_after_rename();
     assert!(
         operation
@@ -175,14 +181,22 @@ fn identity_checksum_and_store_binding_refuse_changed_authority() {
     } else {
         format!("a{}", &boot[1..])
     };
-    fs::write(path.join("identity"), text.replace(&boot, &changed)).unwrap();
+    fs::write(
+        path.join("identity"),
+        text.replace(&boot, &changed),
+    )
+    .unwrap();
     drop(operation);
     assert!(matches!(
         recover(&store).unwrap().entries[0].state,
         BuildRecoveryState::Retained(_)
     ));
     fs::write(path.join("identity"), bytes).unwrap();
-    let parent = other.operation().unwrap().build_directory().unwrap();
+    let parent = other
+        .operation()
+        .unwrap()
+        .build_directory()
+        .unwrap();
     let moved = fd::directory_path(&parent).unwrap().join(name);
     fs::rename(path, &moved).unwrap();
     assert!(matches!(
@@ -200,37 +214,52 @@ fn publication_survives_journal_update_uncertainty_and_recovery() {
     let operation = Operation::create(&lease).unwrap();
     operation.clean_stage().unwrap();
     let digest = ContentDigest::sha256(b"retained result");
-    lease.ingest(&b"retained result"[..], digest, 15).unwrap();
-    let name = crate::RootName::new("published_result").unwrap();
+    lease
+        .ingest(&b"retained result"[..], digest, 15)
+        .unwrap();
+    let name = crate::store::RootName::new("published_result").unwrap();
     lease.publish_root(&name, &[digest]).unwrap();
-    fd::fail_next_lock_after_rename();
     let result = BuildResult {
+        retention: lease.retain_objects(&[digest], &[]).unwrap(),
         execution: super::super::BuildExecution::Built {
             operation: operation.name.clone(),
         },
         action: digest,
         artifact: digest,
         receipt: digest,
-        toolchain: digest,
+        toolchain: Some(digest),
         files: 1,
         root: name,
     };
+    fd::fail_next_lock_after_rename();
     assert!(matches!(
         operation.finish(Ok(result)),
         Err(BuildError::PublishedAndJournal { .. })
     ));
     drop(operation);
-    let before = fs::read(root.path().join("roots/retained/published_result")).unwrap();
+    let before = fs::read(
+        root.path()
+            .join("roots/retained/published_result"),
+    )
+    .unwrap();
     assert_eq!(
         recover(&store).unwrap().entries[0].state,
         BuildRecoveryState::Recovered
     );
     assert_eq!(
-        fs::read(root.path().join("roots/retained/published_result")).unwrap(),
+        fs::read(
+            root.path()
+                .join("roots/retained/published_result")
+        )
+        .unwrap(),
         before
     );
     assert_eq!(
-        lease.read_verified(digest, 15).unwrap().unwrap().as_bytes(),
+        lease
+            .read_verified(digest, 15)
+            .unwrap()
+            .unwrap()
+            .as_bytes(),
         b"retained result"
     );
 }

@@ -5,7 +5,7 @@ use super::{
 };
 
 impl Resolver<'_> {
-    #[allow(clippy::too_many_lines)]
+    // One collection traversal preserves registration and duplicate-diagnostic order.
     pub(super) fn collect(&mut self) {
         let mut module_paths = BTreeSet::new();
         let mut public_paths = BTreeSet::new();
@@ -54,6 +54,13 @@ impl Resolver<'_> {
                             continue;
                         }
                         for input in &inputs.entries {
+                            if input.name.text == "project" {
+                                self.error(
+                                    "`project` is reserved for the owning project namespace",
+                                    input.name.span,
+                                );
+                                continue;
+                            }
                             if let Some(child) = self.parsed.input_domain(domain, &input.name.text)
                             {
                                 self.input_domains
@@ -62,16 +69,23 @@ impl Resolver<'_> {
                                     .insert(input.name.text.clone(), child);
                             }
                         }
-                        let entry = boundaries.entry((domain, module_path)).or_default();
+                        let entry = boundaries
+                            .entry((domain, module_path))
+                            .or_default();
                         if entry.0.replace(item.span).is_some() {
                             self.error("duplicate `inputs` boundary in module", item.span);
                         }
                     }
                     ItemKind::Outputs(outputs) => {
-                        let entry = boundaries.entry((domain, module_path.clone())).or_default();
+                        let entry = boundaries
+                            .entry((domain, module_path.clone()))
+                            .or_default();
                         if let Some(first) = entry.1 {
                             if first.source_id() == item.span.source_id() {
-                                self.error("duplicate `outputs` boundary in module", item.span);
+                                self.error(
+                                    "duplicate `outputs` boundary in module",
+                                    item.span,
+                                );
                             }
                         } else {
                             entry.1 = Some(item.span);
@@ -80,7 +94,11 @@ impl Resolver<'_> {
                             if !self.charge(output.span) {
                                 return;
                             }
-                            let crate::OutputKind::Value { name, .. } = &output.kind else {
+                            let crate::syntax::OutputKind::Value {
+                                name,
+                                ..
+                            } = &output.kind
+                            else {
                                 continue;
                             };
                             let mut path = module_path.clone();
@@ -133,7 +151,9 @@ impl Resolver<'_> {
             self.modules.push(ResolvedModule {
                 id,
                 domain,
-                path: CanonicalPath { segments: path },
+                path: CanonicalPath {
+                    segments: path,
+                },
             });
             self.module_info.push(ModuleInfo::default());
         }
@@ -176,7 +196,10 @@ impl Resolver<'_> {
             let key = (declaration.domain, declaration.path.clone());
             if let Some(&existing) = self.item_ids.get(&key) {
                 let first = self.items[existing.index()].span;
-                self.error("duplicate item declaration in module", declaration.span);
+                self.error(
+                    "duplicate item declaration in module",
+                    declaration.span,
+                );
                 if first == declaration.span {
                     continue;
                 }
@@ -191,13 +214,19 @@ impl Resolver<'_> {
             }
             let id = ItemId(u32::try_from(self.items.len()).expect("source limits bound item IDs"));
             let module = self.module_ids[&(declaration.domain, declaration.module_path)];
-            let name = declaration.path.last().expect("items have names").clone();
+            let name = declaration
+                .path
+                .last()
+                .expect("items have names")
+                .clone();
             self.item_ids.insert(key, id);
             self.module_info[module.index()]
                 .declarations
                 .insert(name.clone(), id);
             if declaration.public {
-                self.module_info[module.index()].exports.insert(name, id);
+                self.module_info[module.index()]
+                    .exports
+                    .insert(name, id);
             }
             self.items.push(ResolvedItem {
                 id,
@@ -225,13 +254,17 @@ impl Resolver<'_> {
         }
     }
 
-    pub(super) fn bind_interfaces_and_imports(&mut self) {
+    pub(super) fn bind_interfaces(&mut self) {
         // Value outputs have synthetic declarations collected above. Install
         // them and validate names before resolving graph edges.
         let mut exported_names = BTreeSet::new();
         for module in &self.modules {
             for name in self.module_info[module.id.index()].exports.keys() {
-                exported_names.insert((module.domain, module.path.segments.clone(), name.clone()));
+                exported_names.insert((
+                    module.domain,
+                    module.path.segments.clone(),
+                    name.clone(),
+                ));
             }
         }
         for located in self.walk_items() {
@@ -247,8 +280,14 @@ impl Resolver<'_> {
                             return;
                         }
                         let name = match &output.kind {
-                            crate::OutputKind::Value { name, .. }
-                            | crate::OutputKind::Type { name, .. } => &name.text,
+                            crate::syntax::OutputKind::Value {
+                                name,
+                                ..
+                            }
+                            | crate::syntax::OutputKind::Type {
+                                name,
+                                ..
+                            } => &name.text,
                         };
                         if !names.insert(name.clone()) {
                             self.error("duplicate output name", output.span);
@@ -262,7 +301,10 @@ impl Resolver<'_> {
                             self.error("duplicate output name", output.span);
                             continue;
                         }
-                        if matches!(output.kind, crate::OutputKind::Value { .. }) {
+                        if matches!(
+                            output.kind,
+                            crate::syntax::OutputKind::Value { .. }
+                        ) {
                             let export_path = append(&located.module_path, name);
                             if let Some(&target) = self.item_ids.get(&(located.domain, export_path))
                             {
@@ -295,11 +337,23 @@ impl Resolver<'_> {
                 break;
             }
         }
+    }
+
+    pub(super) fn bind_imports(&mut self) {
         if self.exhausted {
             return;
         }
-        self.bind_remaining_exports(true);
-        self.bind_all_imports(true);
+        loop {
+            let exports_changed = self.bind_remaining_exports(false);
+            let imports_changed = self.bind_all_imports(false);
+            if self.exhausted || (!exports_changed && !imports_changed) {
+                break;
+            }
+        }
+        if !self.exhausted {
+            self.bind_remaining_exports(true);
+            self.bind_all_imports(true);
+        }
     }
 
     pub(super) fn bind_all_imports(&mut self, report_missing: bool) -> bool {
@@ -358,20 +412,40 @@ impl Resolver<'_> {
                     return changed;
                 }
                 let (name, path, expected, kind) = match &output.kind {
-                    crate::OutputKind::Value { .. } => continue,
-                    crate::OutputKind::Type { name, ty } => {
+                    crate::syntax::OutputKind::Value {
+                        ..
+                    } => continue,
+                    crate::syntax::OutputKind::Type {
+                        name,
+                        ty,
+                    } => {
                         let Some(path) = type_path(ty) else {
                             if report_missing {
                                 self.error("type export requires a named type", ty.span);
                             }
                             continue;
                         };
-                        (&name.text, path, Expected::Type, ReferenceKind::Type)
+                        (
+                            &name.text,
+                            path,
+                            Expected::Type,
+                            ReferenceKind::Type,
+                        )
                     }
                 };
-                if self.module_info[module.index()].exports.contains_key(name) {
-                    if report_missing && self.public_imports.contains(&(module, name.clone())) {
-                        self.error("public import conflicts with an output", output.span);
+                if self.module_info[module.index()]
+                    .exports
+                    .contains_key(name)
+                {
+                    if report_missing
+                        && self
+                            .public_imports
+                            .contains(&(module, name.clone()))
+                    {
+                        self.error(
+                            "public import conflicts with an output",
+                            output.span,
+                        );
                     }
                     continue;
                 }
@@ -420,14 +494,19 @@ impl Resolver<'_> {
         };
         let ResolvedTarget::Item(item) = target else {
             if report_missing {
-                self.error("import path names a module, not an item", path.span);
+                self.error(
+                    "import path names a module, not an item",
+                    path.span,
+                );
             }
             return false;
         };
         if self.module_info[module.index()]
             .declarations
             .contains_key(name)
-            || self.module_info[module.index()].children.contains_key(name)
+            || self.module_info[module.index()]
+                .children
+                .contains_key(name)
         {
             if report_missing {
                 self.error("import conflicts with a declaration", span);
@@ -440,7 +519,11 @@ impl Resolver<'_> {
             }
             return false;
         }
-        if public && self.module_info[module.index()].exports.contains_key(name) {
+        if public
+            && self.module_info[module.index()]
+                .exports
+                .contains_key(name)
+        {
             if report_missing {
                 self.error("public import conflicts with an export", span);
             }
@@ -453,7 +536,8 @@ impl Resolver<'_> {
             self.module_info[module.index()]
                 .exports
                 .insert(name.to_owned(), item);
-            self.public_imports.insert((module, name.to_owned()));
+            self.public_imports
+                .insert((module, name.to_owned()));
         }
         self.references.push(ResolvedReference {
             span: path.span,
@@ -496,7 +580,11 @@ pub(super) fn declaration(item: &Item) -> Option<(&str, ResolvedItemKind, Span)>
             ResolvedItemKind::Function,
             declaration.name.span,
         )),
-        ItemKind::Module(_) | ItemKind::Use(_) | ItemKind::Inputs(_) | ItemKind::Outputs(_) => None,
+        ItemKind::Publication(_)
+        | ItemKind::Module(_)
+        | ItemKind::Use(_)
+        | ItemKind::Inputs(_)
+        | ItemKind::Outputs(_) => None,
     }
 }
 
@@ -508,8 +596,13 @@ fn append(path: &[String], name: &str) -> Vec<String> {
 
 fn type_path(ty: &Type) -> Option<&Path> {
     match &ty.kind {
-        TypeKind::Named { path, .. } => Some(path),
+        TypeKind::Named {
+            path,
+            ..
+        } => Some(path),
         TypeKind::List(element) => type_path(element),
-        TypeKind::Function { .. } => None,
+        TypeKind::Function {
+            ..
+        } => None,
     }
 }

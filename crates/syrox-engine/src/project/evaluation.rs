@@ -1,8 +1,9 @@
 use std::{collections::BTreeMap, mem::size_of, path::Path, sync::Arc};
 
 use syrox_lang::{
-    CanonicalType, CheckedProgram, EvaluationQueryError, EvaluationSession, ItemId, MemoId,
-    PrimitiveValue, RealizedRoot, SourceDomainId, Ty, Value,
+    checker::CheckedProgram, checker::Ty, evaluator::CanonicalType,
+    evaluator::EvaluationQueryError, evaluator::EvaluationSession, evaluator::MemoId,
+    evaluator::RealizedRoot, evaluator::Value, source::SourceDomainId,
 };
 
 use super::{
@@ -33,7 +34,11 @@ impl LockedProject {
     pub(super) fn check_report(&self) -> super::CheckReport {
         super::CheckReport {
             path: self.loaded.path().to_path_buf(),
-            declarations: self.checked.resolved().parsed().declaration_count(),
+            declarations: self
+                .checked
+                .resolved()
+                .parsed()
+                .declaration_count(),
             realized_roots: 0,
         }
     }
@@ -45,11 +50,14 @@ impl LockedProject {
             &self.configuration.environment,
             self.configuration.evaluation_limits,
         )
-        .map_err(|source| CheckFailure::EvaluationSetup { source })?;
+        .map_err(|source| CheckFailure::EvaluationSetup {
+            source,
+        })?;
         Ok(ProjectEvaluation {
             project: self,
             session,
             catalog: None,
+            discover_reference_aliases: true,
         })
     }
 }
@@ -59,14 +67,68 @@ pub struct ProjectEvaluation<'a> {
     project: &'a LockedProject,
     session: EvaluationSession<'a>,
     catalog: Option<CatalogState>,
+    // Consumer selection follows typed references without enumerating unrelated
+    // library publications merely to attach diagnostic aliases.
+    discover_reference_aliases: bool,
 }
 
-type CatalogIndex = BTreeMap<String, (MemoId, Arc<CanonicalType>)>;
+type CatalogIndex = BTreeMap<String, CatalogEntry>;
+
+#[cfg(test)]
+mod budget_tests {
+
+    #[test]
+    fn catalog_metadata_exhaustion_poisoning_prevents_retries_and_partial_plans() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(project.path().join("main.srx"), r#"
+            mod catalog { mod one { pub fn recipe() -> std::Recipe { std::Recipe { package = std::Package { id = "one"; dependencies = []; }; } } } }
+            pub publish(catalog, recipe): std::Recipe;
+        "#).unwrap();
+        let config = crate::project::CheckConfiguration {
+            standard_library: Some(crate::project::AuthenticatedStandardLibrary::bundled()),
+            ..crate::project::CheckConfiguration::default()
+        };
+        crate::project::lock_project_with(project.path(), &config).unwrap();
+        let locked = crate::project::open_locked_project_with(project.path(), &config).unwrap();
+        for work in [false, true] {
+            let mut evaluation = locked.evaluation().unwrap();
+            assert!(evaluation.select_package("one").unwrap());
+            if work {
+                evaluation
+                    .session
+                    .reserve_metadata_work(evaluation.session.remaining_metadata_work())
+                    .unwrap();
+            } else {
+                evaluation
+                    .session
+                    .reserve_metadata_bytes(evaluation.session.remaining_metadata_bytes())
+                    .unwrap();
+            }
+            assert!(evaluation.catalog_names().is_err());
+            assert!(evaluation.select_package("one").is_err());
+            assert!(evaluation.into_selected_plan().is_err());
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct RecipeHandle {
+    id: MemoId,
+    result: Arc<CanonicalType>,
+}
+
+#[derive(Clone, Debug)]
+struct CatalogEntry {
+    reference: RecipeHandle,
+}
 
 #[derive(Debug)]
 enum CatalogState {
     Absent,
-    Present(CatalogIndex),
+    Present {
+        entries: CatalogIndex,
+        references: BTreeMap<MemoId, String>,
+    },
 }
 
 impl ProjectEvaluation<'_> {
@@ -84,123 +146,147 @@ impl ProjectEvaluation<'_> {
                 EvaluationQueryError::UnknownRoot => ProjectOperationError::MissingOutput {
                     name: name.to_owned(),
                 },
-                EvaluationQueryError::InvalidSelection => invalid_set("invalid selected reference"),
-                EvaluationQueryError::Setup(source) => {
-                    CheckFailure::EvaluationSetup { source }.into()
+                EvaluationQueryError::InvalidSelection => {
+                    invalid_catalog("invalid selected reference")
                 }
+                EvaluationQueryError::Setup(source) => CheckFailure::EvaluationSetup {
+                    source,
+                }
+                .into(),
             })
     }
 
     pub fn evaluate_all(&mut self) -> Result<(), ProjectOperationError> {
-        self.session
-            .evaluate_all()
-            .map_err(|source| CheckFailure::EvaluationSetup { source }.into())
+        self.session.evaluate_all().map_err(|source| {
+            CheckFailure::EvaluationSetup {
+                source,
+            }
+            .into()
+        })
     }
 
-    /// Read a declared default without forcing any catalog recipe.
-    pub fn default_package_id(
-        &mut self,
-        name: &str,
-        contract: &str,
-    ) -> Result<Option<String>, ProjectOperationError> {
-        let Some(ty) = self.root_type(name) else {
-            return Ok(None);
-        };
-        if !is_std_nominal(ty, &self.project.checked, &["std", "pkg", contract]) {
-            return Ok(None);
-        }
-        let root = self
-            .session
-            .evaluate_root(name)
-            .map_err(|error| match error {
-                EvaluationQueryError::Setup(source) => {
-                    CheckFailure::EvaluationSetup { source }.into()
-                }
-                _ => invalid_set("invalid default output"),
-            })?;
-        let value = root.value().ok_or_else(|| CheckFailure::Evaluation {
-            input: self.project.loaded.sources().clone(),
-            errors: root.diagnostics().to_vec(),
-            failed_roots: vec![name.to_owned()],
-        })?;
-        let id = field(value, "package")
-            .and_then(package_id)
-            .ok_or_else(|| invalid_set("invalid default package"))?;
-        let id = id.to_owned();
+    /// Include one authenticated Os/Shell output, without forcing unrelated
+    /// outputs. Finish with `into_selected_prepared_plan` to retain only the
+    /// explicit selections and their referenced recipes.
+    pub fn select_consumer(&mut self, name: &str) -> Result<(), ProjectOperationError> {
+        self.require_consumer(name)?;
+        self.discover_reference_aliases = false;
         self.session
             .include_root(name)
             .map_err(|error| match error {
-                EvaluationQueryError::Setup(source) => {
-                    CheckFailure::EvaluationSetup { source }.into()
+                EvaluationQueryError::UnknownRoot => ProjectOperationError::MissingOutput {
+                    name: name.to_owned(),
+                },
+                EvaluationQueryError::InvalidSelection => {
+                    ProjectOperationError::InvalidConsumerOutput {
+                        name: name.to_owned(),
+                    }
                 }
-                _ => invalid_set("invalid default output"),
+                EvaluationQueryError::Setup(source) => CheckFailure::EvaluationSetup {
+                    source,
+                }
+                .into(),
+            })
+    }
+
+    fn require_consumer(&self, name: &str) -> Result<(), ProjectOperationError> {
+        let ty = self
+            .root_type(name)
+            .ok_or_else(|| ProjectOperationError::MissingOutput {
+                name: name.to_owned(),
             })?;
-        Ok(Some(id))
-    }
-
-    /// Enumerate a checked `std::PackageSet` output without calling its factories.
-    /// `None` means the named output does not have the package-set contract.
-    pub fn package_names(
-        &mut self,
-        name: &str,
-    ) -> Result<Option<Vec<String>>, ProjectOperationError> {
-        if name == "packages" {
-            self.catalog()?;
-            return Ok(self
-                .catalog_entries()
-                .map(|entries| entries.keys().cloned().collect()));
+        if !["Os", "Shell"].iter().any(|contract| {
+            is_std_nominal(
+                ty,
+                &self.project.checked,
+                &["std", "deployment", contract],
+            )
+        }) {
+            return Err(ProjectOperationError::InvalidConsumerOutput {
+                name: name.to_owned(),
+            });
         }
-        Ok(self
-            .package_entries(name)?
-            .map(|entries| entries.into_iter().map(|(key, _)| key.to_owned()).collect()))
+        Ok(())
     }
 
-    /// Select an existing `RecipeRef` without invoking its memoized factory.
-    /// The returned value is borrowed from this evaluation operation so its
-    /// identity remains shared with any named reference to the same recipe.
-    /// `None` means the output is not a set or the key is absent.
-    pub fn package_reference(
-        &mut self,
-        name: &str,
-        key: &str,
-    ) -> Result<Option<&Value>, ProjectOperationError> {
+    /// Enumerate published recipe members visible in the root domain. Factories
+    /// remain unevaluated, and imported libraries are not implicit catalogs.
+    pub fn catalog_names(&mut self) -> Result<Option<Vec<String>>, ProjectOperationError> {
+        self.catalog()?;
+        let (work, bytes) = self.catalog_entries().map_or((0, 0), |entries| {
+            entries
+                .keys()
+                .fold((0usize, 0usize), |(work, bytes), key| {
+                    (
+                        work.saturating_add(key.len() + 1),
+                        bytes.saturating_add(key.len() + size_of::<String>()),
+                    )
+                })
+        });
+        self.session
+            .reserve_metadata_work(work)
+            .map_err(|source| CheckFailure::EvaluationSetup {
+                source,
+            })?;
+        self.session
+            .reserve_metadata_bytes(bytes)
+            .map_err(|source| CheckFailure::EvaluationSetup {
+                source,
+            })?;
         Ok(self
-            .package_entries(name)?
-            .and_then(|entries| entries.into_iter().find(|(name, _)| *name == key))
-            .map(|(_, reference)| reference))
+            .catalog_entries()
+            .map(|entries| entries.keys().cloned().collect()))
     }
 
-    /// Force one catalog recipe and prepare only that entry for Plan projection.
-    /// Returns false when the project does not expose a `PackageSet` output.
+    /// Return a lazy reference to one published recipe. This does not force its
+    /// factory or enumerate imports that are not reexported by the root library.
+    pub fn catalog_reference(&mut self, key: &str) -> Result<Option<Value>, ProjectOperationError> {
+        self.catalog()?;
+        if !self
+            .catalog_entries()
+            .is_some_and(|entries| entries.contains_key(key))
+        {
+            return Ok(None);
+        }
+        self.session
+            .select_published(key)
+            .map(Some)
+            .map_err(selection_error)
+    }
+
+    /// Force one published recipe and prepare only its reachable graph.
+    /// Returns false when this project has no published recipe members.
     pub fn select_package(&mut self, key: &str) -> Result<bool, ProjectOperationError> {
-        if self.session.selected_roots().any(|root| root.name() == key) {
-            return Ok(true);
-        }
         self.catalog()?;
         let Some(entries) = self.catalog_entries() else {
             return Ok(false);
         };
-        let (id, result) = entries
-            .get(key)
-            .ok_or_else(|| ProjectOperationError::MissingPackageReference {
-                key: key.to_owned(),
-            })?
+        let selected =
+            entries.get(key).ok_or_else(
+                || ProjectOperationError::MissingPackageReference {
+                    key: key.to_owned(),
+                },
+            )?;
+        let canonical = self
+            .catalog_references()
+            .and_then(|entries| entries.get(&selected.reference.id))
+            .expect("indexed published reference")
             .clone();
         self.session
-            .force_reference("packages", key, &id, result)
-            .map_err(|error| match error {
-                EvaluationQueryError::Setup(source) => {
-                    CheckFailure::EvaluationSetup { source }.into()
-                }
-                _ => invalid_set("invalid selected reference"),
-            })?;
+            .force_published(&canonical)
+            .map_err(selection_error)?;
+        if key != canonical {
+            self.session
+                .force_published(key)
+                .map_err(selection_error)?;
+        }
         Ok(true)
     }
 
     /// Select every entry of the typed catalog in one evaluation operation.
     /// Discovery stays lazy; this explicitly requested Plan forces each recipe.
     pub fn select_all_packages(&mut self) -> Result<bool, ProjectOperationError> {
-        let Some(names) = self.package_names("packages")? else {
+        let Some(names) = self.catalog_names()? else {
             return Ok(false);
         };
         for name in names {
@@ -209,83 +295,56 @@ impl ProjectEvaluation<'_> {
         Ok(true)
     }
 
-    /// A full Plan includes ordinary outputs alongside selected set entries.
-    /// Ephemeral references are inputs to selection, not serializable roots.
+    /// A full Plan includes only authenticated Os/Shell destinations alongside
+    /// explicitly selected library recipes. Libraries are not output values.
     pub fn include_project_outputs(&mut self) -> Result<(), ProjectOperationError> {
-        let names: Vec<_> = self
-            .root_names()
-            .filter(|name| {
-                *name != "packages"
-                    && self.root_type(name).is_some_and(|ty| {
-                        !is_package_set_type(ty, &self.project.checked)
-                            && !is_transient_reference_type(ty, &self.project.checked)
-                    })
-            })
-            .map(str::to_owned)
-            .collect();
+        let names: Vec<_> = self.root_names().map(str::to_owned).collect();
+        for name in &names {
+            self.require_consumer(name)?;
+        }
         for name in names {
-            self.session
-                .include_root(&name)
-                .map_err(|error| match error {
-                    EvaluationQueryError::Setup(source) => {
-                        CheckFailure::EvaluationSetup { source }.into()
-                    }
-                    _ => invalid_set("invalid default output"),
-                })?;
+            self.select_consumer(&name)?;
         }
         Ok(())
     }
 
-    pub fn into_selected_plan(self) -> Result<crate::Plan, ProjectOperationError> {
+    pub fn into_selected_plan(self) -> Result<crate::plan::Plan, ProjectOperationError> {
+        self.into_selected_prepared_plan()
+            .map(super::PreparedPlan::into_plan)
+    }
+
+    /// Finish selection and bind its pure Plan to this evaluation's live sources.
+    pub fn into_selected_prepared_plan(self) -> Result<super::PreparedPlan, ProjectOperationError> {
         let mut evaluation = self;
         let mut cursor = 0;
         let mut edges = 0_usize;
-        while cursor < evaluation.session.selected_roots().len() {
+        let mut work = 0_usize;
+        loop {
             let required = {
-                let root = evaluation
-                    .session
-                    .selected_roots()
-                    .nth(cursor)
-                    .expect("bounded selected root");
-                let value = root.value().ok_or_else(|| CheckFailure::Evaluation {
-                    input: evaluation.project.loaded.sources().clone(),
-                    errors: root.diagnostics().to_vec(),
-                    failed_roots: vec![root.name().to_owned()],
-                })?;
-                required_packages(value)?
+                let Some(root) = evaluation.session.planning_root(cursor) else {
+                    break;
+                };
+                let value = root
+                    .value()
+                    .ok_or_else(|| CheckFailure::Evaluation {
+                        input: evaluation.project.loaded.sources().clone(),
+                        errors: root.diagnostics().to_vec(),
+                        failed_roots: vec![root.name().to_owned()],
+                    })?;
+                required_packages(value, &mut work)?
             };
             edges = edges.saturating_add(required.len());
-            if edges > crate::MAX_PLAN_PACKAGE_EDGES {
-                return Err(invalid_set("selected dependencies exceed limit"));
+            if edges > crate::plan::MAX_PLAN_PACKAGE_EDGES {
+                return Err(invalid_catalog(
+                    "selected dependencies exceed limit",
+                ));
             }
-            for key in required {
-                evaluation.catalog()?;
-                let id = evaluation
-                    .catalog_entries()
-                    .and_then(|entries| entries.get(&key))
-                    .ok_or_else(|| invalid_set("selected dependency is missing from package set"))?
-                    .0
-                    .clone();
-                if !evaluation.select_package(&key)? {
-                    return Err(invalid_set("selected dependency requires a package set"));
-                }
-                if evaluation.session.selected_roots().len() > crate::MAX_PLAN_PACKAGE_NODES {
-                    return Err(invalid_set("selected package count exceeds limit"));
-                }
-                // Aliases may reuse an existing root. Validate the recipe
-                // selected by this key, not whichever root happened to be last.
-                let selected = evaluation
-                    .session
-                    .selected_reference(&id)
-                    .ok_or_else(|| invalid_set("selected reference has no evaluated recipe"))?;
-                let selected_value = selected.value().ok_or_else(|| CheckFailure::Evaluation {
-                    input: evaluation.project.loaded.sources().clone(),
-                    errors: selected.diagnostics().to_vec(),
-                    failed_roots: vec![selected.name().to_owned()],
-                })?;
-                let selected_id = recipe_package_id(selected_value);
-                if selected_id != Some(key.as_str()) {
-                    return Err(invalid_set("dependency key does not match package id"));
+            for reference in required {
+                evaluation.select_reference(reference)?;
+                if evaluation.session.selected_roots().len() > crate::plan::MAX_PLAN_PACKAGE_NODES {
+                    return Err(invalid_catalog(
+                        "selected package count exceeds limit",
+                    ));
                 }
             }
             cursor += 1;
@@ -293,7 +352,9 @@ impl ProjectEvaluation<'_> {
         let realized = evaluation
             .session
             .into_selected()
-            .map_err(|source| CheckFailure::EvaluationSetup { source })?;
+            .map_err(|source| CheckFailure::EvaluationSetup {
+                source,
+            })?;
         project_plan(
             &evaluation.project.loaded,
             &realized,
@@ -302,254 +363,199 @@ impl ProjectEvaluation<'_> {
         )
     }
 
-    fn package_entries(
-        &mut self,
-        name: &str,
-    ) -> Result<Option<Vec<(&str, &Value)>>, ProjectOperationError> {
-        let Some(ty) = self.root_type(name) else {
-            return Ok(None);
-        };
-        if !is_package_set_type(ty, &self.project.checked) {
-            return Ok(None);
-        }
-        let root = self
+    fn select_reference(&mut self, reference: RecipeHandle) -> Result<(), ProjectOperationError> {
+        if self
             .session
-            .evaluate_root(name)
-            .map_err(|error| match error {
-                EvaluationQueryError::UnknownRoot => ProjectOperationError::MissingOutput {
-                    name: name.to_owned(),
-                },
-                EvaluationQueryError::InvalidSelection => invalid_set("invalid selected reference"),
-                EvaluationQueryError::Setup(source) => {
-                    CheckFailure::EvaluationSetup { source }.into()
-                }
-            })?;
-        let Some(value) = root.value() else {
-            return Err(CheckFailure::Evaluation {
-                input: self.project.loaded.sources().clone(),
-                errors: root.diagnostics().to_vec(),
-                failed_roots: vec![name.to_owned()],
-            }
-            .into());
-        };
-        Ok(Some(package_set_entries(value)?))
+            .selected_reference(&reference.id)
+            .is_some()
+        {
+            return Ok(());
+        }
+        if self.discover_reference_aliases {
+            self.catalog()?;
+        }
+        if let Some(key) = self
+            .catalog_references()
+            .and_then(|entries| entries.get(&reference.id))
+            .cloned()
+        {
+            self.select_package(&key)?;
+        } else {
+            self.session
+                .force_dependency(&reference.id, reference.result)
+                .map_err(|error| match error {
+                    EvaluationQueryError::Setup(source) => CheckFailure::EvaluationSetup {
+                        source,
+                    }
+                    .into(),
+                    _ => invalid_catalog("invalid dependency reference"),
+                })?;
+        }
+        Ok(())
     }
 
-    /// Validate the set once per operation and retain only its keys and memo
-    /// handles. The original values stay in the evaluation session.
+    /// Index root-visible publications once per operation. Creating references
+    /// does not invoke their factories; shared metadata budgets cover the index.
     fn catalog(&mut self) -> Result<(), ProjectOperationError> {
+        self.session
+            .reserve_metadata_work(1)
+            .map_err(|source| CheckFailure::EvaluationSetup {
+                source,
+            })?;
         if self.catalog.is_some() {
             return Ok(());
         }
-        let limit = self
-            .project
-            .configuration
-            .evaluation_limits
-            .max_retained_expansion_bytes;
-        let Some(entries) = self.package_entries("packages")? else {
+        let (count, work, bytes) = self
+            .session
+            .published_members()
+            .filter(|member| is_recipe_type(member.result_type()))
+            .fold(
+                (0usize, 0usize, 0usize),
+                |(count, work, bytes), member| {
+                    (
+                        count.saturating_add(1),
+                        work.saturating_add(member.name().len() + 1),
+                        bytes.saturating_add(member.name().len() + size_of::<String>()),
+                    )
+                },
+            );
+        self.session
+            .reserve_metadata_work(work)
+            .map_err(|source| CheckFailure::EvaluationSetup {
+                source,
+            })?;
+        self.session
+            .reserve_metadata_bytes(bytes)
+            .map_err(|source| CheckFailure::EvaluationSetup {
+                source,
+            })?;
+        if count > crate::plan::MAX_PLAN_PACKAGE_NODES {
+            return Err(invalid_catalog(
+                "published recipe count exceeds limit",
+            ));
+        }
+        if count == 0 {
             self.catalog = Some(CatalogState::Absent);
             return Ok(());
-        };
-        let mut index = BTreeMap::new();
-        let mut retained = 0_usize;
-        for (key, reference) in entries {
-            let Some(Value::MemoizedFunction { ty, id }) = field(reference, "factory") else {
-                return Err(invalid_set("invalid recipe reference factory"));
-            };
-            let CanonicalType::Function {
-                parameters,
-                result,
-                once: false,
-            } = ty.as_ref()
-            else {
-                return Err(invalid_set("invalid recipe factory type"));
-            };
-            if !parameters.is_empty() {
-                return Err(invalid_set("invalid recipe factory parameters"));
-            }
+        }
+        let names: Vec<_> = self
+            .session
+            .published_members()
+            .filter(|member| is_recipe_type(member.result_type()))
+            .map(|member| member.name().to_owned())
+            .collect();
+        let mut index = CatalogIndex::new();
+        let mut references: BTreeMap<MemoId, String> = BTreeMap::new();
+        for key in names {
+            let levels = index.len().checked_ilog2().unwrap_or(0) as usize + 1;
+            self.session
+                .reserve_metadata_work((key.len() + 1).saturating_mul(levels + 1))
+                .map_err(|source| CheckFailure::EvaluationSetup {
+                    source,
+                })?;
+            let value = self
+                .session
+                .select_published(&key)
+                .map_err(selection_error)?;
+            let reference = recipe_handle(&value)?;
             let bytes = key
                 .len()
-                .saturating_add(size_of::<(String, MemoId, Arc<CanonicalType>)>())
+                .saturating_add(size_of::<(String, CatalogEntry)>())
                 .saturating_add(6 * size_of::<usize>());
-            retained = retained.saturating_add(bytes);
-            if retained > limit {
-                return Err(CheckFailure::EvaluationSetup {
-                    source: syrox_lang::EvaluationSetupError::EvaluationRetainedExpansionLimit,
+            self.session
+                .reserve_metadata_bytes(bytes.saturating_mul(2))
+                .map_err(|source| CheckFailure::EvaluationSetup {
+                    source,
+                })?;
+            if let Some(previous) = index.get(&key) {
+                if previous.reference.id != reference.id {
+                    return Err(invalid_catalog(
+                        "conflicting published recipe names",
+                    ));
                 }
-                .into());
+                continue;
             }
-            index.insert(key.to_owned(), (id.clone(), result.clone()));
+            references
+                .entry(reference.id.clone())
+                .and_modify(|canonical| {
+                    if key < *canonical {
+                        key.clone_into(canonical);
+                    }
+                })
+                .or_insert_with(|| key.clone());
+            index.insert(
+                key,
+                CatalogEntry {
+                    reference,
+                },
+            );
         }
-        self.session
-            .reserve_metadata_bytes(retained)
-            .map_err(|source| CheckFailure::EvaluationSetup { source })?;
-        self.catalog = Some(CatalogState::Present(index));
+        self.catalog = Some(CatalogState::Present {
+            entries: index,
+            references,
+        });
         Ok(())
     }
 
     fn catalog_entries(&self) -> Option<&CatalogIndex> {
         match self.catalog.as_ref()? {
             CatalogState::Absent => None,
-            CatalogState::Present(entries) => Some(entries),
+            CatalogState::Present {
+                entries,
+                ..
+            } => Some(entries),
         }
     }
 
-    pub fn into_plan(self) -> Result<crate::Plan, ProjectOperationError> {
-        let realized = self
+    fn catalog_references(&self) -> Option<&BTreeMap<MemoId, String>> {
+        match self.catalog.as_ref()? {
+            CatalogState::Absent => None,
+            CatalogState::Present {
+                references,
+                ..
+            } => Some(references),
+        }
+    }
+
+    pub fn into_plan(self) -> Result<crate::plan::Plan, ProjectOperationError> {
+        self.into_prepared_plan()
+            .map(super::PreparedPlan::into_plan)
+    }
+
+    pub fn into_prepared_plan(mut self) -> Result<super::PreparedPlan, ProjectOperationError> {
+        let names: Vec<_> = self
             .session
-            .into_realized()
-            .map_err(|source| CheckFailure::EvaluationSetup { source })?;
-        project_plan(
-            &self.project.loaded,
-            &realized,
-            self.project.digest,
-            &self.project.configuration,
-        )
+            .evaluated_roots()
+            .map(|root| root.name().to_owned())
+            .collect();
+        for name in names {
+            self.select_consumer(&name)?;
+        }
+        self.into_selected_prepared_plan()
     }
 }
 
-fn is_package_set_type(ty: &Ty, program: &CheckedProgram) -> bool {
-    let is_std = |id: ItemId, path: &[&str]| {
-        program.resolved().items().any(|item| {
-            item.id() == id
-                && item.domain() == SourceDomainId::standard_library()
-                && item
-                    .path()
-                    .segments()
-                    .iter()
-                    .map(String::as_str)
-                    .eq(path.iter().copied())
-        })
-    };
-    let set = |ty: &Ty| matches!(ty, Ty::Specialization { template, arguments } if arguments.len() == 1 && is_std(*template, &["std", "catalog", "PackageSet"]));
-    set(ty)
-        || matches!(ty, Ty::Specialization { template, arguments }
-            if arguments.len() == 2 && is_std(*template, &["std", "result", "Result"])
-                && set(&arguments[0]) && matches!(&arguments[1], Ty::Nominal(key) if is_std(*key, &["std", "maps", "MapKey"])))
+fn is_recipe_type(ty: &CanonicalType) -> bool {
+    matches!(ty, CanonicalType::Nominal(identity)
+        if identity.domain() == SourceDomainId::standard_library()
+            && identity.path() == ["std", "pkg", "Recipe"])
 }
 
-fn is_transient_reference_type(ty: &Ty, program: &CheckedProgram) -> bool {
-    matches!(ty, Ty::Specialization { template, arguments } if arguments.len() == 1
-    && program.resolved().items().any(|item| {
-        item.id() == *template
-            && item.domain() == SourceDomainId::standard_library()
-                && ["RecipeRef", "OutputRef"].contains(&item.path().segments().last().map_or("", String::as_str))
-            && item.path().segments().iter().take(2).map(String::as_str).eq(["std", "recipe"])
-    }))
+fn selection_error(error: EvaluationQueryError) -> ProjectOperationError {
+    match error {
+        EvaluationQueryError::Setup(source) => CheckFailure::EvaluationSetup {
+            source,
+        }
+        .into(),
+        _ => invalid_catalog("invalid published recipe selection"),
+    }
 }
 
 fn is_std_nominal(ty: &Ty, program: &CheckedProgram, path: &[&str]) -> bool {
-    matches!(ty, Ty::Nominal(id) if program.resolved().items().any(|item| {
-        item.id() == *id && item.domain() == SourceDomainId::standard_library()
+    matches!(ty, Ty::Nominal(id) if program.resolved().item(*id).is_some_and(|item| {
+        item.domain() == SourceDomainId::standard_library()
             && item.path().segments().iter().map(String::as_str).eq(path.iter().copied())
     }))
-}
-
-fn package_set_entries(value: &Value) -> Result<Vec<(&str, &Value)>, ProjectOperationError> {
-    let value = if let Value::Variant { ty, index, payload } = value {
-        if !std_specialization(ty, &["std", "result", "Result"], 2) {
-            return Err(invalid_set("expected a std::Result"));
-        }
-        match (*index, payload.as_slice()) {
-            (0, [set]) => set,
-            (1, [_]) => return Err(invalid_set("duplicate catalog key")),
-            _ => return Err(invalid_set("invalid result variant")),
-        }
-    } else {
-        value
-    };
-    let Value::Struct { ty, fields, .. } = value else {
-        return Err(invalid_set("expected a PackageSet"));
-    };
-    if !std_specialization(ty, &["std", "catalog", "PackageSet"], 1)
-        || !matches!(fields.as_slice(), [(name, _)] if name == "factories")
-    {
-        return Err(invalid_set("invalid PackageSet fields"));
-    }
-    let Value::Struct {
-        ty: map_ty, fields, ..
-    } = &fields[0].1
-    else {
-        return Err(invalid_set("expected an ordered map"));
-    };
-    if !std_specialization(map_ty, &["std", "maps", "OrderedMap"], 1) {
-        return Err(invalid_set("invalid ordered map type"));
-    }
-    let [
-        (
-            name,
-            Value::List {
-                ty: entries_ty,
-                items,
-            },
-        ),
-    ] = fields.as_slice()
-    else {
-        return Err(invalid_set("invalid ordered map fields"));
-    };
-    if !matches!(entries_ty.as_ref(), CanonicalType::List(entry)
-        if std_specialization(entry, &["std", "maps", "MapEntry"], 1))
-    {
-        return Err(invalid_set("invalid map entry list type"));
-    }
-    if name != "entries" || items.len() > crate::MAX_PLAN_PACKAGE_NODES {
-        return Err(invalid_set("invalid catalog entry count"));
-    }
-    let mut entries = Vec::with_capacity(items.len());
-    let mut bytes = 0_usize;
-    for item in items {
-        let (key, reference) = package_entry(item)?;
-        bytes = bytes.saturating_add(key.len());
-        if bytes > crate::MAX_PLAN_RETAINED_BYTES
-            || entries.last().is_some_and(|(last, _)| *last >= key)
-        {
-            return Err(invalid_set("catalog keys exceed limits or are not ordered"));
-        }
-        entries.push((key, reference));
-    }
-    Ok(entries)
-}
-
-fn package_entry(item: &Value) -> Result<(&str, &Value), ProjectOperationError> {
-    let Value::Variant {
-        ty: entry_ty,
-        index: 0,
-        payload,
-    } = item
-    else {
-        return Err(invalid_set("invalid map entry"));
-    };
-    if !std_specialization(entry_ty, &["std", "maps", "MapEntry"], 1) {
-        return Err(invalid_set("invalid map entry type"));
-    }
-    let [
-        Value::Nominal {
-            ty: key_ty,
-            value: PrimitiveValue::Str(key),
-            resource: false,
-            ..
-        },
-        reference @ Value::Struct {
-            ty: reference_ty,
-            fields: reference_fields,
-            ..
-        },
-    ] = payload.as_slice()
-    else {
-        return Err(invalid_set("invalid catalog key or reference"));
-    };
-    if !matches!(key_ty.as_ref(), CanonicalType::Nominal(identity)
-        if identity.domain() == SourceDomainId::standard_library()
-            && identity.path() == ["std", "maps", "MapKey"])
-        || !std_specialization(reference_ty, &["std", "recipe", "RecipeRef"], 1)
-    {
-        return Err(invalid_set("invalid catalog key or reference type"));
-    }
-    if !matches!(reference_fields.as_slice(), [(name, Value::MemoizedFunction { .. })] if name == "factory")
-    {
-        return Err(invalid_set("invalid recipe reference factory"));
-    }
-    Ok((key, reference))
 }
 
 fn std_specialization(ty: &CanonicalType, path: &[&str], arity: usize) -> bool {
@@ -559,12 +565,18 @@ fn std_specialization(ty: &CanonicalType, path: &[&str], arity: usize) -> bool {
             && arguments.len() == arity)
 }
 
-fn invalid_set(reason: &'static str) -> ProjectOperationError {
-    ProjectOperationError::InvalidPackageSet { reason }
+fn invalid_catalog(reason: &'static str) -> ProjectOperationError {
+    ProjectOperationError::InvalidCatalog {
+        reason,
+    }
 }
 
 fn field<'a>(value: &'a Value, name: &str) -> Option<&'a Value> {
-    let Value::Struct { fields, .. } = value else {
+    let Value::Struct {
+        fields,
+        ..
+    } = value
+    else {
         return None;
     };
     fields
@@ -573,89 +585,79 @@ fn field<'a>(value: &'a Value, name: &str) -> Option<&'a Value> {
         .map(|(_, value)| value)
 }
 
-fn package_id(value: &Value) -> Option<&str> {
-    let Value::Nominal {
+fn recipe_handle(value: &Value) -> Result<RecipeHandle, ProjectOperationError> {
+    let Some(Value::MemoizedFunction {
+        id,
         ty,
-        value: PrimitiveValue::Str(id),
-        resource: false,
-    } = value
+    }) = field(value, "factory")
     else {
-        return None;
+        return Err(invalid_catalog(
+            "invalid recipe reference factory",
+        ));
     };
-    matches!(ty.as_ref(), CanonicalType::Nominal(identity)
-        if identity.domain() == SourceDomainId::standard_library()
-            && identity.path() == ["std", "pkg", "PackageId"])
-    .then_some(id)
-}
-
-fn recipe_package_id(value: &Value) -> Option<&str> {
-    let package = field(value, "package")
-        .filter(|package| matches!(package, Value::Struct { .. }))
-        .unwrap_or(value);
-    field(package, "id").and_then(package_id)
-}
-
-fn optional_component(value: &Value) -> Option<&Value> {
-    match value {
-        Value::Variant {
-            ty,
-            index: 1,
-            payload,
-        } if std_specialization(ty, &["std", "option", "Option"], 1) => payload.first(),
-        Value::Variant { ty, index: 0, .. }
-            if std_specialization(ty, &["std", "option", "Option"], 1) =>
-        {
-            None
-        }
-        value => Some(value),
+    let CanonicalType::Function {
+        parameters,
+        result,
+        once: false,
+    } = ty.as_ref()
+    else {
+        return Err(invalid_catalog("invalid recipe factory type"));
+    };
+    if !parameters.is_empty() {
+        return Err(invalid_catalog(
+            "invalid recipe factory parameters",
+        ));
     }
+    Ok(RecipeHandle {
+        id: id.clone(),
+        result: result.clone(),
+    })
 }
 
-fn required_packages(value: &Value) -> Result<Vec<String>, ProjectOperationError> {
+fn required_packages(
+    value: &Value,
+    work: &mut usize,
+) -> Result<Vec<RecipeHandle>, ProjectOperationError> {
     let mut required = Vec::new();
-    if let Some(package) = field(value, "package")
-        .filter(|package| matches!(package, Value::Struct { .. }))
-        .or_else(|| field(value, "dependencies").map(|_| value))
-    {
-        let Some(Value::List { items, .. }) = field(package, "dependencies") else {
-            return Err(invalid_set("invalid recipe dependencies"));
-        };
-        for dependency in items {
-            let id = field(dependency, "package")
-                .and_then(package_id)
-                .ok_or_else(|| invalid_set("invalid recipe dependency"))?;
-            required.push(id.to_owned());
+    let mut pending = vec![value];
+    while let Some(value) = pending.pop() {
+        *work += 1;
+        if *work > crate::plan::MAX_PLAN_PACKAGE_WORK {
+            return Err(invalid_catalog(
+                "reference traversal exceeds limit",
+            ));
         }
-    }
-    if let Some(inputs) = field(value, "build_inputs").and_then(optional_component) {
-        let Some(Value::List { items, .. }) = field(inputs, "selected") else {
-            return Err(invalid_set("invalid build inputs"));
-        };
-        for input in items {
-            let id = field(input, "package")
-                .and_then(package_id)
-                .ok_or_else(|| invalid_set("invalid build input provider"))?;
-            required.push(id.to_owned());
-        }
-    }
-    if let Some(application) = field(value, "application").and_then(optional_component) {
-        for name in ["loader", "libraries"] {
-            let Some(Value::List { items, .. }) = field(application, name) else {
-                return Err(invalid_set("invalid runtime providers"));
-            };
-            for provider in items {
-                let id = field(provider, "package")
-                    .and_then(package_id)
-                    .ok_or_else(|| invalid_set("invalid runtime provider"))?;
-                required.push(id.to_owned());
+        match value {
+            Value::Struct {
+                ty,
+                ..
+            } if std_specialization(ty, &["std", "recipe", "RecipeRef"], 1) => {
+                if required.len() >= crate::plan::MAX_PLAN_PACKAGE_EDGES {
+                    return Err(invalid_catalog(
+                        "selected dependencies exceed limit",
+                    ));
+                }
+                required.push(recipe_handle(value)?);
             }
+            Value::Struct {
+                fields,
+                ..
+            } => {
+                pending.extend(fields.iter().rev().map(|(_, value)| value));
+            }
+            Value::List {
+                items,
+                ..
+            }
+            | Value::Variant {
+                payload: items,
+                ..
+            } => {
+                pending.extend(items.iter().rev());
+            }
+            _ => {}
         }
     }
-    if required.len() > crate::MAX_PLAN_PACKAGE_EDGES {
-        return Err(invalid_set("selected dependencies exceed limit"));
-    }
-    required.sort();
-    required.dedup();
     Ok(required)
 }
 
@@ -668,11 +670,13 @@ pub fn open_locked_project_with(
     validate_project_limits(configuration.project_limits)?;
     validate_lock_policy(configuration)?;
     let loaded = loader::load_project_linux(path, configuration)?;
-    let expected =
-        crate::lock::LockManifest::generate(&loaded, configuration.standard_library.as_ref())
-            .map_err(map_generated_lock_error)?;
+    let expected = crate::project::lock::LockManifest::generate(
+        &loaded,
+        configuration.standard_library.as_ref(),
+    )
+    .map_err(map_generated_lock_error)?;
     let actual = read_lock(&loaded)?.ok_or(ProjectOperationError::MissingLock {
-        name: crate::LOCK_FILE_NAME,
+        name: crate::project::lock::LOCK_FILE_NAME,
     })?;
     compare_lock(&actual, &expected)?;
     if read_graph_lock(&loaded)?.is_some() {

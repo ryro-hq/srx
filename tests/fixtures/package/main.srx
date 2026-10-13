@@ -1,15 +1,20 @@
-outputs {
-    library: std::Package = std::Package {
-        id = "library";
-        dependencies = [];
-    };
-
-    application: std::Package = std::Package {
-        id = "application";
-        dependencies = [
-            std::Dependency {
-                package = "library";
-            },
-        ];
-    };
+fn make_library() -> std::Recipe {
+    std::Recipe {
+        package = std::Package { id = "library"; dependencies = []; };
+        acquisition = None; build = None; build_inputs = None; commands = [];
+    }
 }
+
+fn make_application() -> std::Recipe {
+    std::Recipe {
+        package = std::Package {
+            id = "application";
+            dependencies = [std::Dependency { recipe = library; }];
+        };
+        acquisition = None; build = None; build_inputs = None; commands = [];
+    }
+}
+
+mod factories::library { pub fn recipe() -> std::Recipe { project::make_library() } }
+mod factories::application { pub fn recipe() -> std::Recipe { project::make_application() } }
+pub publish(factories, recipe): std::Recipe;

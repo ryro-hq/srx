@@ -1,5 +1,8 @@
 use super::{BTreeMap, Checker, Context, RawTy, Ty};
-use crate::{ItemId, LocalId, ModuleId, ResolvedProgram, SourceDomainId, Span};
+use crate::{
+    resolver::ItemId, resolver::LocalId, resolver::ModuleId, resolver::ResolvedProgram,
+    source::SourceDomainId, source::Span,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FieldInfo {
@@ -27,18 +30,43 @@ pub(crate) struct RepresentationAuthority {
 }
 
 impl RepresentationAuthority {
+    pub(super) fn for_struct(info: &super::StructInfo<'_>) -> Self {
+        Self {
+            domain: info.context.domain,
+            module: info.context.module,
+            opaque: info.declaration.opaque,
+            owner_parameter: info
+                .declaration
+                .type_parameters
+                .iter()
+                .position(|parameter| parameter.owner),
+        }
+    }
+
+    pub(super) const fn open(context: Context) -> Self {
+        Self {
+            domain: context.domain,
+            module: context.module,
+            opaque: false,
+            owner_parameter: None,
+        }
+    }
+
     pub fn permits(&self, program: &ResolvedProgram, ty: &Ty, requester: ModuleId) -> bool {
         let Some(context) = program.modules().nth(requester.index()) else {
             return false;
         };
         let descendant = |module: ModuleId| {
-            program.modules().nth(module.index()).is_some_and(|owner| {
-                context.domain() == owner.domain()
-                    && context
-                        .path()
-                        .segments()
-                        .starts_with(owner.path().segments())
-            })
+            program
+                .modules()
+                .nth(module.index())
+                .is_some_and(|owner| {
+                    context.domain() == owner.domain()
+                        && context
+                            .path()
+                            .segments()
+                            .starts_with(owner.path().segments())
+                })
         };
         if !self.opaque || context.domain() == self.domain && descendant(self.module) {
             return true;
@@ -46,17 +74,24 @@ impl RepresentationAuthority {
         let owner = self
             .owner_parameter
             .and_then(|index| match ty {
-                Ty::Specialization { arguments, .. } => arguments.get(index),
+                Ty::Specialization {
+                    arguments,
+                    ..
+                } => arguments.get(index),
                 _ => None,
             })
-            .and_then(super::types::nominal_head)
+            .and_then(Ty::nominal_head)
             .and_then(|id| program.items().nth(id.index()));
         owner.is_some_and(|owner| owner.domain() == self.domain && descendant(owner.module()))
     }
 }
 
 impl Checker<'_> {
-    pub(super) fn record_arguments(&mut self, item: ItemId, arguments: &[crate::Expression]) {
+    pub(super) fn record_arguments(
+        &mut self,
+        item: ItemId,
+        arguments: &[crate::syntax::Expression],
+    ) {
         if self.cancellation.is_some()
             && let Some(info) = self.functions.get(&item).copied()
         {
@@ -72,11 +107,16 @@ impl Checker<'_> {
         }
     }
     pub(super) fn collect_editor_types(&mut self) {
+        self.collect_published_editor_types();
         if self.cancellation.is_none() {
             return;
         }
         for (id, info) in self.structs.clone() {
-            let raw_fields = self.struct_fields.get(&id).cloned().unwrap_or_default();
+            let raw_fields = self
+                .struct_fields
+                .get(&id)
+                .cloned()
+                .unwrap_or_default();
             let fields = info
                 .declaration
                 .fields
@@ -105,25 +145,20 @@ impl Checker<'_> {
                         .erasures
                         .iter()
                         .any(|rule| rule.target == self.item_identity(id)),
+                    authority: RepresentationAuthority::for_struct(&info),
                     parameters: info.parameters,
                     fields,
                     variants: Vec::new(),
-                    authority: RepresentationAuthority {
-                        domain: info.context.domain,
-                        module: info.context.module,
-                        opaque: info.declaration.opaque,
-                        owner_parameter: info
-                            .declaration
-                            .type_parameters
-                            .iter()
-                            .position(|parameter| parameter.owner),
-                    },
                 },
             );
         }
         for (id, declaration) in self.enums.clone() {
             let parameters = self.nominal_parameters(id);
-            let raw_fields = self.struct_fields.get(&id).cloned().unwrap_or_default();
+            let raw_fields = self
+                .struct_fields
+                .get(&id)
+                .cloned()
+                .unwrap_or_default();
             let mut payloads = raw_fields.iter();
             let variants = declaration
                 .variants
@@ -137,13 +172,17 @@ impl Checker<'_> {
                         .iter()
                         .map(|_| self.retain_symbolic_type(&payloads.next()?.1))
                         .collect::<Option<Vec<_>>>()?;
-                    Some((variant.name.text.clone(), variant.name.span, types))
+                    Some((
+                        variant.name.text.clone(),
+                        variant.name.span,
+                        types,
+                    ))
                 })
                 .collect();
             if !self.reserve_editor_metadata(declaration.name.span) {
                 break;
             }
-            let Context { domain, module } = self.item_context[&id];
+            let context = self.item_context[&id];
             self.editor.shapes.insert(
                 id,
                 NominalShape {
@@ -151,14 +190,43 @@ impl Checker<'_> {
                     parameters,
                     variants,
                     fields: Vec::new(),
-                    authority: RepresentationAuthority {
-                        domain,
-                        module,
-                        opaque: false,
-                        owner_parameter: None,
-                    },
+                    authority: RepresentationAuthority::open(context),
                 },
             );
+        }
+    }
+
+    fn collect_published_editor_types(&mut self) {
+        let program = self.program;
+        for item in program.items() {
+            let Some(member) = program.published_member(item.id()) else {
+                continue;
+            };
+            let span = item.span();
+            if !self.charge(span) || !self.reserve_metadata(span) {
+                return;
+            }
+            self.collection_metadata_units += 1;
+            let ty = self.published_member_type(member.factory(), span);
+            let available = self.limits.max_metadata_units.saturating_sub(
+                self.collection_metadata_units
+                    .saturating_add(self.expressions.len())
+                    .saturating_add(self.patterns.len())
+                    .saturating_add(self.prior_metadata),
+            );
+            let mut remaining = available;
+            let Some(retained) = substitute_type(&ty, &BTreeMap::new(), &mut remaining) else {
+                self.exhausted = true;
+                self.error("checked metadata limit reached", span);
+                return;
+            };
+            self.collection_metadata_units += available - remaining;
+            self.published_types.insert(item.id(), retained);
+            if self.reserve_editor_metadata(span)
+                && let Some(ty) = self.retain_editor_type(&ty)
+            {
+                self.editor.outputs.insert(item.id(), ty);
+            }
         }
     }
 
@@ -208,7 +276,9 @@ impl Checker<'_> {
                 before,
                 span,
                 super::bodies::EffectOperation::EditorType(
-                    self.editor.units.saturating_sub(before.editor_metadata),
+                    self.editor
+                        .units
+                        .saturating_sub(before.editor_metadata),
                 ),
             );
         }
@@ -271,7 +341,11 @@ pub(crate) fn substitute_type(
         Ty::Parameter(id) if substitutions.contains_key(id) => {
             substitute_type(&substitutions[id], &BTreeMap::new(), budget)?
         }
-        Ty::List(inner) => Ty::List(Box::new(substitute_type(inner, substitutions, budget)?)),
+        Ty::List(inner) => Ty::List(Box::new(substitute_type(
+            inner,
+            substitutions,
+            budget,
+        )?)),
         Ty::Specialization {
             template,
             arguments,
@@ -296,8 +370,4 @@ pub(crate) fn substitute_type(
         },
         _ => ty.clone(),
     })
-}
-
-pub(crate) fn nominal_id(ty: &Ty) -> Option<ItemId> {
-    super::types::nominal_head(ty)
 }

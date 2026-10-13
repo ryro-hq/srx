@@ -3,7 +3,7 @@ use std::{
     fmt,
 };
 
-use crate::{ResolvedItem, SourceDomainId};
+use crate::{resolver::ResolvedItem, source::SourceDomainId};
 
 /// Maximum checker operations under the default policy.
 pub const MAX_CHECK_WORK: usize = 4_000_000;
@@ -110,8 +110,12 @@ impl CanonicalItemIdentity {
 pub enum PolicyError {
     TooManyEntries,
     TooManyBytes,
-    ConflictingPredicate { name: String },
-    ConflictingScope { name: String },
+    ConflictingPredicate {
+        name: String,
+    },
+    ConflictingScope {
+        name: String,
+    },
     InvalidName,
     InvalidItemIdentity,
 }
@@ -121,13 +125,23 @@ impl fmt::Display for PolicyError {
         match self {
             Self::TooManyEntries => write!(formatter, "checking policy has too many entries"),
             Self::TooManyBytes => write!(formatter, "checking policy is too large"),
-            Self::ConflictingPredicate { name } => {
-                write!(formatter, "predicate `{name}` has conflicting declarations")
+            Self::ConflictingPredicate {
+                name,
+            } => {
+                write!(
+                    formatter,
+                    "predicate `{name}` has conflicting declarations"
+                )
             }
-            Self::ConflictingScope { name } => {
+            Self::ConflictingScope {
+                name,
+            } => {
                 write!(formatter, "scope `{name}` has conflicting rules")
             }
-            Self::InvalidName => write!(formatter, "policy name is not a canonical source path"),
+            Self::InvalidName => write!(
+                formatter,
+                "policy name is not a canonical source path"
+            ),
             Self::InvalidItemIdentity => write!(formatter, "canonical item path cannot be empty"),
         }
     }
@@ -189,7 +203,9 @@ impl CheckPolicy {
             return if *existing == input {
                 Ok(self)
             } else {
-                Err(PolicyError::ConflictingPredicate { name })
+                Err(PolicyError::ConflictingPredicate {
+                    name,
+                })
             };
         }
         self.reserve_entry(name.len())?;
@@ -217,7 +233,9 @@ impl CheckPolicy {
             return if *existing == rule {
                 Ok(self)
             } else {
-                Err(PolicyError::ConflictingScope { name })
+                Err(PolicyError::ConflictingScope {
+                    name,
+                })
             };
         }
         if !self.scopes.contains_key(&name) {
@@ -232,7 +250,10 @@ impl CheckPolicy {
         source: CanonicalItemIdentity,
         target: CanonicalItemIdentity,
     ) -> Result<Self, PolicyError> {
-        let rule = ErasureRule { source, target };
+        let rule = ErasureRule {
+            source,
+            target,
+        };
         if !self.erasures.contains(&rule) {
             self.reserve_entry(
                 rule.source
@@ -249,14 +270,18 @@ impl CheckPolicy {
     }
 
     pub fn predicates(&self) -> impl ExactSizeIterator<Item = PredicateRule> + '_ {
-        self.predicates.iter().map(|(name, &input)| PredicateRule {
-            name: name.clone(),
-            input,
-        })
+        self.predicates
+            .iter()
+            .map(|(name, &input)| PredicateRule {
+                name: name.clone(),
+                input,
+            })
     }
 
     pub fn scopes(&self) -> impl ExactSizeIterator<Item = (&String, ScopeRule)> {
-        self.scopes.iter().map(|(name, &rule)| (name, rule))
+        self.scopes
+            .iter()
+            .map(|(name, &rule)| (name, rule))
     }
 
     pub(crate) fn scope_rule(&self, name: &str) -> Option<ScopeRule> {

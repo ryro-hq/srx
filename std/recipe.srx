@@ -10,8 +10,30 @@ mod std::recipe {
         output: OutputName;
     }
 
+    opaque struct CommandRef<R> {
+        recipe: RecipeRef<R>;
+        name: CommandName;
+    }
+
+    pub fn recipe_command<R>(recipe: RecipeRef<R>, name: CommandName) -> CommandRef<R> {
+        CommandRef<R> { recipe = recipe; name = name; }
+    }
+
+    pub fn command_recipe<R>(command: CommandRef<R>) -> RecipeRef<R> { command.recipe }
+    pub fn command_name<R>(command: CommandRef<R>) -> CommandName { command.name }
+
     pub fn recipe_ref<R>(factory: fn() -> R) -> RecipeRef<R> {
         RecipeRef<R> { factory = memoize(factory); }
+    }
+
+    // Explicit dependency injection: a consumer chooses the argument once,
+    // then publishes the resulting zero-argument factory as a RecipeRef.
+    pub fn bind_recipe<P, R>(factory: fn(RecipeRef<P>) -> R, provider: RecipeRef<P>) -> fn() -> R {
+        fn() -> R { factory(provider) }
+    }
+
+    pub fn bind_output<P, R>(factory: fn(OutputRef<P>) -> R, output: OutputRef<P>) -> fn() -> R {
+        fn() -> R { factory(output) }
     }
 
     pub fn recipe_factory<R>(recipe: RecipeRef<R>) -> fn() -> R {

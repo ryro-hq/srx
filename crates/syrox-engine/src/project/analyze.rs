@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use syrox_lang::{
-    RealizedRootOutcome, SourceSet, check, evaluate_with_limits, parse_sources, resolve,
+    checker::check, evaluator::RealizedRootOutcome, evaluator::evaluate_with_limits,
+    resolver::resolve, source::SourceSet, syntax::parse_sources,
 };
 
 use super::{CheckConfiguration, CheckFailure, CheckReport, LoadedProject, ValidatedProject};
@@ -18,7 +19,9 @@ pub(super) fn validate_loaded(
         &configuration.environment,
         configuration.evaluation_limits,
     )
-    .map_err(|source| CheckFailure::EvaluationSetup { source })?;
+    .map_err(|source| CheckFailure::EvaluationSetup {
+        source,
+    })?;
     require_success(&loaded, &realized)?;
     Ok(ValidatedProject {
         loaded,
@@ -30,7 +33,7 @@ pub(super) fn validate_loaded(
 pub(super) fn check_loaded(
     loaded: &LoadedProject,
     configuration: &CheckConfiguration,
-) -> Result<syrox_lang::CheckedProgram, CheckFailure> {
+) -> Result<syrox_lang::checker::CheckedProgram, CheckFailure> {
     let input = &loaded.sources;
     let parsed = parse_sources(input).map_err(|errors| CheckFailure::Diagnostics {
         input: input.clone(),
@@ -48,7 +51,7 @@ pub(super) fn check_loaded(
 
 pub(super) fn require_success(
     loaded: &LoadedProject,
-    realized: &syrox_lang::RealizedProgram,
+    realized: &syrox_lang::evaluator::RealizedProgram,
 ) -> Result<(), CheckFailure> {
     if !realized.is_success() {
         let errors = realized.diagnostics().cloned().collect();
@@ -91,7 +94,9 @@ pub(super) fn check_sources(
         &configuration.environment,
         configuration.evaluation_limits,
     )
-    .map_err(|source| CheckFailure::EvaluationSetup { source })?;
+    .map_err(|source| CheckFailure::EvaluationSetup {
+        source,
+    })?;
     let realized_roots = realized.roots().len();
     if !realized.is_success() {
         let errors = realized.diagnostics().cloned().collect();

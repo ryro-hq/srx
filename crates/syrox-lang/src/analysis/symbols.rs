@@ -2,8 +2,9 @@ use std::collections::BTreeMap;
 
 use super::SemanticAnalysis;
 use crate::{
-    AnalysisCancellation, AnalysisCancelled, Elaboration, FieldInfo, ItemKind, LocalKind,
-    ResolvedItemKind, ResolvedTarget, SourceId, Span, Ty,
+    analysis::AnalysisCancellation, analysis::AnalysisCancelled, checker::Elaboration,
+    checker::FieldInfo, checker::Ty, resolver::LocalKind, resolver::ResolvedItemKind,
+    resolver::ResolvedTarget, source::SourceId, source::Span, syntax::ItemKind,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,6 +42,8 @@ pub struct SemanticOccurrence {
 pub(super) struct SymbolIndex {
     pub symbols: BTreeMap<Span, SemanticSymbol>,
     pub occurrences: Vec<SemanticOccurrence>,
+    members: BTreeMap<crate::resolver::ItemId, SemanticSymbol>,
+    member_occurrences: BTreeMap<Span, crate::resolver::ItemId>,
     retained_text: usize,
     truncated: bool,
 }
@@ -71,7 +74,11 @@ impl SemanticAnalysis {
         &self,
         cancel: &AnalysisCancellation,
     ) -> Result<impl Iterator<Item = &SemanticSymbol>, AnalysisCancelled> {
-        Ok(self.symbol_index(cancel)?.symbols.values())
+        let index = self.symbol_index(cancel)?;
+        Ok(index
+            .symbols
+            .values()
+            .chain(index.members.values()))
     }
 
     pub fn occurrences(
@@ -97,22 +104,33 @@ impl SemanticAnalysis {
                     && offset < entry.span.end()
             })
             .min_by_key(|entry| entry.span.end() - entry.span.start());
-        Ok(found.and_then(|entry| index.symbols.get(&entry.declaration)))
+        Ok(found.and_then(|entry| {
+            index
+                .member_occurrences
+                .get(&entry.span)
+                .and_then(|item| index.members.get(item))
+                .or_else(|| index.symbols.get(&entry.declaration))
+        }))
     }
 
     pub fn fields_at(&self, source: SourceId, offset: u32, ty: &Ty) -> Vec<FieldInfo> {
-        let Some(shape) = crate::checker::nominal_id(ty).and_then(|id| self.editor.shapes.get(&id))
-        else {
+        let Some(shape) = Ty::nominal_head(ty).and_then(|id| self.editor.shapes.get(&id)) else {
             return Vec::new();
         };
         let Some(module) = self.resolved.editor_module_at(source, offset) else {
             return Vec::new();
         };
-        if !shape.authority.permits(&self.resolved, ty, module) {
+        if !shape
+            .authority
+            .permits(&self.resolved, ty, module)
+        {
             return Vec::new();
         }
         let arguments = match ty {
-            Ty::Specialization { arguments, .. } => arguments.as_slice(),
+            Ty::Specialization {
+                arguments,
+                ..
+            } => arguments.as_slice(),
             _ => &[],
         };
         let substitutions = shape
@@ -138,7 +156,7 @@ impl SemanticAnalysis {
     /// Fields permitted in a literal constructor, including policy restrictions
     /// that do not apply to projection. Types come from checked specializations.
     pub fn construction_fields_at(&self, source: SourceId, offset: u32, ty: &Ty) -> Vec<FieldInfo> {
-        if crate::checker::nominal_id(ty)
+        if Ty::nominal_head(ty)
             .and_then(|id| self.editor.shapes.get(&id))
             .is_none_or(|shape| !shape.literal_constructor)
         {
@@ -147,7 +165,10 @@ impl SemanticAnalysis {
         self.fields_at(source, offset, ty)
     }
 
-    pub fn variants(&self, enumeration: crate::ItemId) -> impl Iterator<Item = (&str, Span)> {
+    pub fn variants(
+        &self,
+        enumeration: crate::resolver::ItemId,
+    ) -> impl Iterator<Item = (&str, Span)> {
         self.editor
             .shapes
             .get(&enumeration)
@@ -160,7 +181,7 @@ impl SemanticAnalysis {
             })
     }
 
-    pub fn output_type(&self, id: crate::ItemId) -> Option<&Ty> {
+    pub fn output_type(&self, id: crate::resolver::ItemId) -> Option<&Ty> {
         self.editor.outputs.get(&id)
     }
 
@@ -175,15 +196,22 @@ impl SemanticAnalysis {
         let mut index = SymbolIndex::default();
         self.index_declarations(&mut index, cancel)?;
         self.index_references(&mut index, cancel)?;
-        index
-            .occurrences
-            .sort_by_key(|entry| (entry.span.source_id(), entry.span.start(), entry.span.end()));
+        index.occurrences.sort_by_key(|entry| {
+            (
+                entry.span.source_id(),
+                entry.span.start(),
+                entry.span.end(),
+            )
+        });
         index
             .occurrences
             .dedup_by_key(|entry| (entry.span, entry.declaration));
         cancel.check()?;
         let _ = self.symbols.set(index);
-        Ok(self.symbols.get().expect("symbol index initialized"))
+        Ok(self
+            .symbols
+            .get()
+            .expect("symbol index initialized"))
     }
 
     fn index_declarations(
@@ -193,6 +221,22 @@ impl SemanticAnalysis {
     ) -> Result<(), AnalysisCancelled> {
         for item in self.items() {
             cancel.check()?;
+            if let Some(member) = self.resolved.published_member(item.id()) {
+                if let Some(origin) = self.items().nth(member.factory().index()) {
+                    index.add_member(
+                        item.id(),
+                        item.path()
+                            .segments()
+                            .last()
+                            .cloned()
+                            .unwrap_or_default(),
+                        origin.span(),
+                        self.output_type(item.id()).cloned(),
+                        self.documentation_before(origin.span()),
+                    );
+                }
+                continue;
+            }
             let kind = match item.kind() {
                 ResolvedItemKind::Function => SemanticSymbolKind::Function,
                 ResolvedItemKind::Struct => SemanticSymbolKind::Struct,
@@ -201,7 +245,11 @@ impl SemanticAnalysis {
                 _ => SemanticSymbolKind::Type,
             };
             index.add(
-                item.path().segments().last().cloned().unwrap_or_default(),
+                item.path()
+                    .segments()
+                    .last()
+                    .cloned()
+                    .unwrap_or_default(),
                 item.span(),
                 kind,
                 self.function_type(item.id())
@@ -220,7 +268,13 @@ impl SemanticAnalysis {
             let ty = self.local_type(local.id()).cloned().or_else(|| {
                 (local.kind() == LocalKind::TypeParameter).then_some(Ty::Parameter(local.id()))
             });
-            index.add(local.name().into(), local.span(), kind, ty, String::new());
+            index.add(
+                local.name().into(),
+                local.span(),
+                kind,
+                ty,
+                String::new(),
+            );
         }
         for (id, shape) in &self.editor.shapes {
             cancel.check()?;
@@ -297,12 +351,18 @@ impl SemanticAnalysis {
             cancel.check()?;
             let target = match reference.target() {
                 ResolvedTarget::Item(id) => {
-                    self.items().nth(id.index()).map(crate::ResolvedItem::span)
+                    let origin = self
+                        .resolved
+                        .published_member(*id)
+                        .map_or(*id, crate::resolver::PublishedMember::factory);
+                    self.items()
+                        .nth(origin.index())
+                        .map(crate::resolver::ResolvedItem::span)
                 }
                 ResolvedTarget::Local(id) => self
                     .locals()
                     .nth(id.index())
-                    .map(crate::ResolvedLocal::span),
+                    .map(crate::resolver::ResolvedLocal::span),
                 ResolvedTarget::EnumVariant {
                     enumeration,
                     index: variant,
@@ -315,12 +375,18 @@ impl SemanticAnalysis {
                 _ => None,
             };
             if let Some(target) = target {
-                let span = if reference.kind() == crate::ReferenceKind::Interpolation {
+                let span = if reference.kind() == crate::resolver::ReferenceKind::Interpolation {
                     self.first_name(reference.span())
                 } else {
                     self.last_name(reference.span())
                 };
-                index.reference(span, target);
+                if let ResolvedTarget::Item(item) = reference.target()
+                    && self.resolved.published_member(*item).is_some()
+                {
+                    index.member_reference(span, *item);
+                } else {
+                    index.reference(span, target);
+                }
             }
         }
         for pattern in &self.editor.patterns {
@@ -420,6 +486,57 @@ impl SemanticAnalysis {
 }
 
 impl SymbolIndex {
+    fn add_member(
+        &mut self,
+        item: crate::resolver::ItemId,
+        name: String,
+        declaration: Span,
+        ty: Option<Ty>,
+        documentation: String,
+    ) {
+        let bytes = name.len().saturating_add(documentation.len());
+        if self
+            .symbols
+            .len()
+            .saturating_add(self.members.len())
+            >= MAX_SYMBOLS
+            || bytes > MAX_SYMBOL_TEXT.saturating_sub(self.retained_text)
+        {
+            self.truncated = true;
+            return;
+        }
+        self.retained_text += bytes;
+        self.members.insert(
+            item,
+            SemanticSymbol {
+                name,
+                declaration,
+                kind: SemanticSymbolKind::Variable,
+                ty,
+                documentation,
+            },
+        );
+    }
+
+    fn member_reference(&mut self, span: Span, item: crate::resolver::ItemId) {
+        if self.occurrences.len() >= MAX_OCCURRENCES {
+            self.truncated = true;
+            return;
+        }
+        if span.start() == span.end() {
+            return;
+        }
+        if let Some(symbol) = self.members.get(&item) {
+            self.occurrences.push(SemanticOccurrence {
+                span,
+                declaration: symbol.declaration,
+                kind: symbol.kind,
+                is_declaration: false,
+            });
+            self.member_occurrences.insert(span, item);
+        }
+    }
+
     fn add(
         &mut self,
         name: String,

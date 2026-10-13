@@ -1,0 +1,99 @@
+mod std::deployment {
+    value ServiceId(str);
+    value ConfigPath(str);
+    value ConfigText(str);
+
+    // Pure configuration data: paths are logical and private to each service
+    // instance. Text is public plan content, never a secret or an executed script.
+    struct ConfigFile {
+        path: ConfigPath;
+        text: ConfigText;
+    }
+
+    // A selection retains one declared output. Only explicitly named commands
+    // are exposed; an empty list is a data selection, not an executable default.
+    struct PackageSelection {
+        output: OutputRef<Recipe>;
+        commands: [CommandName] = [];
+    }
+
+    pub fn select_output(recipe: RecipeRef<Recipe>, output: OutputName) -> PackageSelection {
+        PackageSelection { output = recipe_output(recipe, output); }
+    }
+
+    // Visible convenience default: the out output, without command exposure.
+    pub fn select_package(recipe: RecipeRef<Recipe>) -> PackageSelection {
+        select_output(recipe, "out")
+    }
+
+    pub fn select_command(recipe: RecipeRef<Recipe>, output: OutputName, command: CommandName) -> PackageSelection {
+        PackageSelection { output = recipe_output(recipe, output); commands = [command]; }
+    }
+
+    value SecretName(str);
+    value CommandLiteral(str);
+    value CommandEnvironmentName(str);
+
+    enum CommandArgument {
+        Literal(CommandLiteral),
+        File(ConfigPath),
+        StateDirectory,
+        SecretFile(SecretName),
+    }
+
+    struct CommandEnvironment {
+        name: CommandEnvironmentName;
+        argument: CommandArgument;
+    }
+
+    struct ServiceCommand {
+        name: CommandName;
+        command: CommandRef<Recipe>;
+        arguments: [CommandArgument] = [];
+        environment: [CommandEnvironment] = [];
+        expose: Option<CommandName> = Option::None;
+    }
+
+    value RestartDelay(int);
+    value RestartWindow(int);
+    value RestartBurst(int);
+    struct RestartLimits {
+        delay_seconds: RestartDelay;
+        window_seconds: RestartWindow;
+        burst: RestartBurst;
+    }
+    // Burst limits starts in one window, not the total number of retries.
+    enum ProcessRestart { Never, OnFailure(RestartLimits) }
+
+    struct ServiceProcess {
+        id: ServiceId;
+        command: CommandName;
+        restart: ProcessRestart = ProcessRestart::Never;
+    }
+
+    // A configuration-only service may have no package dependencies or files.
+    // These declarations describe a plan; they do not write files or start processes.
+    // Disposable writable data owned by one managed Shell session. No persistent
+    // state or secret semantics are implied; contents are never plan/Store bytes.
+    enum ServiceState { None, Session }
+
+    struct Service {
+        id: ServiceId;
+        pkgs: [PackageSelection] = [];
+        files: [ConfigFile] = [];
+        commands: [ServiceCommand] = [];
+        processes: [ServiceProcess] = [];
+        state: ServiceState = ServiceState::None;
+        secrets: [SecretName] = [];
+    }
+
+    struct Os {
+        pkgs: [PackageSelection];
+        services: [Service];
+    }
+
+    struct Shell {
+        pkgs: [PackageSelection];
+        services: [Service];
+    }
+}

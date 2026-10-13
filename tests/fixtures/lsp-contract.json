@@ -1,0 +1,309 @@
+{
+  "revision": 1,
+  "descriptors": {
+    "syroxVirtualSource": {
+      "revision": 1,
+      "scheme": "syrox-source",
+      "request": "syrox/readSource"
+    },
+    "syroxProjectStatus": {
+      "revision": 1,
+      "request": "syrox/projectStatus",
+      "notification": "syrox/projectStatus"
+    }
+  },
+  "negotiation": [
+    {
+      "name": "supported",
+      "experimental": {
+        "syroxVirtualSource": {
+          "revision": 1,
+          "scheme": "syrox-source",
+          "request": "syrox/readSource"
+        },
+        "syroxProjectStatus": {
+          "revision": 1,
+          "request": "syrox/projectStatus",
+          "notification": "syrox/projectStatus"
+        }
+      },
+      "source": true,
+      "status": true
+    },
+    {
+      "name": "absent",
+      "experimental": {},
+      "source": false,
+      "status": false
+    },
+    {
+      "name": "syroxVirtualSource revision",
+      "experimental": {
+        "syroxVirtualSource": {
+          "revision": 2,
+          "scheme": "syrox-source",
+          "request": "syrox/readSource"
+        },
+        "syroxProjectStatus": {
+          "revision": 1,
+          "request": "syrox/projectStatus",
+          "notification": "syrox/projectStatus"
+        }
+      },
+      "source": false,
+      "status": true
+    },
+    {
+      "name": "syroxVirtualSource scheme",
+      "experimental": {
+        "syroxVirtualSource": {
+          "revision": 1,
+          "scheme": "unknown",
+          "request": "syrox/readSource"
+        },
+        "syroxProjectStatus": {
+          "revision": 1,
+          "request": "syrox/projectStatus",
+          "notification": "syrox/projectStatus"
+        }
+      },
+      "source": false,
+      "status": true
+    },
+    {
+      "name": "syroxVirtualSource request",
+      "experimental": {
+        "syroxVirtualSource": {
+          "revision": 1,
+          "scheme": "syrox-source",
+          "request": "unknown"
+        },
+        "syroxProjectStatus": {
+          "revision": 1,
+          "request": "syrox/projectStatus",
+          "notification": "syrox/projectStatus"
+        }
+      },
+      "source": false,
+      "status": true
+    },
+    {
+      "name": "syroxProjectStatus revision",
+      "experimental": {
+        "syroxVirtualSource": {
+          "revision": 1,
+          "scheme": "syrox-source",
+          "request": "syrox/readSource"
+        },
+        "syroxProjectStatus": {
+          "revision": 2,
+          "request": "syrox/projectStatus",
+          "notification": "syrox/projectStatus"
+        }
+      },
+      "source": true,
+      "status": false
+    },
+    {
+      "name": "syroxProjectStatus request",
+      "experimental": {
+        "syroxVirtualSource": {
+          "revision": 1,
+          "scheme": "syrox-source",
+          "request": "syrox/readSource"
+        },
+        "syroxProjectStatus": {
+          "revision": 1,
+          "request": "unknown",
+          "notification": "syrox/projectStatus"
+        }
+      },
+      "source": true,
+      "status": false
+    },
+    {
+      "name": "syroxProjectStatus notification",
+      "experimental": {
+        "syroxVirtualSource": {
+          "revision": 1,
+          "scheme": "syrox-source",
+          "request": "syrox/readSource"
+        },
+        "syroxProjectStatus": {
+          "revision": 1,
+          "request": "syrox/projectStatus",
+          "notification": "unknown"
+        }
+      },
+      "source": true,
+      "status": false
+    },
+    {
+      "name": "syroxProjectStatus extra",
+      "experimental": {
+        "syroxVirtualSource": {
+          "revision": 1,
+          "scheme": "syrox-source",
+          "request": "syrox/readSource"
+        },
+        "syroxProjectStatus": {
+          "revision": 1,
+          "request": "syrox/projectStatus",
+          "notification": "syrox/projectStatus",
+          "extra": true
+        }
+      },
+      "source": true,
+      "status": false
+    }
+  ],
+  "coverage": [
+    {
+      "name": "semantic",
+      "currentVersion": 7,
+      "status": {
+        "revision": 1,
+        "generation": 10,
+        "state": "semantic",
+        "metadataTruncated": false,
+        "lockObservation": "current",
+        "documents": [
+          {
+            "uri": "file:///contract/main.srx",
+            "version": 7,
+            "coverage": "semantic"
+          }
+        ]
+      },
+      "coverage": "semantic"
+    },
+    {
+      "name": "syntax",
+      "currentVersion": 7,
+      "status": {
+        "revision": 1,
+        "generation": 10,
+        "state": "semantic",
+        "metadataTruncated": false,
+        "lockObservation": "current",
+        "documents": [
+          {
+            "uri": "file:///contract/main.srx",
+            "version": 7,
+            "coverage": "syntax"
+          }
+        ]
+      },
+      "coverage": "syntax"
+    },
+    {
+      "name": "obsolete version",
+      "currentVersion": 7,
+      "status": {
+        "revision": 1,
+        "generation": 10,
+        "state": "semantic",
+        "metadataTruncated": false,
+        "lockObservation": "current",
+        "documents": [
+          {
+            "uri": "file:///contract/main.srx",
+            "version": 6,
+            "coverage": "semantic"
+          }
+        ]
+      },
+      "coverage": "syntax"
+    },
+    {
+      "name": "unversioned",
+      "currentVersion": 7,
+      "status": {
+        "revision": 1,
+        "generation": 10,
+        "state": "semantic",
+        "metadataTruncated": false,
+        "lockObservation": "current",
+        "documents": [
+          {
+            "uri": "file:///contract/main.srx",
+            "version": null,
+            "coverage": "semantic"
+          }
+        ]
+      },
+      "coverage": "syntax"
+    },
+    {
+      "name": "pending",
+      "currentVersion": 7,
+      "status": {
+        "revision": 1,
+        "generation": 10,
+        "state": "pending",
+        "metadataTruncated": false,
+        "lockObservation": "current",
+        "documents": [
+          {
+            "uri": "file:///contract/main.srx",
+            "version": 7,
+            "coverage": "semantic"
+          }
+        ]
+      },
+      "coverage": "syntax"
+    },
+    {
+      "name": "unavailable",
+      "currentVersion": 7,
+      "status": {
+        "revision": 1,
+        "generation": 10,
+        "state": "unavailable",
+        "metadataTruncated": false,
+        "lockObservation": "current",
+        "documents": [
+          {
+            "uri": "file:///contract/main.srx",
+            "version": 7,
+            "coverage": "semantic"
+          }
+        ]
+      },
+      "coverage": "syntax"
+    }
+  ],
+  "virtualSource": {
+    "uri": "syrox-source:fixture",
+    "text": "value Fixture(int)"
+  },
+  "formatting": {
+    "capability": "documentFormattingProvider",
+    "request": "textDocument/formatting",
+    "openDocumentsOnly": true,
+    "indentSpaces": 4,
+    "invalidResult": [],
+    "virtualResult": [],
+    "obsoleteResult": [],
+    "cancelError": -32800,
+    "unopenedError": -32602,
+    "example": {
+      "source": "pub publish(factories,recipe):std::Recipe;",
+      "formatted": "pub publish(factories, recipe): std::Recipe;\n"
+    }
+  },
+  "publication": {
+    "main": "inputs { recipes = \"modules:recipes\"; } pub publish(recipes, recipe): std::Recipe; fn selected() -> std::RecipeRef<std::Recipe> { project::hello }",
+    "factory": "pub fn recipe() -> std::Recipe { std::Recipe { package = std::Package { id = \"hello\"; dependencies = []; }; } }",
+    "factoryPath": "recipes/hello.srx",
+    "member": "hello",
+    "reference": "project::hello",
+    "legacyStdAbsent": [
+      "PackageSet",
+      "package_set",
+      "package_get",
+      "DefaultBuild",
+      "DefaultCommand"
+    ]
+  }
+}

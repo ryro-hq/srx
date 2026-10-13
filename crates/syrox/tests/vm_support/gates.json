@@ -1,0 +1,610 @@
+[
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "build::cache::tests::real_hello_runs_after_collecting_only_the_provider_root",
+    "category": "external",
+    "group": "build",
+    "reason": "set SYROX_RETAINED_STORE, SYROX_RETAINED_HELLO_RECEIPT, SYROX_RETAINED_GLIBC_RECEIPT, SYROX_RETAINED_SRX and SYROX_RETAINED_CATALOG"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "build::cache::tests::root_selection_profile_growing_store",
+    "category": "benchmark",
+    "group": "build",
+    "reason": "explicit Store root-scan profile; publishes 1024 results"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "build::bootstrap::linux::tests::inventory_profile_usr",
+    "category": "benchmark",
+    "group": "build",
+    "reason": "explicit /usr inventory profiling; reads the complete mutable host toolchain"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "build::bootstrap::linux::tests::retained_build_with_inputs_costs_are_measured_separately",
+    "category": "benchmark",
+    "group": "build",
+    "reason": "set SYROX_BENCH_STORE, SYROX_BENCH_RECEIPT and SYROX_BENCH_SRX for a retained application"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "build::managed::cgroup::tests::host_pinned_events_observe_alive_empty_and_removed",
+    "category": "gate",
+    "group": "cgroup",
+    "reason": "requires explicitly delegated cgroup v2 and host helper; validates Linux v6.12 ENODEV semantics"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "build::managed::execution::tests::host_managed_directory_build_publishes_verified_artifact_without_toolchain",
+    "category": "gate",
+    "group": "build",
+    "reason": "requires pinned static worker, private socket parent, Linux pidfs/user namespaces and systemd user >=254 with unit refs and cgroup settlement"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "build::managed::namespace_identity::tests::kernel_pidfs_identity_is_stable_across_independent_opens",
+    "category": "qualification",
+    "group": "build",
+    "reason": "requires pidfs and PIDFD_GET namespace ioctls on a real kernel runner"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "acquire::github::tests::github_live_resolves_commit_verifies_archive_and_reopens_offline",
+    "category": "network",
+    "group": "github",
+    "reason": "opt-in live GitHub API/codeload HTTPS transport proof"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "execution::launcher::coordinator::tests::coordinator_death_closes_owner_and_recovery_does_not_restart_it",
+    "category": "gate",
+    "group": "launcher",
+    "reason": "requires explicit SYROX_OWNER_WORKER and SYROX_SYSTEMD_USER_BUS with authorized user manager"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "execution::launcher::coordinator::tests::owner_coordinator_child_fixture",
+    "category": "fixture",
+    "group": "launcher",
+    "reason": "internal subprocess fixture; run through coordinator_death gate"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "execution::launcher::coordinator::tests::owner_retains_store_rejects_replay_and_closes_admission_before_stop",
+    "category": "gate",
+    "group": "launcher",
+    "reason": "requires explicit SYROX_OWNER_WORKER and SYROX_SYSTEMD_USER_BUS with authorized user manager"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "execution::launcher::os::tests::restart::automatic_restart_reopens_pins_limits_attempts_and_refuses_revoked_payload",
+    "category": "gate",
+    "group": "launcher",
+    "reason": "real systemd/user namespaces; explicit SYROX_RESTART_{WORKER,PAYLOAD} and _SHA256, SYROX_RESTART_PARENT, SYROX_RESTART_UNITS, SYROX_SYSTEMD_USER_BUS; retains evidence"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "execution::launcher::service_coordinator::tests::explicit_service_stop_settles_namespace_before_releasing_retention",
+    "category": "gate",
+    "group": "launcher",
+    "reason": "requires explicit SYROX_OWNER_WORKER, SYROX_SESSION_PAYLOAD and SYROX_SYSTEMD_USER_BUS; namespace-capable authorized user manager"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "execution::launcher::service_coordinator::tests::owner_stop_terminates_configured_service_and_reaps_its_child",
+    "category": "gate",
+    "group": "launcher",
+    "reason": "requires explicit SYROX_OWNER_WORKER, SYROX_SESSION_PAYLOAD and SYROX_SYSTEMD_USER_BUS; namespace-capable authorized user manager"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "execution::launcher::service_coordinator::tests::restart::durable_closing_in_restart_interval_prevents_next_payload",
+    "category": "gate",
+    "group": "shell_restart",
+    "reason": "real authorized user systemd and namespace/IPC required; explicit SYROX_OWNER_WORKER/_SHA256, SYROX_SESSION_PAYLOAD/_SHA256, SYROX_SYSTEMD_USER_BUS; restart78 fixture, no fallback"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "execution::launcher::service_coordinator::tests::restart::payload_78_restarts_with_distinct_admission_then_hits_burst_limit",
+    "category": "gate",
+    "group": "shell_restart",
+    "reason": "real authorized user systemd and namespace/IPC required; explicit SYROX_OWNER_WORKER/_SHA256, SYROX_SESSION_PAYLOAD/_SHA256, SYROX_SYSTEMD_USER_BUS; restart78 fixture, no fallback"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "realize::outputs::tests::host_named_output_survives_evaluation_build_cache_and_generation_handoff",
+    "category": "gate",
+    "group": "realize",
+    "reason": "requires syrox-worker, user systemd, Bubblewrap, Landlock and the /usr toolchain"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "runtime::tests::host_dynamic_runtime_uses_only_declared_loader_and_library",
+    "category": "gate",
+    "group": "runtime",
+    "reason": "requires syrox-worker, user namespaces, GCC and a Linux x86_64 bootstrap loader"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "runtime::tests::host_managed_foreground_preserves_identity_minimal_environment_and_exit_status",
+    "category": "gate",
+    "group": "runtime",
+    "reason": "requires explicit SYROX_OWNER_WORKER and SYROX_SESSION_PAYLOAD candidates, nonroot UID and Linux user/PID/mount namespaces"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "runtime::tests::host_namespace_init_reaps_orphan_before_main_exit_and_preserves_main_status",
+    "category": "gate",
+    "group": "runtime",
+    "reason": "requires syrox-worker, Linux user/PID namespaces and a host static compiler"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "runtime::tests::host_runtime_cancellation_settles_before_releasing_retention",
+    "category": "gate",
+    "group": "runtime",
+    "reason": "requires syrox-worker, user namespaces and host static GCC"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "runtime::tests::host_runtime_consumes_private_configuration_outside_cwd",
+    "category": "gate",
+    "group": "runtime",
+    "reason": "requires syrox-worker, Linux user namespaces and a host static compiler"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "runtime::tests::host_runtime_payload_owns_terminal_foreground_and_observes_resize",
+    "category": "gate",
+    "group": "runtime",
+    "reason": "requires syrox-worker, Linux user/PID namespaces, devpts and a host static compiler"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "runtime::tests::host_session_ends_descendants_before_the_store_lease_can_be_released",
+    "category": "gate",
+    "group": "runtime",
+    "reason": "requires syrox-worker, user namespaces and a host static compiler"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "runtime::tests::host_static_runtime_mounts_only_the_verified_output_and_preserves_cwd",
+    "category": "gate",
+    "group": "runtime",
+    "reason": "requires syrox-worker beside the test profile directory, user namespaces and static GCC"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "runtime::tests::managed_terminal::managed_terminal_devtty_survives_stdin_redirection",
+    "category": "gate",
+    "group": "runtime",
+    "reason": "requires explicit SYROX_OWNER_WORKER/SYROX_SESSION_PAYLOAD and corresponding _SHA256 pins, nonroot UID and Linux user/PID/mount namespaces"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "runtime::tests::namespace_descendants_are_exited_at_return_not_merely_eventually",
+    "category": "gate",
+    "group": "runtime",
+    "reason": "requires syrox-worker, user namespaces and a host static compiler"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "runtime::tests::native_runtime_refuses_eof_invalid_authorization_and_coordinator_loss",
+    "category": "gate",
+    "group": "runtime",
+    "reason": "requires the release syrox-worker binary, Linux user namespaces and static GCC"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "runtime::tests::native_cancellation_after_pin_prevents_payload_and_settles",
+    "category": "gate",
+    "group": "runtime",
+    "reason": "requires syrox-worker, Linux user and PID namespaces and static GCC"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "runtime::tests::native_cancellation_before_pin_prevents_payload",
+    "category": "gate",
+    "group": "runtime",
+    "reason": "requires syrox-worker, Linux user and PID namespaces and static GCC"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "runtime::tests::source_built_glibc_loader_and_libc_run_from_separate_retained_outputs",
+    "category": "external",
+    "group": "runtime",
+    "reason": "requires SYROX_SOURCE_BUILT_GLIBC_OUTPUT pointing to a source-built x86_64 glibc install, GCC and rootless Bubblewrap"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "deployment::shell::managed::tests::managed_shell_starts_configured_service_and_closes_after_namespace_settlement",
+    "category": "gate",
+    "group": "session",
+    "reason": "requires explicit SYROX_OWNER_WORKER, SYROX_SESSION_PAYLOAD, SYROX_SYSTEMD_USER_BUS and authorized namespace-capable user manager"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "deployment::shell::managed::tests::path::managed_path_root_services_pipeline_redirection_and_private_resources",
+    "category": "gate",
+    "group": "session",
+    "reason": "requires pinned SYROX_OWNER_WORKER and SYROX_PATH_PAYLOAD, explicit SYROX_SYSTEMD_USER_BUS, user manager and authorized IPC/user/PID/mount namespaces"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "deployment::shell::managed::tests::secrets::secret_snapshot_rotation_isolated_between_sessions_and_delivered_readonly",
+    "category": "gate",
+    "group": "session",
+    "reason": "explicit static SYROX_OWNER_WORKER/SYROX_SESSION_PAYLOAD + _SHA256, SYROX_SYSTEMD_USER_BUS, owned0700 SYROX_SESSION_SECRET_PARENT; real manager and namespace runner"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "deployment::shell::managed::tests::state::session_state_persists_between_commands_isolates_sessions_and_closes_after_settlement",
+    "category": "gate",
+    "group": "session",
+    "reason": "explicit static SYROX_OWNER_WORKER/SYROX_SESSION_PAYLOAD plus matching _SHA256, SYROX_SYSTEMD_USER_BUS and owned0700 SYROX_SESSION_STATE_PARENT; real namespace/manager runner required"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "store::retention::tests::process_interest_child",
+    "category": "fixture",
+    "group": "store",
+    "reason": "subprocess fixture invoked only by process_interest_survives_coordinator_handles"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "store::tests::read_verified_profile_one_pass",
+    "category": "benchmark",
+    "group": "store",
+    "reason": "explicit bounded Store read profiling; reads 32 MiB three times"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "systemd::loaded::tests::real_loaded_os_unit_observation_gate",
+    "category": "external",
+    "group": "manager",
+    "reason": "requires real user manager and a separately provisioned exact Os unit; never starts it"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "systemd::notify::tests::descendant_fixture",
+    "category": "fixture",
+    "group": "manager",
+    "reason": "internal bounded descendant for abrupt manager fixture"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "systemd::notify::tests::manager_fd_store_retains_lease_until_stop_and_zero_capacity_rejects",
+    "category": "gate",
+    "group": "manager",
+    "reason": "requires authorized systemd >=250 user manager; set SYROX_SYSTEMD_USER_BUS"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "systemd::notify::tests::manager_fixture",
+    "category": "fixture",
+    "group": "manager",
+    "reason": "internal fixture invoked only by the authorized manager gate"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "systemd::quiescence::tests::retirement::gated_child",
+    "category": "fixture",
+    "group": "manager",
+    "reason": "subprocess fixture; invoked only by explicit delegated-cgroup gate"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "systemd::quiescence::tests::retirement::pinned_core_events_observe_populated_empty_removed_and_refuse_replacement",
+    "category": "gate",
+    "group": "cgroup",
+    "reason": "requires explicit SYROX_CGROUP_RETIREMENT_PARENT delegation; creates only a new child cgroup and migrates only its own gated child"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "systemd::tests::ownership::stopping_owner_stops_bound_unit_and_preserves_independent_unit",
+    "category": "gate",
+    "group": "manager",
+    "reason": "requires SYROX_SYSTEMD_USER_BUS, authorized manager >=250 and /usr/bin/sleep"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "systemd::tests::real_persistent_unit_reload_start_and_completion_gate",
+    "category": "gate",
+    "group": "manager",
+    "reason": "requires explicit SYROX_SYSTEMD_USER_BUS and SYROX_SYSTEMD_PERSISTENT_UNIT inert oneshot fixture"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "systemd::tests::real_user_manager_start_query_reconnect_and_stop_gate",
+    "category": "gate",
+    "group": "manager",
+    "reason": "requires SYROX_SYSTEMD_USER_BUS, a real user systemd manager >=250, and authorized IPC"
+  },
+  {
+    "package": "syrox",
+    "target": "build",
+    "name": "build_cli_signals_cancel_pending_https_before_the_deadline",
+    "category": "gate",
+    "group": "build",
+    "reason": "requires Linux build preflight (user systemd, Bubblewrap, setpriv and Landlock); uses a local stalled TLS connection"
+  },
+  {
+    "package": "syrox",
+    "target": "build",
+    "name": "host_build_prefix_materializes_and_runs_at_its_action_path",
+    "category": "gate",
+    "group": "build",
+    "reason": "builds a static application on a configured Linux host and runs its retained output rootless"
+  },
+  {
+    "package": "syrox",
+    "target": "build",
+    "name": "host_build_publishes_only_after_success_and_rejects_timeout_and_symlink_output",
+    "category": "gate",
+    "group": "build",
+    "reason": "executes the bounded sandbox on a configured Linux host; inventories /usr"
+  },
+  {
+    "package": "syrox",
+    "target": "build",
+    "name": "host_cancellation_cleans_up_and_coordinator_death_cannot_publish",
+    "category": "gate",
+    "group": "build",
+    "reason": "sends signals to its own coordinator and inspects its owned cgroup on a configured Linux host"
+  },
+  {
+    "package": "syrox",
+    "target": "build",
+    "name": "host_collection_waits_for_double_fork_and_rejects_late_failure_or_unsafe_output",
+    "category": "gate",
+    "group": "build",
+    "reason": "executes adopted descendants and output collection on a configured Linux host"
+  },
+  {
+    "package": "syrox",
+    "target": "build",
+    "name": "host_concurrent_consumers_share_one_payload_and_cancel_independently",
+    "category": "gate",
+    "group": "build",
+    "reason": "two real CLI consumers share a producer and cancel independently on a configured Linux host"
+  },
+  {
+    "package": "syrox",
+    "target": "build",
+    "name": "host_external_srx_builder_runs_without_binary_changes_and_preserves_settlement",
+    "category": "gate",
+    "group": "build",
+    "reason": "executes an external .srx builder, cache, runtime, failure and cancellation on a configured Linux host"
+  },
+  {
+    "package": "syrox",
+    "target": "build",
+    "name": "host_orphan_recovery_retains_on_manager_loss_then_stops_and_revokes_launch",
+    "category": "gate",
+    "group": "build",
+    "reason": "recovers its own live orphaned cgroup and simulates an unavailable manager connection"
+  },
+  {
+    "package": "syrox",
+    "target": "shell",
+    "name": "interactive::interactive_cli_sigkill_restores_and_settles_pinned_processes",
+    "category": "gate",
+    "group": "shell",
+    "reason": "real opt-in pinned CLI/worker/payload, user systemd, namespaces, pidfds and post-SIGKILL custody required"
+  },
+  {
+    "package": "syrox",
+    "target": "shell",
+    "name": "interactive::interactive_ctrl_c_status_and_restore",
+    "category": "gate",
+    "group": "shell",
+    "reason": "real opt-in pinned CLI/worker/payload, user systemd, namespaces and PTY custody required"
+  },
+  {
+    "package": "syrox",
+    "target": "shell",
+    "name": "interactive::interactive_literal_resize_exit_and_restore",
+    "category": "gate",
+    "group": "shell",
+    "reason": "real opt-in pinned CLI/worker/payload, user systemd, namespaces and PTY custody required"
+  },
+  {
+    "package": "syrox",
+    "target": "shell",
+    "name": "interactive::stop_exit::root_exit_between_protocol_pause_and_frontend_sigstop_restores_terminal",
+    "category": "gate",
+    "group": "shell",
+    "reason": "requires pinned CLI/worker/payload, explicit user bus/parent, user/PID/mount namespaces, ptrace SEIZE/SYSCALL/DETACH and external guardian wake"
+  },
+  {
+    "package": "syrox",
+    "target": "usability",
+    "name": "offline_build_imports_project_source_from_a_path_with_url_metacharacters",
+    "category": "gate",
+    "group": "usability",
+    "reason": "inventories the host /usr before rejecting the intentionally invalid local archive"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "platform::linux::fd::persisted_namespace::tests::parent::launcher_entry",
+    "category": "fixture",
+    "group": "execution",
+    "reason": "internal subprocess fixture; selected explicitly with --ignored by parent assertions: platform::linux::fd::persisted_namespace::tests::parent::remote_parent_is_pinned_and_wrong_or_exited_parents_are_rejected"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "deployment::shell::terminal::tests::prepared_terminal_child",
+    "category": "fixture",
+    "group": "execution",
+    "reason": "internal subprocess fixture; selected explicitly with --ignored by parent assertions: deployment::shell::terminal::tests::foreground_preparation_preserves_flags_and_restores_after_relay"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "runtime::terminal_custody::tests::dropped_request_monitor_fixture",
+    "category": "fixture",
+    "group": "execution",
+    "reason": "internal subprocess fixture; selected explicitly with --ignored by parent assertions: runtime::terminal_custody::tests::request_drop_waits_for_monitor_even_during_unwind"
+  },
+  {
+    "package": "syrox",
+    "target": "shell",
+    "name": "interactive::stop_exit::tracer::stopping_child",
+    "category": "fixture",
+    "group": "shell",
+    "reason": "internal subprocess fixture; selected explicitly with --ignored by parent assertions: interactive::stop_exit::tracer::detach_preserves_real_stopped_state_without_a_waker"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "execution::native::terminal_tests::background::background_fixture",
+    "category": "fixture",
+    "group": "execution",
+    "reason": "internal subprocess fixture; selected explicitly with --ignored by parent assertions: execution::native::terminal_tests::background::existing_monitor_spawn_preserves_tty_observation_and_background_restore"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "execution::native::terminal_tests::background::session_fixture",
+    "category": "fixture",
+    "group": "execution",
+    "reason": "internal subprocess fixture; selected explicitly with --ignored by parent assertions: execution::native::terminal_tests::background::existing_monitor_spawn_preserves_tty_observation_and_background_restore"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "platform::linux::fd::terminal::tests::controlling_terminal_and_restore_child",
+    "category": "fixture",
+    "group": "execution",
+    "reason": "internal subprocess fixture; selected explicitly with --ignored by parent assertions: platform::linux::fd::terminal::tests::dedicated_child_establishes_controlling_tty_and_restores_raw_mode"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "platform::linux::fd::terminal::tests::observed_pause_root_child",
+    "category": "fixture",
+    "group": "execution",
+    "reason": "internal subprocess fixture; selected explicitly with --ignored by parent assertions: platform::linux::fd::terminal::tests::exited_root_abandons_pause_without_foreground_or_terminal_access"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "execution::native::command_exit::tests::signal_exit_child",
+    "category": "fixture",
+    "group": "execution",
+    "reason": "internal subprocess fixture; selected explicitly with --ignored by parent assertions: execution::native::command_exit::tests::preserves_signal_kind_after_cleanup_boundary"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "execution::native::terminal_tests::managed_terminal_child_has_session_foreground_and_restored_mask",
+    "category": "fixture",
+    "group": "execution",
+    "reason": "internal subprocess fixture; selected explicitly with --ignored by parent assertions: execution::native::terminal_tests::managed_terminal_setup_executes_without_reassigning_session_leader_group"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "execution::native::proxy::tests::isolated_fixture",
+    "category": "fixture",
+    "group": "execution",
+    "reason": "internal subprocess fixture; selected explicitly with --ignored by parent assertions: execution::native::proxy::tests::exit_137_is_reported_as_exit_not_signal, execution::native::proxy::tests::stopped_continued_and_signal_exit_are_distinct_events, execution::native::proxy::tests::channel_eof_kills_and_reaps_the_principal"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "execution::native::proxy::custodian::tests::isolated_fixture",
+    "category": "fixture",
+    "group": "execution",
+    "reason": "internal subprocess fixture; selected explicitly with --ignored by parent assertions: execution::native::proxy::custodian::tests::crash_before_registration_reaps_live_adopted_siblings, execution::native::proxy::custodian::tests::live_monitor_is_not_settlement_and_explicit_abort_collects_it, execution::native::proxy::custodian::tests::preexisting_child_is_rejected_without_reaping_or_killing_it, execution::native::proxy::custodian::tests::monitor_capability_is_invalid_in_forked_init_copy, execution::native::proxy::custodian::tests::successful_monitor_exit_keeps_its_status_separate_from_settlement, execution::native::proxy::custodian::tests::authenticated_guardian_settlement_finishes_journal_and_releases_gc_hold"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "execution::native::terminal_custody::tests::monitor_fixture",
+    "category": "fixture",
+    "group": "execution",
+    "reason": "internal subprocess fixture; selected explicitly with --ignored by parent assertions: execution::native::terminal_custody::tests::abort_crossing_namespace_settled_still_requires_restore_request, execution::native::terminal_custody::tests::eof_after_raw_before_activation_restores, execution::native::terminal_custody::tests::eof_after_activation_restores, execution::native::terminal_custody::tests::disarmed_init_copy_does_not_restore, execution::native::terminal_custody::tests::frontend_death_between_raw_and_activation_restores_in_surviving_session"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "execution::native::terminal_custody::tests::session_fixture",
+    "category": "fixture",
+    "group": "execution",
+    "reason": "internal subprocess fixture; selected explicitly with --ignored by parent assertions: execution::native::terminal_custody::tests::abort_crossing_namespace_settled_still_requires_restore_request, execution::native::terminal_custody::tests::eof_after_raw_before_activation_restores, execution::native::terminal_custody::tests::eof_after_activation_restores, execution::native::terminal_custody::tests::disarmed_init_copy_does_not_restore, execution::native::terminal_custody::tests::frontend_death_between_raw_and_activation_restores_in_surviving_session"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "execution::native::terminal_custody::tests::dying_frontend_fixture",
+    "category": "fixture",
+    "group": "execution",
+    "reason": "internal subprocess fixture; selected explicitly with --ignored by parent assertions: execution::native::terminal_custody::tests::frontend_death_between_raw_and_activation_restores_in_surviving_session"
+  },
+  {
+    "package": "syrox",
+    "target": "shell",
+    "name": "interactive::anchor_process",
+    "category": "fixture",
+    "group": "shell",
+    "reason": "internal subprocess fixture; selected explicitly with --ignored by parent assertions: interactive::interactive_literal_resize_exit_and_restore, interactive::interactive_ctrl_c_status_and_restore, interactive::interactive_cli_sigkill_restores_and_settles_pinned_processes"
+  },
+  {
+    "package": "syrox",
+    "target": "shell",
+    "name": "interactive::stop_exit::anchor_process",
+    "category": "fixture",
+    "group": "shell",
+    "reason": "internal subprocess fixture; selected explicitly with --ignored by parent assertions: interactive::stop_exit::root_exit_between_protocol_pause_and_frontend_sigstop_restores_terminal"
+  }
+]

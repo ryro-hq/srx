@@ -1,4 +1,8 @@
-//! Inspection queries use the very same lookup/visibility rules as resolution.
+//! Consultas do editor sobre os nomes que o resolver já coletou.
+//!
+//! Lookup e completion seguem as mesmas regras de visibilidade da resolução,
+//! inclusive imports e interfaces de módulos fechadas.
+
 use super::{
     BTreeMap, BTreeSet, DomainPath, Expected, ItemId, ItemKind, LocalId, ModuleId, ModuleInfo,
     Path, ResolvedProgram, ResolvedTarget, Resolver, SourceDomainId, Span,
@@ -30,10 +34,13 @@ impl Namespace {
 impl ResolvedProgram {
     pub(crate) fn editor_module_at(
         &self,
-        source: crate::SourceId,
+        source: crate::source::SourceId,
         offset: u32,
     ) -> Option<ModuleId> {
-        let file = self.parsed.iter().find(|file| file.source_id() == source)?;
+        let file = self
+            .parsed
+            .iter()
+            .find(|file| file.source_id() == source)?;
         let mut path = file.module().to_vec();
         let mut items = &file.program().items;
         while let Some(module) = items.iter().find_map(|item| {
@@ -46,7 +53,13 @@ impl ResolvedProgram {
                 None
             }
         }) {
-            path.extend(module.path.segments.iter().map(|part| part.text.clone()));
+            path.extend(
+                module
+                    .path
+                    .segments
+                    .iter()
+                    .map(|part| part.text.clone()),
+            );
             items = &module.items;
         }
         self.editor
@@ -60,16 +73,26 @@ impl ResolvedProgram {
         let mut resolver = Resolver::new(&self.parsed);
         resolver.modules.clone_from(&self.modules);
         resolver.items.clone_from(&self.items);
-        resolver.module_ids.clone_from(&namespace.module_ids);
-        resolver.module_info.clone_from(&namespace.module_info);
+        resolver
+            .module_ids
+            .clone_from(&namespace.module_ids);
+        resolver
+            .module_info
+            .clone_from(&namespace.module_info);
         resolver.item_ids.clone_from(&namespace.item_ids);
-        resolver.input_domains.clone_from(&namespace.input_domains);
+        resolver
+            .input_domains
+            .clone_from(&namespace.input_domains);
+        resolver
+            .catalog_members
+            .clone_from(&self.catalog_members);
+        resolver.index_project_owners();
         Some(resolver)
     }
 
     pub(crate) fn editor_lookup(
         &self,
-        source: crate::SourceId,
+        source: crate::source::SourceId,
         offset: u32,
         parts: &[String],
     ) -> Option<ResolvedTarget> {
@@ -83,12 +106,16 @@ impl ResolvedProgram {
         }
         let mut resolver = self.query()?;
         let module = resolver.module_at(source, offset)?;
-        resolver.lookup(module, &query_path(source, offset, parts), Expected::Any)
+        resolver.lookup(
+            module,
+            &query_path(source, offset, parts),
+            Expected::Any,
+        )
     }
 
     pub(crate) fn editor_completions(
         &self,
-        source: crate::SourceId,
+        source: crate::source::SourceId,
         offset: u32,
         qualifier: &[String],
         prefix: &str,
@@ -150,22 +177,34 @@ impl ResolvedProgram {
             }
             if "std".starts_with(prefix)
                 && !found.iter().any(|(name, _)| name == "std")
-                && let Some(id) = resolver
-                    .module_ids
-                    .get(&(SourceDomainId::STANDARD_LIBRARY, vec!["std".into()]))
+                && let Some(id) = resolver.module_ids.get(&(
+                    SourceDomainId::STANDARD_LIBRARY,
+                    vec!["std".into()],
+                ))
             {
                 found.push(("std".into(), ResolvedTarget::Module(*id)));
             }
+            if "project".starts_with(prefix)
+                && let Some(owner) = resolver.project_owner(module)
+                && let Some(id) = resolver.module_ids.get(&(owner, Vec::new()))
+            {
+                found.push(("project".into(), ResolvedTarget::Module(*id)));
+            }
         }
         for name in names {
-            if found.iter().any(|(existing, _)| existing == &name) {
+            if found
+                .iter()
+                .any(|(existing, _)| existing == &name)
+            {
                 continue;
             }
             let mut parts = qualifier.to_vec();
             parts.push(name.clone());
-            if let Some(target) =
-                resolver.lookup(module, &query_path(source, offset, &parts), Expected::Any)
-            {
+            if let Some(target) = resolver.lookup(
+                module,
+                &query_path(source, offset, &parts),
+                Expected::Any,
+            ) {
                 if types_only
                     && matches!(&target, ResolvedTarget::Item(item) if !resolver.items[item.index()].kind.is_type())
                 {
@@ -188,7 +227,7 @@ impl ResolvedProgram {
 
     fn editor_locals_at(
         &self,
-        source: crate::SourceId,
+        source: crate::source::SourceId,
         offset: u32,
         types_only: bool,
     ) -> BTreeMap<String, LocalId> {
@@ -221,10 +260,17 @@ impl Resolver<'_> {
         }
         if path.segments.len() == 1 {
             let first = &path.segments[0].text;
+            if first == "project" {
+                let owner = self.project_owner(module)?;
+                return self.module_ids.get(&(owner, Vec::new())).copied();
+            }
             if first == "std" {
                 return self
                     .module_ids
-                    .get(&(SourceDomainId::STANDARD_LIBRARY, vec!["std".into()]))
+                    .get(&(
+                        SourceDomainId::STANDARD_LIBRARY,
+                        vec!["std".into()],
+                    ))
                     .copied();
             }
             if let Some(domain) = self
@@ -232,7 +278,10 @@ impl Resolver<'_> {
                 .get(&self.modules[module.index()].domain)
                 .and_then(|aliases| aliases.get(first))
             {
-                return self.module_ids.get(&(*domain, Vec::new())).copied();
+                return self
+                    .module_ids
+                    .get(&(*domain, Vec::new()))
+                    .copied();
             }
         }
         match self.lookup(module, path, Expected::Any) {
@@ -241,9 +290,10 @@ impl Resolver<'_> {
         }
     }
 
-    pub(super) fn editor_local(&mut self, name: &crate::Ident, id: LocalId, scope: Span) {
+    pub(super) fn editor_local(&mut self, name: &crate::syntax::Ident, id: LocalId, scope: Span) {
         if self.cancellation.is_some() {
-            self.editor_locals.push((name.text.clone(), id, scope));
+            self.editor_locals
+                .push((name.text.clone(), id, scope));
         }
     }
 
@@ -272,8 +322,11 @@ impl Resolver<'_> {
         }
         true
     }
-    fn module_at(&self, source: crate::SourceId, offset: u32) -> Option<ModuleId> {
-        let file = self.parsed.iter().find(|file| file.source_id() == source)?;
+    fn module_at(&self, source: crate::source::SourceId, offset: u32) -> Option<ModuleId> {
+        let file = self
+            .parsed
+            .iter()
+            .find(|file| file.source_id() == source)?;
         let mut path = file.module().to_vec();
         let mut items = &file.program().items;
         loop {
@@ -289,20 +342,28 @@ impl Resolver<'_> {
             let Some(nested) = nested else {
                 break;
             };
-            path.extend(nested.path.segments.iter().map(|part| part.text.clone()));
+            path.extend(
+                nested
+                    .path
+                    .segments
+                    .iter()
+                    .map(|part| part.text.clone()),
+            );
             items = &nested.items;
         }
-        self.module_ids.get(&(file.domain(), path)).copied()
+        self.module_ids
+            .get(&(file.domain(), path))
+            .copied()
     }
 }
 
-fn query_path(source: crate::SourceId, offset: u32, parts: &[String]) -> Path {
+fn query_path(source: crate::source::SourceId, offset: u32, parts: &[String]) -> Path {
     let span = Span::new(source, offset, offset);
     Path {
         span,
         segments: parts
             .iter()
-            .map(|text| crate::Ident {
+            .map(|text| crate::syntax::Ident {
                 text: text.clone(),
                 span,
             })

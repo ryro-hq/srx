@@ -1,5 +1,3 @@
-//! Bounded ELF64 parsing for the verified Linux runtime closure.
-
 use super::{RuntimeError, invalid};
 
 pub(super) const MAX_NEEDED: usize = 128;
@@ -14,7 +12,6 @@ pub(super) struct Elf {
     pub(super) runpath: Option<String>,
 }
 
-#[allow(clippy::too_many_lines)]
 #[cfg(test)]
 pub(super) fn inspect(bytes: &[u8]) -> Result<Elf, RuntimeError> {
     inspect_ranges(bytes.len(), |start, length| {
@@ -22,7 +19,6 @@ pub(super) fn inspect(bytes: &[u8]) -> Result<Elf, RuntimeError> {
     })
 }
 
-#[allow(clippy::too_many_lines)]
 pub(super) fn inspect_ranges(
     file_size: usize,
     mut read: impl FnMut(usize, usize) -> Result<Vec<u8>, RuntimeError>,
@@ -70,7 +66,10 @@ pub(super) fn inspect_ranges(
             }
             loads.push((vaddr, file_offset, segment_size));
         } else if typ == 2 {
-            if dynamic.replace((file_offset, segment_size)).is_some() {
+            if dynamic
+                .replace((file_offset, segment_size))
+                .is_some()
+            {
                 return Err(invalid("multiple ELF dynamic segments"));
             }
         } else if typ == 3 {
@@ -174,10 +173,20 @@ pub(super) fn inspect_ranges(
                 .ok_or_else(|| invalid("ELF offset overflow"))?;
             bounded_range(file_size, table_start, length)?;
             for offset in needed_offsets {
-                needed.push(elf_name_from_range(table_start, length, offset, &mut read)?);
+                needed.push(elf_name_from_range(
+                    table_start,
+                    length,
+                    offset,
+                    &mut read,
+                )?);
             }
             if let Some(offset) = soname_offset {
-                soname = Some(elf_name_from_range(table_start, length, offset, &mut read)?);
+                soname = Some(elf_name_from_range(
+                    table_start,
+                    length,
+                    offset,
+                    &mut read,
+                )?);
             }
             if let Some(offset) = runpath_offset {
                 let tail = read_string(table_start, length, offset, 4097, &mut read)?;
@@ -194,7 +203,9 @@ pub(super) fn inspect_ranges(
                             || part.bytes().any(|b| !b.is_ascii_graphic())
                     })
                 {
-                    return Err(invalid("ELF RUNPATH escapes the Syrox runtime ABI"));
+                    return Err(invalid(
+                        "ELF RUNPATH escapes the Syrox runtime ABI",
+                    ));
                 }
                 runpath = Some(path.to_owned());
             }
@@ -233,7 +244,10 @@ fn elf_name(table: &[u8], start: usize) -> Result<String, RuntimeError> {
 }
 
 fn bounded_range(total: usize, start: usize, length: usize) -> Result<(), RuntimeError> {
-    if start.checked_add(length).is_none_or(|end| end > total) {
+    if start
+        .checked_add(length)
+        .is_none_or(|end| end > total)
+    {
         return Err(invalid("truncated ELF"));
     }
     Ok(())
@@ -295,4 +309,80 @@ fn u64_at(bytes: &[u8], at: usize) -> Result<u64, RuntimeError> {
     Ok(u64::from_le_bytes(
         checked(bytes, at, 8)?.try_into().unwrap(),
     ))
+}
+
+/// Reject implicit ELF loaders before launching a pinned worker outside its payload namespace.
+/// A valid image identifies static execution bytes, without granting worker authenticity.
+pub(crate) fn validate_static_worker_image(bytes: &[u8]) -> Result<(), RuntimeError> {
+    let image = inspect_ranges(bytes.len(), |start, length| {
+        Ok(checked(bytes, start, length)?.to_vec())
+    })?;
+    if !matches!(image.kind, 2 | 3)
+        || image.interpreter.is_some()
+        || !image.needed.is_empty()
+        || image.runpath.is_some()
+        || image.soname.is_some()
+    {
+        return Err(invalid(
+            "managed build worker must be a static executable",
+        ));
+    }
+    // The bounded ELF parser checked the header and program table. Require an
+    // entry inside file-backed executable bytes, not merely an ET_DYN label.
+    let entry = u64_at(bytes, 24)?;
+    let table = usize::try_from(u64_at(bytes, 32)?).map_err(|_| invalid("ELF offset overflow"))?;
+    let count = usize::from(u16_at(bytes, 56)?);
+    for index in 0..count {
+        let start = table + index * 56;
+        let header = checked(bytes, start, 56)?;
+        let kind = u32_at(header, 0)?;
+        let flags = u32_at(header, 4)?;
+        let address = u64_at(header, 16)?;
+        let length = u64_at(header, 32)?;
+        if kind == 1
+            && flags & 1 != 0
+            && entry >= address
+            && address
+                .checked_add(length)
+                .is_some_and(|end| entry < end)
+        {
+            return Ok(());
+        }
+    }
+    Err(invalid(
+        "managed build worker has no executable entry",
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn executable(kind: u16, interpreter: Option<&str>, needed: &[&str]) -> Vec<u8> {
+        let mut bytes = super::super::tests::elf(kind, interpreter, needed, None, None);
+        bytes[24..32].copy_from_slice(&0x0040_0100_u64.to_le_bytes());
+        bytes[68..72].copy_from_slice(&5_u32.to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn static_worker_requires_a_real_entry_and_no_external_loader() {
+        for kind in [2, 3] {
+            validate_static_worker_image(&executable(kind, None, &[])).unwrap();
+        }
+        for bytes in [
+            executable(2, Some("/lib64/ld-linux-x86-64.so.2"), &[]),
+            executable(3, None, &["libc.so.6"]),
+            executable(1, None, &[]),
+            super::super::tests::elf(2, None, &[], None, None),
+            b"#!/bin/sh\n".to_vec(),
+        ] {
+            assert!(validate_static_worker_image(&bytes).is_err());
+        }
+        let mut bytes = executable(2, None, &[]);
+        bytes[24..32].copy_from_slice(&0x0040_0400_u64.to_le_bytes());
+        assert!(validate_static_worker_image(&bytes).is_err());
+        bytes.truncate(80);
+        assert!(validate_static_worker_image(&bytes).is_err());
+    }
 }

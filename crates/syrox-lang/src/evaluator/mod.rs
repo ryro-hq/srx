@@ -1,4 +1,11 @@
-//! Pure, bounded evaluation of checked Syrox programs.
+//! Avalia o programa que passou pela checagem.
+//!
+//! A avaliação usa a mesma política e um ambiente explícito. Trabalho, expansão
+//! e dados retidos têm limites próprios. Os valores descrevem receitas e seus
+//! recursos; adquirir arquivos e executar builds ficam na engine.
+//!
+//! [`evaluate`] avalia tudo. [`EvaluationSession`] permite selecionar publicações
+//! sob demanda, mantendo o ambiente e os valores compartilhados entre consultas.
 
 mod environment;
 mod index;
@@ -10,7 +17,7 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-use crate::{CheckPolicy, CheckedProgram, Span};
+use crate::{checker::CheckPolicy, checker::CheckedProgram, source::Span};
 
 pub use environment::{EnvironmentError, EvaluationEnvironment, EvaluationSetupError};
 pub use model::{
@@ -21,14 +28,19 @@ pub use model::{
 };
 
 pub use runtime::MemoId;
-pub use session::{EvaluationQueryError, EvaluationSession};
+pub use session::{EvaluationQueryError, EvaluationSession, PublishedRoot};
 
 pub fn evaluate(
     program: &CheckedProgram,
     policy: &CheckPolicy,
     environment: &EvaluationEnvironment,
 ) -> Result<RealizedProgram, EvaluationSetupError> {
-    evaluate_with_limits(program, policy, environment, EvaluationLimits::default())
+    evaluate_with_limits(
+        program,
+        policy,
+        environment,
+        EvaluationLimits::default(),
+    )
 }
 
 pub fn evaluate_with_limits(

@@ -2,19 +2,90 @@ use std::sync::Arc;
 
 use super::*;
 use crate::{
-    CanonicalItemIdentity, PrimitiveType, ScopeRule, SourceDomainId, SourceSet, check,
-    parse_sources, resolve,
+    checker::CanonicalItemIdentity, checker::PrimitiveType, checker::ScopeRule, checker::check,
+    resolver::resolve, source::SourceDomainId, source::SourceSet, syntax::parse_sources,
 };
 
 fn checked(source: &str, policy: &CheckPolicy) -> CheckedProgram {
     let mut sources = SourceSet::new();
     sources.add("main.srx", source).unwrap();
-    check(resolve(parse_sources(&sources).unwrap()).unwrap(), policy).unwrap()
+    check(
+        resolve(parse_sources(&sources).unwrap()).unwrap(),
+        policy,
+    )
+    .unwrap()
 }
 
 fn run(source: &str, policy: &CheckPolicy) -> RealizedProgram {
     let checked = checked(source, policy);
-    evaluate(&checked, policy, &EvaluationEnvironment::new(policy)).unwrap()
+    evaluate(
+        &checked,
+        policy,
+        &EvaluationEnvironment::new(policy),
+    )
+    .unwrap()
+}
+
+#[test]
+fn sorting_moves_affine_elements_stably_and_rejects_mismatched_lengths() {
+    let policy = CheckPolicy::default();
+    let result = run(
+        r#"resource R(int); value Key(str); outputs {
+        sorted: [R] = sort_by_keys([R(1), R(2), R(3), R(4)], [Key("b"), Key("a"), Key("b"), Key("a")]);
+    }"#,
+        &policy,
+    );
+    let root = result.roots().next().unwrap();
+    assert_eq!(root.claims().len(), 4);
+    let Value::List {
+        items,
+        ..
+    } = root.value().unwrap()
+    else {
+        panic!("expected sorted resources");
+    };
+    let values: Vec<_> = items
+        .iter()
+        .map(|item| match item {
+            Value::Nominal {
+                value: PrimitiveValue::Int(value),
+                resource: true,
+                ..
+            } => *value,
+            _ => panic!("resource was not preserved"),
+        })
+        .collect();
+    assert_eq!(values, [2, 4, 1, 3]);
+    let invalid = run(
+        "value I(int); outputs { bad: [I] = sort_by_keys([I(1)], [I(0), I(1)]); }",
+        &policy,
+    );
+    assert!(
+        invalid
+            .diagnostics()
+            .any(|error| error.message.contains("equal lengths"))
+    );
+    let items = (0..100)
+        .rev()
+        .map(|n| format!("I({n})"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let program = checked(
+        &format!("value I(int); outputs {{ sorted: [I] = sort_by_keys([{items}], [{items}]); }}"),
+        &policy,
+    );
+    assert!(matches!(
+        evaluate_with_limits(
+            &program,
+            &policy,
+            &EvaluationEnvironment::new(&policy),
+            EvaluationLimits {
+                max_total_steps: 800,
+                ..EvaluationLimits::default()
+            }
+        ),
+        Err(EvaluationSetupError::EvaluationWorkLimit)
+    ));
 }
 
 fn identity(path: &str) -> CanonicalItemIdentity {
@@ -49,7 +120,7 @@ fn annotated_lets_contextualize_literals_lists_and_generics_once() {
     assert_eq!(
         errors
             .iter()
-            .filter(|error| error.code == crate::DiagnosticCode::MovedValue)
+            .filter(|error| error.code == crate::diagnostic::DiagnosticCode::MovedValue)
             .count(),
         1
     );
@@ -61,7 +132,10 @@ fn functions_pass_as_values_and_locals_call_through_typed_parameters() {
         "value I(int); fn id(x: I) -> I { x } fn apply(f: fn(I) -> I, x: I) -> I { f(x) } fn indirect(x: I) -> I { let f = id; f(x) } outputs { first: I = apply(id, I(7)); second: I = indirect(I(9)); }",
         &CheckPolicy::default(),
     );
-    let values: Vec<_> = program.roots().map(|root| root.value().unwrap()).collect();
+    let values: Vec<_> = program
+        .roots()
+        .map(|root| root.value().unwrap())
+        .collect();
     assert!(matches!(
         values.as_slice(),
         [
@@ -96,7 +170,10 @@ fn generic_functions_specialize_as_values_and_compose() {
         &CheckPolicy::default(),
     );
     assert!(program.is_success(), "{program:?}");
-    let values: Vec<_> = program.roots().map(|root| root.value().unwrap()).collect();
+    let values: Vec<_> = program
+        .roots()
+        .map(|root| root.value().unwrap())
+        .collect();
     assert!(matches!(
         values[0],
         Value::Nominal {
@@ -121,7 +198,10 @@ fn generic_functions_move_affine_arguments_once() {
         &CheckPolicy::default(),
     );
     assert!(program.is_success(), "{program:?}");
-    assert_eq!(program.roots().next().unwrap().claims().count(), 1);
+    assert_eq!(
+        program.roots().next().unwrap().claims().count(),
+        1
+    );
 }
 
 #[test]
@@ -259,7 +339,10 @@ fn local_inference_composes_functions_enums_and_affine_closures() {
 fn recursive_affine_enum_payloads_are_depth_bounded_even_in_fold() {
     let policy = CheckPolicy::default();
     let items = vec!["I(0)"; 40].join(",");
-    for constructor in ["Chain::Next(acc)", "Chain::Via(Link::More<Chain>(acc))"] {
+    for constructor in [
+        "Chain::Next(acc)",
+        "Chain::Via(Link::More<Chain>(acc))",
+    ] {
         let source = format!(
             r"
             resource R(int); value I(int);
@@ -311,8 +394,15 @@ fn comparisons_evaluate_only_the_selected_branch_with_bytewise_order() {
         &CheckPolicy::default(),
     );
     assert!(program.is_success(), "{program:?}");
-    for (name, expected) in [("less", 1), ("equal", 2), ("greater", 3)] {
-        let root = program.roots().find(|root| root.name() == name).unwrap();
+    for (name, expected) in [
+        ("less", 1),
+        ("equal", 2),
+        ("greater", 3),
+    ] {
+        let root = program
+            .roots()
+            .find(|root| root.name() == name)
+            .unwrap();
         assert_eq!(root.claims().count(), 1);
         assert!(
             matches!(root.value(), Some(Value::Nominal { value: PrimitiveValue::Int(actual), .. }) if *actual == expected)
@@ -372,7 +462,11 @@ fn module_exports_are_typed_byte_sorted_and_do_not_call_factories() {
         &CheckPolicy::default(),
     );
     assert!(program.is_success(), "{program:?}");
-    let Some(Value::List { items, .. }) = program.roots().next().unwrap().value() else {
+    let Some(Value::List {
+        items,
+        ..
+    }) = program.roots().next().unwrap().value()
+    else {
         panic!("expected module keys");
     };
     let names: Vec<_> = items
@@ -404,7 +498,11 @@ fn module_exports_apply_key_refinements_and_runtime_budgets() {
     assert!(!invalid.is_success());
     let mut modules = String::new();
     for index in 0..40 {
-        write!(modules, "mod m{index} {{ pub use implementation::make; }}").unwrap();
+        write!(
+            modules,
+            "mod m{index} {{ pub use implementation::make; }}"
+        )
+        .unwrap();
     }
     let source = format!(
         r"
@@ -470,7 +568,11 @@ fn consumable_closures_capture_and_return_affine_values() {
     assert!(program.is_success(), "{program:?}");
     let root = program.roots().next().unwrap();
     assert_eq!(root.claims().count(), 2);
-    let Value::List { items, .. } = root.value().unwrap() else {
+    let Value::List {
+        items,
+        ..
+    } = root.value().unwrap()
+    else {
         panic!("expected forced resources");
     };
     assert_eq!(items.len(), 2);
@@ -514,12 +616,20 @@ fn generic_list_map_and_flatten_are_composed_in_the_language() {
     assert!(program.is_success(), "{program:?}");
     let root = program.roots().next().unwrap();
     assert_eq!(root.claims().count(), 2);
-    let Value::List { items, .. } = root.value().unwrap() else {
+    let Value::List {
+        items,
+        ..
+    } = root.value().unwrap()
+    else {
         panic!("expected mapped list");
     };
     assert_eq!(items.len(), 2);
     for (item, expected) in items.iter().zip([1, 2]) {
-        let Value::Struct { fields, .. } = item else {
+        let Value::Struct {
+            fields,
+            ..
+        } = item
+        else {
             panic!("expected box");
         };
         assert!(
@@ -558,10 +668,23 @@ fn generic_factory_from_an_import_keeps_its_types_after_return() {
     ",
         )
         .unwrap();
-    let program = check(resolve(parse_sources(&sources).unwrap()).unwrap(), &policy).unwrap();
-    let result = evaluate(&program, &policy, &EvaluationEnvironment::new(&policy)).unwrap();
+    let program = check(
+        resolve(parse_sources(&sources).unwrap()).unwrap(),
+        &policy,
+    )
+    .unwrap();
+    let result = evaluate(
+        &program,
+        &policy,
+        &EvaluationEnvironment::new(&policy),
+    )
+    .unwrap();
     assert!(result.is_success(), "{result:?}");
-    let Value::List { items, .. } = result.roots().next().unwrap().value().unwrap() else {
+    let Value::List {
+        items,
+        ..
+    } = result.roots().next().unwrap().value().unwrap()
+    else {
         panic!("expected imported map result");
     };
     assert_eq!(items.len(), 2);
@@ -627,7 +750,11 @@ fn lists_of_function_types_and_generic_aliases_keep_callable_values() {
         "value I(int); type Helpers<T> = [fn(T) -> T]; fn id(x: I) -> I { x } fn keep(xs: Helpers<I>) -> Helpers<I> { xs } outputs { functions: Helpers<I> = keep([id, id] ++ [id]); }",
         &CheckPolicy::default(),
     );
-    let Value::List { items, .. } = program.roots().next().unwrap().value().unwrap() else {
+    let Value::List {
+        items,
+        ..
+    } = program.roots().next().unwrap().value().unwrap()
+    else {
         panic!("expected a function list");
     };
     assert_eq!(items.len(), 3);
@@ -644,7 +771,11 @@ fn nested_lists_hold_specialized_values_and_keep_their_shape() {
         "value I(int); struct Box<T> { item: T; } outputs { nested: [[Box<I>]] = [[Box<I> { item = I(7); }], []]; }",
         &CheckPolicy::default(),
     );
-    let Value::List { items, .. } = program.roots().next().unwrap().value().unwrap() else {
+    let Value::List {
+        items,
+        ..
+    } = program.roots().next().unwrap().value().unwrap()
+    else {
         panic!("expected an outer list");
     };
     assert_eq!(items.len(), 2);
@@ -658,7 +789,10 @@ fn projected_and_returned_functions_are_callable_as_expressions() {
         "value I(int); type Transform = fn(I) -> I; struct Holder { operation: Transform; } fn id(x: I) -> I { x } fn choose() -> Transform { id } outputs { projected: I = Holder { operation = id; }.operation(I(11)); returned: I = choose()(I(12)); grouped: I = (id)(I(13)); }",
         &CheckPolicy::default(),
     );
-    let values: Vec<_> = program.roots().map(|root| root.value().unwrap()).collect();
+    let values: Vec<_> = program
+        .roots()
+        .map(|root| root.value().unwrap())
+        .collect();
     assert!(matches!(
         values.as_slice(),
         [
@@ -684,7 +818,10 @@ fn closures_capture_immutable_locals_and_survive_the_defining_call() {
         "value I(int); fn factory(a: I) -> fn(I) -> I { fn(x: I) -> I { a } } fn apply(f: fn(I) -> I, x: I) -> I { f(x) } outputs { direct: I = factory(I(7))(I(0)); repeated: I = apply(factory(I(9)), I(0)); }",
         &CheckPolicy::default(),
     );
-    let values: Vec<_> = result.roots().map(|root| root.value().unwrap()).collect();
+    let values: Vec<_> = result
+        .roots()
+        .map(|root| root.value().unwrap())
+        .collect();
     assert!(matches!(
         values.as_slice(),
         [
@@ -740,7 +877,11 @@ fn repeated_imported_output_is_evaluated_once_per_root() {
         .unwrap();
     let work = "let x = X {}; ".repeat(110);
     sources.add_to_project_domain(child, "child/main.srx", format!("pub struct X {{}} fn slow() -> X {{ {work} X {{}} }} outputs {{ item: X = slow(); }}")).unwrap();
-    let program = check(resolve(parse_sources(&sources).unwrap()).unwrap(), &policy).unwrap();
+    let program = check(
+        resolve(parse_sources(&sources).unwrap()).unwrap(),
+        &policy,
+    )
+    .unwrap();
     let result = evaluate_with_limits(
         &program,
         &policy,
@@ -764,7 +905,11 @@ fn claim_free_imported_output_is_shared_across_selected_roots() {
         .unwrap();
     let work = "let x = X {}; ".repeat(110);
     sources.add_to_project_domain(child, "child/main.srx", format!("pub struct X {{}} fn slow() -> X {{ {work} X {{}} }} outputs {{ item: X = slow(); }}")).unwrap();
-    let program = check(resolve(parse_sources(&sources).unwrap()).unwrap(), &policy).unwrap();
+    let program = check(
+        resolve(parse_sources(&sources).unwrap()).unwrap(),
+        &policy,
+    )
+    .unwrap();
     let result = evaluate_with_limits(
         &program,
         &policy,
@@ -800,18 +945,36 @@ fn standard_helper_uses_the_imported_project_callers_asset_origin() {
         )
         .unwrap();
     sources.add_standard_library("std/lib.srx", "mod std { pub value Url(str); pub struct Request { url: Url; } pub fn request(url: Url) -> Request { Request { url = url; } } }").unwrap();
-    let program = check(resolve(parse_sources(&sources).unwrap()).unwrap(), &policy).unwrap();
-    let result = evaluate(&program, &policy, &EvaluationEnvironment::new(&policy)).unwrap();
-    let Value::Struct { fields, .. } = result.roots().next().unwrap().value().unwrap() else {
+    let program = check(
+        resolve(parse_sources(&sources).unwrap()).unwrap(),
+        &policy,
+    )
+    .unwrap();
+    let result = evaluate(
+        &program,
+        &policy,
+        &EvaluationEnvironment::new(&policy),
+    )
+    .unwrap();
+    let Value::Struct {
+        fields,
+        ..
+    } = result.roots().next().unwrap().value().unwrap()
+    else {
         panic!("expected a pair");
     };
     let Value::Struct {
-        owner: external, ..
+        owner: external,
+        ..
     } = &fields[0].1
     else {
         panic!("expected imported request");
     };
-    let Value::Struct { owner: local, .. } = &fields[1].1 else {
+    let Value::Struct {
+        owner: local,
+        ..
+    } = &fields[1].1
+    else {
         panic!("expected local request");
     };
     assert_eq!(*external, Some(child));
@@ -826,9 +989,19 @@ fn deterministic_roots_are_independent_and_failures_are_explicit() {
     );
     let roots: Vec<_> = result.roots().collect();
     assert_eq!(roots.len(), 2);
-    assert!(matches!(roots[0].outcome(), RealizedRootOutcome::Failed(_)));
-    assert!(roots[0].diagnostics()[0].message.contains("conflicts"));
-    assert!(matches!(roots[1].outcome(), RealizedRootOutcome::Value(_)));
+    assert!(matches!(
+        roots[0].outcome(),
+        RealizedRootOutcome::Failed(_)
+    ));
+    assert!(
+        roots[0].diagnostics()[0]
+            .message
+            .contains("conflicts")
+    );
+    assert!(matches!(
+        roots[1].outcome(),
+        RealizedRootOutcome::Value(_)
+    ));
     assert_eq!(roots[1].claims().count(), 1);
 
     let independent = run(
@@ -885,7 +1058,10 @@ fn refinement_comparisons_consume_the_evaluation_work_budget() {
         max_total_steps: 30,
         ..EvaluationLimits::default()
     };
-    let short = checked("value V(int) where in [1]; outputs { v: V = 1; }", &policy);
+    let short = checked(
+        "value V(int) where in [1]; outputs { v: V = 1; }",
+        &policy,
+    );
     assert!(
         evaluate_with_limits(&short, &policy, &environment, limits)
             .unwrap()
@@ -1045,11 +1221,19 @@ fn policy_and_environment_mismatches_fail_before_evaluation() {
     let second = CheckPolicy::new("second").unwrap();
     let checked = checked("value I(int); outputs { out: I = 1; }", &first);
     assert!(matches!(
-        evaluate(&checked, &second, &EvaluationEnvironment::new(&second)),
+        evaluate(
+            &checked,
+            &second,
+            &EvaluationEnvironment::new(&second)
+        ),
         Err(EvaluationSetupError::PolicyMismatch { .. })
     ));
     assert!(matches!(
-        evaluate(&checked, &first, &EvaluationEnvironment::new(&first)),
+        evaluate(
+            &checked,
+            &first,
+            &EvaluationEnvironment::new(&first)
+        ),
         Err(EvaluationSetupError::MissingPredicateCallback)
     ));
     let wrong = EvaluationEnvironment::new(&second);
@@ -1094,12 +1278,19 @@ fn diagnostics_are_globally_capped_without_omitting_failed_roots() {
 
     let mut source = String::from("resource R(int); outputs {");
     for index in 0..crate::MAX_DIAGNOSTICS + 4 {
-        write!(source, "r{index}: [R] = [R({index}), R({index})];").unwrap();
+        write!(
+            source,
+            "r{index}: [R] = [R({index}), R({index})];"
+        )
+        .unwrap();
     }
     source.push('}');
     let result = run(&source, &CheckPolicy::default());
     assert_eq!(result.roots().len(), crate::MAX_DIAGNOSTICS + 4);
-    assert_eq!(result.diagnostics().count(), crate::MAX_DIAGNOSTICS);
+    assert_eq!(
+        result.diagnostics().count(),
+        crate::MAX_DIAGNOSTICS
+    );
     assert!(
         result
             .roots()
@@ -1162,17 +1353,35 @@ fn evaluation_limits_cannot_exceed_hard_maxima() {
     );
     let environment = EvaluationEnvironment::new(&policy);
     let maxima = [
-        (EvaluationLimit::SetupSteps, MAX_EVALUATION_SETUP_STEPS),
-        (EvaluationLimit::SetupBytes, MAX_EVALUATION_SETUP_BYTES),
-        (EvaluationLimit::TotalSteps, MAX_EVALUATION_TOTAL_STEPS),
-        (EvaluationLimit::StepsPerRoot, MAX_EVALUATION_STEPS),
+        (
+            EvaluationLimit::SetupSteps,
+            MAX_EVALUATION_SETUP_STEPS,
+        ),
+        (
+            EvaluationLimit::SetupBytes,
+            MAX_EVALUATION_SETUP_BYTES,
+        ),
+        (
+            EvaluationLimit::TotalSteps,
+            MAX_EVALUATION_TOTAL_STEPS,
+        ),
+        (
+            EvaluationLimit::StepsPerRoot,
+            MAX_EVALUATION_STEPS,
+        ),
         (EvaluationLimit::Depth, MAX_EVALUATION_DEPTH),
-        (EvaluationLimit::ExpansionBytes, MAX_EVALUATION_EXPANSION),
+        (
+            EvaluationLimit::ExpansionBytes,
+            MAX_EVALUATION_EXPANSION,
+        ),
         (
             EvaluationLimit::RetainedExpansionBytes,
             MAX_EVALUATION_RETAINED_EXPANSION,
         ),
-        (EvaluationLimit::Diagnostics, crate::MAX_DIAGNOSTICS),
+        (
+            EvaluationLimit::Diagnostics,
+            crate::MAX_DIAGNOSTICS,
+        ),
     ];
 
     for (limit, maximum) in maxima {
@@ -1223,7 +1432,10 @@ fn operation_wide_budgets_fail_the_invocation_without_a_root_diagnostic() {
         EvaluationSetupError::EvaluationWorkLimit
     );
 
-    let program = checked("value I(int); outputs { only: I = I(1); }", &policy);
+    let program = checked(
+        "value I(int); outputs { only: I = I(1); }",
+        &policy,
+    );
     assert_eq!(
         evaluate_with_limits(
             &program,
@@ -1293,7 +1505,10 @@ fn predicate_panics_become_failed_root_diagnostics() {
         .unwrap();
     let result = evaluate(&program, &policy, &environment).unwrap();
     let root = result.roots().next().unwrap();
-    assert!(matches!(root.outcome(), RealizedRootOutcome::Failed(_)));
+    assert!(matches!(
+        root.outcome(),
+        RealizedRootOutcome::Failed(_)
+    ));
     assert!(
         root.diagnostics()
             .iter()

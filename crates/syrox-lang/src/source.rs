@@ -1,3 +1,9 @@
+//! Texto e coordenadas usados pelas etapas da linguagem.
+//!
+//! Um `SourceId` só identifica uma fonte dentro do seu `SourceSet`. Guarde o
+//! conjunto junto dos spans que pretende consultar. Domínios separam o projeto,
+//! a std e os inputs, inclusive quando eles têm nomes de módulos iguais.
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -47,7 +53,11 @@ pub struct Span {
 
 impl Span {
     pub(crate) const fn new(source: SourceId, start: u32, end: u32) -> Self {
-        Self { source, start, end }
+        Self {
+            source,
+            start,
+            end,
+        }
     }
 
     #[must_use]
@@ -89,7 +99,10 @@ impl Source {
         if text.len() > MAX_SOURCE_BYTES || text.len() > u32::MAX as usize {
             return Err(SourceError::TooLarge);
         }
-        Ok(Self { name, text })
+        Ok(Self {
+            name,
+            text,
+        })
     }
 
     pub fn name(&self) -> &str {
@@ -355,7 +368,11 @@ impl SourceSet {
         parent: SourceDomainId,
         alias: &str,
     ) -> Option<SourceDomainId> {
-        let domain = *self.input_domains.as_ref()?.get(&parent)?.get(alias)?;
+        let domain = *self
+            .input_domains
+            .as_ref()?
+            .get(&parent)?
+            .get(alias)?;
         self.metadata
             .project_roots
             .contains(&domain)
@@ -372,7 +389,10 @@ impl SourceSet {
     }
 
     pub(crate) fn module(&self, id: SourceId) -> Option<&[String]> {
-        self.metadata.modules.get(id.index()).map(Vec::as_slice)
+        self.metadata
+            .modules
+            .get(id.index())
+            .map(Vec::as_slice)
     }
 
     pub(crate) fn input_domains(
@@ -386,10 +406,13 @@ impl SourceSet {
     }
 
     pub fn iter(&self) -> impl ExactSizeIterator<Item = (SourceId, &Source)> {
-        self.sources.iter().enumerate().map(|(index, source)| {
-            let index = u32::try_from(index).expect("source count is bounded by u32");
-            (SourceId(index), source)
-        })
+        self.sources
+            .iter()
+            .enumerate()
+            .map(|(index, source)| {
+                let index = u32::try_from(index).expect("source count is bounded by u32");
+                (SourceId(index), source)
+            })
     }
 
     pub fn len(&self) -> usize {
@@ -453,9 +476,14 @@ mod tests {
         let input = sources
             .add_to_input_domain(input_domain, "input.srx", "")
             .unwrap();
-        let standard = sources.add_standard_library("std.srx", "").unwrap();
+        let standard = sources
+            .add_standard_library("std.srx", "")
+            .unwrap();
 
-        assert_eq!(sources.domain(project), Some(SourceDomainId::PROJECT));
+        assert_eq!(
+            sources.domain(project),
+            Some(SourceDomainId::PROJECT)
+        );
         assert_eq!(sources.domain(input), Some(input_domain));
         assert_eq!(
             sources.domain(standard),
@@ -477,7 +505,9 @@ mod tests {
             Some(&domain)
         );
         assert_eq!(
-            sources.create_input_domain("catalog").unwrap_err(),
+            sources
+                .create_input_domain("catalog")
+                .unwrap_err(),
             SourceError::DuplicateInputAlias
         );
         assert_eq!(
@@ -495,8 +525,12 @@ mod tests {
         let second = sources
             .create_project_domain(SourceDomainId::project(), "second")
             .unwrap();
-        let first_dep = sources.create_child_input_domain(first, "dep").unwrap();
-        let second_dep = sources.create_child_input_domain(second, "dep").unwrap();
+        let first_dep = sources
+            .create_child_input_domain(first, "dep")
+            .unwrap();
+        let second_dep = sources
+            .create_child_input_domain(second, "dep")
+            .unwrap();
         assert_ne!(first_dep, second_dep);
         assert_eq!(
             sources.create_child_input_domain(first_dep, "nested"),
@@ -514,7 +548,9 @@ mod tests {
             sources.create_project_domain(first, "dep"),
             Err(SourceError::DuplicateInputAlias)
         );
-        let nested = sources.create_project_domain(first, "nested").unwrap();
+        let nested = sources
+            .create_project_domain(first, "nested")
+            .unwrap();
         assert!(
             sources
                 .add_to_project_domain(nested, "nested/main.srx", "")

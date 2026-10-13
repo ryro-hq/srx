@@ -1,6 +1,7 @@
-//! Streaming, byte-bounded rendering of a projected Plan.
-
-use super::{MAX_PLAN_DISPLAY_BYTES, Plan, PlanError, PlanType, PlanValue, fmt};
+use super::{
+    MAX_PLAN_DISPLAY_BYTES, Plan, PlanConsumerKind, PlanError, PlanPackageId, PlanType, PlanValue,
+    fmt,
+};
 
 impl fmt::Display for Plan {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -25,32 +26,21 @@ fn display_plan<W: fmt::Write + ?Sized>(plan: &Plan, formatter: &mut W) -> fmt::
     } else {
         writeln!(formatter, "std absent")?;
     }
-    writeln!(formatter, "package dependency graph")?;
+    display_packages(plan, formatter)?;
     writeln!(
         formatter,
-        "packages {} edges {}",
-        plan.packages.len(),
-        plan.package_edges
+        "acquisitions {}",
+        plan.acquisitions.len()
     )?;
-    for package in &plan.packages {
-        write!(formatter, "package ")?;
-        display_string(formatter, package.id.as_str())?;
-        if let Some(export) = &package.export {
-            formatter.write_str(" export ")?;
-            display_string(formatter, export)?;
-        }
-        writeln!(formatter)?;
-        for dependency in &package.dependencies {
-            write!(formatter, "  dependency ")?;
-            display_string(formatter, dependency.as_str())?;
-            writeln!(formatter)?;
-        }
-    }
-    writeln!(formatter, "acquisitions {}", plan.acquisitions.len())?;
     for acquisition in &plan.acquisitions {
         write!(formatter, "acquisition ")?;
         display_string(formatter, acquisition.package.as_str())?;
-        writeln!(formatter, " sources {}", acquisition.sources.len())?;
+        writeln!(
+            formatter,
+            " sources {}",
+            acquisition.sources.len()
+        )?;
+        display_node_line(formatter, &acquisition.package)?;
         for source in &acquisition.sources {
             formatter.write_str("  source ")?;
             display_string(formatter, &source.url)?;
@@ -71,29 +61,46 @@ fn display_plan<W: fmt::Write + ?Sized>(plan: &Plan, formatter: &mut W) -> fmt::
         formatter.write_str("build ")?;
         display_string(formatter, build.package().as_str())?;
         writeln!(formatter, " protocol {}", build.protocol())?;
+        display_node_line(formatter, build.package())?;
         formatter.write_str("  source-directory ")?;
         display_string(formatter, build.source_directory())?;
-        formatter.write_str(" entry ")?;
-        display_string(formatter, build.entry())?;
         writeln!(formatter, " timeout {}", build.timeout_seconds())?;
-        if let Some(provider) = build.development() {
+        writeln!(
+            formatter,
+            "  profile {}",
+            match build.program().profile {
+                crate::build::BuildProfile::HostBootstrap => "host-bootstrap",
+                crate::build::BuildProfile::Managed => "managed",
+            }
+        )?;
+        writeln!(
+            formatter,
+            "  program {} steps {} outputs {}",
+            crate::store::ContentDigest::sha256(&build.program().encode()),
+            build.program().steps.len(),
+            build.program().outputs.join(" ")
+        )?;
+        for input in build.inputs() {
             formatter.write_str("  build-input ")?;
-            display_string(formatter, provider.as_str())?;
-            writeln!(formatter, " dev")?;
+            display_string(formatter, input.package.as_str())?;
+            write!(formatter, " {}", input.output)?;
+            display_node_suffix(formatter, &input.package)?;
         }
     }
-    if let Some(default) = &plan.default_build {
-        formatter.write_str("default-build ")?;
-        display_string(formatter, default.as_str())?;
-        writeln!(formatter)?;
-    }
-    display_applications(plan, formatter)?;
+
+    display_imports(plan, formatter)?;
+    display_commands(plan, formatter)?;
+    display_consumers(plan, formatter)?;
     for root in &plan.roots {
         write!(formatter, "root {}:", root.domain)?;
         display_path(formatter, &root.path)?;
         writeln!(formatter, " ({})", root.name)?;
         writeln!(formatter, "  type: {}", DisplayType(&root.ty))?;
-        writeln!(formatter, "  value: {}", DisplayValue(&root.value))?;
+        writeln!(
+            formatter,
+            "  value: {}",
+            DisplayValue(&root.value)
+        )?;
         for claim in &root.claims {
             write!(
                 formatter,
@@ -112,28 +119,224 @@ fn display_plan<W: fmt::Write + ?Sized>(plan: &Plan, formatter: &mut W) -> fmt::
     Ok(())
 }
 
-fn display_applications<W: fmt::Write + ?Sized>(plan: &Plan, formatter: &mut W) -> fmt::Result {
-    writeln!(formatter, "applications {}", plan.applications.len())?;
-    for app in &plan.applications {
-        formatter.write_str("application ")?;
-        display_string(formatter, app.package().as_str())?;
+fn display_imports<W: fmt::Write + ?Sized>(plan: &Plan, formatter: &mut W) -> fmt::Result {
+    writeln!(formatter, "imports {}", plan.imports.len())?;
+    for imported in &plan.imports {
+        formatter.write_str("imported ")?;
+        display_string(formatter, imported.package().as_str())?;
+        display_node_suffix(formatter, imported.package())?;
+        formatter.write_str("  root ")?;
+        display_string(formatter, imported.root().as_str())?;
+        writeln!(formatter, " manifest {}", imported.manifest())?;
+        for (output, key) in imported.outputs() {
+            formatter.write_str("  output ")?;
+            display_string(formatter, output)?;
+            formatter.write_str(" key ")?;
+            display_string(formatter, key)?;
+            writeln!(formatter)?;
+        }
+    }
+    Ok(())
+}
+
+fn display_consumers<W: fmt::Write + ?Sized>(plan: &Plan, formatter: &mut W) -> fmt::Result {
+    if plan.consumers.is_empty() {
+        return Ok(());
+    }
+    writeln!(
+        formatter,
+        "consumers {} planned configuration",
+        plan.consumers.len()
+    )?;
+    for consumer in &plan.consumers {
+        formatter.write_str("consumer ")?;
+        display_string(formatter, consumer.name())?;
+        let kind = match consumer.kind() {
+            PlanConsumerKind::Os => "Os",
+            PlanConsumerKind::Shell => "Shell",
+        };
+        write!(formatter, " {kind} node {}:", consumer.domain())?;
+        display_path(formatter, consumer.path())?;
         writeln!(formatter)?;
-        if let Some(loader) = app.loader() {
+        for package in consumer.pkgs() {
+            formatter.write_str("  package ")?;
+            display_selection(formatter, package)?;
+        }
+        for service in consumer.services() {
+            formatter.write_str("  service ")?;
+            display_string(formatter, service.id())?;
+            if service.commands().is_empty() && service.processes().is_empty() {
+                writeln!(formatter, " configuration-only")?;
+            } else {
+                writeln!(formatter)?;
+            }
+            for secret in service.secrets() {
+                writeln!(formatter, "    secret {secret}")?;
+            }
+            if service.state() == super::PlanServiceState::Session {
+                writeln!(formatter, "    state session")?;
+            }
+            for package in service.pkgs() {
+                formatter.write_str("    package ")?;
+                display_selection(formatter, package)?;
+            }
+            for command in service.commands() {
+                formatter.write_str("    configured command ")?;
+                display_string(formatter, command.name())?;
+                formatter.write_str(" recipe ")?;
+                display_string(formatter, command.command().package.as_str())?;
+                display_node_suffix(formatter, &command.command().package)?;
+                formatter.write_str(" entry ")?;
+                display_string(formatter, &command.command().name)?;
+                if let Some(expose) = command.expose() {
+                    formatter.write_str(" expose ")?;
+                    display_string(formatter, expose)?;
+                }
+                writeln!(formatter)?;
+                for argument in command.arguments() {
+                    formatter.write_str("      argument ")?;
+                    display_command_argument(formatter, argument)?;
+                    writeln!(formatter)?;
+                }
+                for environment in command.environment() {
+                    formatter.write_str("      environment ")?;
+                    display_string(formatter, &environment.name)?;
+                    formatter.write_str(" = ")?;
+                    display_command_argument(formatter, &environment.value)?;
+                    writeln!(formatter)?;
+                }
+            }
+            for process in service.processes() {
+                formatter.write_str("    process ")?;
+                display_string(formatter, &process.id)?;
+                formatter.write_str(" command ")?;
+                display_string(formatter, &process.command)?;
+                match process.restart() {
+                    crate::execution::restart::ProcessRestart::Never => {
+                        formatter.write_str(" restart never")?;
+                    }
+                    crate::execution::restart::ProcessRestart::OnFailure(limits) => write!(
+                        formatter,
+                        " restart on-failure delay {}s window {}s burst {} starts",
+                        limits.delay_seconds(),
+                        limits.window_seconds(),
+                        limits.burst()
+                    )?,
+                }
+                writeln!(formatter)?;
+            }
+            for file in service.files() {
+                formatter.write_str("    planned file ")?;
+                display_string(formatter, file.path())?;
+                formatter.write_str(" text ")?;
+                display_string(formatter, file.text())?;
+                writeln!(formatter)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn display_command_argument<W: fmt::Write + ?Sized>(
+    formatter: &mut W,
+    argument: &super::PlanCommandArgument,
+) -> fmt::Result {
+    match argument {
+        super::PlanCommandArgument::SecretFile(name) => {
+            formatter.write_str("secret-file ")?;
+            display_string(formatter, name)
+        }
+        super::PlanCommandArgument::StateDirectory => formatter.write_str("state-directory"),
+        super::PlanCommandArgument::Literal(value) => {
+            formatter.write_str("literal ")?;
+            display_string(formatter, value)
+        }
+        super::PlanCommandArgument::File(path) => {
+            formatter.write_str("file ")?;
+            display_string(formatter, path)
+        }
+    }
+}
+
+fn display_packages<W: fmt::Write + ?Sized>(plan: &Plan, formatter: &mut W) -> fmt::Result {
+    writeln!(formatter, "package dependency graph")?;
+    writeln!(
+        formatter,
+        "packages {} edges {}",
+        plan.packages.len(),
+        plan.package_edges
+    )?;
+    for package in &plan.packages {
+        formatter.write_str("package ")?;
+        display_string(formatter, package.id.as_str())?;
+        if let Some(export) = &package.export {
+            formatter.write_str(" export ")?;
+            display_string(formatter, export)?;
+        }
+        writeln!(formatter)?;
+        display_node_line(formatter, &package.id)?;
+        for alias in &package.aliases {
+            formatter.write_str("  alias ")?;
+            display_string(formatter, alias)?;
+            writeln!(formatter)?;
+        }
+        for dependency in &package.dependencies {
+            formatter.write_str("  dependency ")?;
+            display_string(formatter, dependency.as_str())?;
+            display_node_suffix(formatter, dependency)?;
+        }
+    }
+    Ok(())
+}
+
+fn display_selection<W: fmt::Write + ?Sized>(
+    formatter: &mut W,
+    selection: &super::PlanPackageSelection,
+) -> fmt::Result {
+    display_string(formatter, selection.package().as_str())?;
+    formatter.write_str(" output ")?;
+    display_string(formatter, &selection.output().output)?;
+    formatter.write_str(" commands [")?;
+    for (index, command) in selection.commands().iter().enumerate() {
+        if index != 0 {
+            formatter.write_str(", ")?;
+        }
+        display_string(formatter, command)?;
+    }
+    formatter.write_str("]")?;
+    display_node_suffix(formatter, selection.package())
+}
+
+fn display_commands<W: fmt::Write + ?Sized>(plan: &Plan, formatter: &mut W) -> fmt::Result {
+    writeln!(formatter, "commands {}", plan.commands.len())?;
+    for command in &plan.commands {
+        formatter.write_str("command ")?;
+        display_string(formatter, command.package().as_str())?;
+        formatter.write_str(" name ")?;
+        display_string(formatter, command.name())?;
+        formatter.write_str(" output ")?;
+        display_string(formatter, command.output())?;
+        formatter.write_str(" path ")?;
+        display_string(formatter, command.path())?;
+        display_node_suffix(formatter, command.package())?;
+        if let Some(loader) = command.loader() {
             formatter.write_str("  loader ")?;
-            display_string(formatter, loader.as_str())?;
-            writeln!(formatter)?;
+            display_string(formatter, loader.output.package.as_str())?;
+            formatter.write_str(" output ")?;
+            display_string(formatter, &loader.output.output)?;
+            formatter.write_str(" path ")?;
+            display_string(formatter, &loader.path)?;
+            display_node_suffix(formatter, &loader.output.package)?;
         }
-        for library in app.libraries() {
+        for library in command.libraries() {
             formatter.write_str("  library ")?;
-            display_string(formatter, library.as_str())?;
-            writeln!(formatter)?;
+            display_string(formatter, library.package.as_str())?;
+            formatter.write_str(" output ")?;
+            display_string(formatter, &library.output)?;
+            display_node_suffix(formatter, &library.package)?;
         }
     }
-    if let Some(default) = &plan.default_application {
-        formatter.write_str("default-application ")?;
-        display_string(formatter, default.as_str())?;
-        writeln!(formatter)?;
-    }
+
     Ok(())
 }
 
@@ -144,6 +347,20 @@ fn display_digest<W: fmt::Write + ?Sized>(formatter: &mut W, digest: &[u8; 32]) 
     Ok(())
 }
 
+fn display_node_suffix<W: fmt::Write + ?Sized>(
+    formatter: &mut W,
+    id: &PlanPackageId,
+) -> fmt::Result {
+    write!(formatter, " node {}:", id.domain())?;
+    display_path(formatter, id.path())?;
+    writeln!(formatter)
+}
+
+fn display_node_line<W: fmt::Write + ?Sized>(formatter: &mut W, id: &PlanPackageId) -> fmt::Result {
+    formatter.write_str(" ")?;
+    display_node_suffix(formatter, id)
+}
+
 struct DisplayType<'a>(&'a PlanType);
 
 impl fmt::Display for DisplayType<'_> {
@@ -152,7 +369,10 @@ impl fmt::Display for DisplayType<'_> {
             PlanType::Unit => formatter.write_str("unit"),
             PlanType::Int => formatter.write_str("int"),
             PlanType::Str => formatter.write_str("str"),
-            PlanType::Nominal { domain, path } => {
+            PlanType::Nominal {
+                domain,
+                path,
+            } => {
                 write!(formatter, "{domain}:")?;
                 display_path(formatter, path)
             }
@@ -182,18 +402,39 @@ struct DisplayValue<'a>(&'a PlanValue);
 impl fmt::Display for DisplayValue<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
+            PlanValue::Reference {
+                domain,
+                path,
+            } => {
+                write!(formatter, "ref({domain}:{})", path.join("::"))
+            }
             PlanValue::Unit => formatter.write_str("()"),
             PlanValue::Int(value) => write!(formatter, "{value}"),
             PlanValue::Str(value) => display_string(formatter, value),
-            PlanValue::Nominal { ty, value, .. } => {
-                write!(formatter, "{}({})", DisplayType(ty), DisplayValue(value))
+            PlanValue::Nominal {
+                ty,
+                value,
+                ..
+            } => {
+                write!(
+                    formatter,
+                    "{}({})",
+                    DisplayType(ty),
+                    DisplayValue(value)
+                )
             }
-            PlanValue::List { items, .. } => {
+            PlanValue::List {
+                items,
+                ..
+            } => {
                 formatter.write_str("[")?;
                 display_values(formatter, items)?;
                 formatter.write_str("]")
             }
-            PlanValue::Struct { fields, .. } => {
+            PlanValue::Struct {
+                fields,
+                ..
+            } => {
                 formatter.write_str("{")?;
                 for (index, (name, value)) in fields.iter().enumerate() {
                     if index > 0 {
@@ -203,7 +444,11 @@ impl fmt::Display for DisplayValue<'_> {
                 }
                 formatter.write_str("}")
             }
-            PlanValue::Variant { ty, index, payload } => {
+            PlanValue::Variant {
+                ty,
+                index,
+                payload,
+            } => {
                 write!(formatter, "{}::{index}", DisplayType(ty))?;
                 if !payload.is_empty() {
                     formatter.write_str("(")?;
@@ -312,7 +557,12 @@ impl fmt::Write for ByteCounter {
 }
 
 pub(super) fn canonical_display_bytes(plan: &Plan, limit: usize) -> Result<usize, PlanError> {
-    let mut counter = ByteCounter { bytes: 0, limit };
-    display_plan(plan, &mut counter).map_err(|_| PlanError::DisplayBytesLimit { limit })?;
+    let mut counter = ByteCounter {
+        bytes: 0,
+        limit,
+    };
+    display_plan(plan, &mut counter).map_err(|_| PlanError::DisplayBytesLimit {
+        limit,
+    })?;
     Ok(counter.bytes)
 }

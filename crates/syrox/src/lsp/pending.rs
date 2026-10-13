@@ -5,22 +5,13 @@ use serde_json::Value;
 use super::{Server, document_uri, position, response, response_error};
 
 #[derive(Debug)]
-pub(super) struct PendingCompletion {
+pub(super) struct PendingSemanticRequest {
     id: Value,
     params: Value,
     method: String,
 }
 
 impl Server {
-    pub(super) fn completion_request(
-        &mut self,
-        id: Value,
-        params: &Value,
-        writer: &mut impl Write,
-    ) -> io::Result<()> {
-        self.semantic_request("textDocument/completion", id, params, writer)
-    }
-
     pub(super) fn semantic_request(
         &mut self,
         method: &str,
@@ -42,7 +33,7 @@ impl Server {
                         | "textDocument/documentSymbol"
                 ))
         {
-            if self.pending_completions.len() >= 64 {
+            if self.pending_semantic_requests.len() >= 64 {
                 return response_error(
                     writer,
                     id,
@@ -50,11 +41,12 @@ impl Server {
                     "semantic request queue full; request again",
                 );
             }
-            self.pending_completions.push(PendingCompletion {
-                id,
-                params: params.clone(),
-                method: method.into(),
-            });
+            self.pending_semantic_requests
+                .push(PendingSemanticRequest {
+                    id,
+                    params: params.clone(),
+                    method: method.into(),
+                });
             return Ok(());
         }
         self.semantic_response(method, id, params, writer)
@@ -73,15 +65,23 @@ impl Server {
         }
     }
 
-    pub(super) fn finish_completions(&mut self, writer: &mut impl Write) -> io::Result<()> {
-        for pending in std::mem::take(&mut self.pending_completions) {
-            self.semantic_response(&pending.method, pending.id, &pending.params, writer)?;
+    pub(super) fn finish_semantic_requests(&mut self, writer: &mut impl Write) -> io::Result<()> {
+        for pending in std::mem::take(&mut self.pending_semantic_requests) {
+            self.semantic_response(
+                &pending.method,
+                pending.id,
+                &pending.params,
+                writer,
+            )?;
         }
         Ok(())
     }
 
-    pub(super) fn invalidate_completions(&mut self, writer: &mut impl Write) -> io::Result<()> {
-        for pending in std::mem::take(&mut self.pending_completions) {
+    pub(super) fn invalidate_semantic_requests(
+        &mut self,
+        writer: &mut impl Write,
+    ) -> io::Result<()> {
+        for pending in std::mem::take(&mut self.pending_semantic_requests) {
             // Normal didChange is not ContentModified (LSP errorCodes). Finish
             // the superseded query without applying its cursor to newer text.
             // The client owns cancellation/retriggering for its new document.
@@ -99,18 +99,23 @@ impl Server {
         Ok(())
     }
 
-    pub(super) fn cancel_completion(
+    pub(super) fn cancel_semantic_request(
         &mut self,
         id: &Value,
         writer: &mut impl Write,
     ) -> io::Result<()> {
         if let Some(index) = self
-            .pending_completions
+            .pending_semantic_requests
             .iter()
             .position(|pending| pending.id == *id)
         {
-            let pending = self.pending_completions.remove(index);
-            response_error(writer, pending.id, -32800, "completion request cancelled")?;
+            let pending = self.pending_semantic_requests.remove(index);
+            response_error(
+                writer,
+                pending.id,
+                -32800,
+                "completion request cancelled",
+            )?;
         }
         Ok(())
     }

@@ -1,12 +1,13 @@
 use serde_json::{Value, json};
 use syrox_lang::{
-    LineIndex, ParsedFile, ResolvedItemKind, ResolvedTarget, SemanticAnalysis, SourceId,
-    SyntaxKind, SyntaxTokenKind as Token, Ty,
+    analysis::SemanticAnalysis, checker::Ty, line_index::LineIndex, resolver::ResolvedItemKind,
+    resolver::ResolvedTarget, source::SourceId, syntax::ParsedFile, syntax::SyntaxKind,
+    syntax::SyntaxTokenKind as Token,
 };
 
 use super::{
     Server,
-    features::{display_type, path_label},
+    features::{display_type, edit_range, path_label, text_edit},
 };
 
 impl Server {
@@ -45,32 +46,63 @@ impl Server {
         };
         let incomplete = candidates.len() >= 256;
         let lines = LineIndex::new(parsed.source());
-        let start = lines
-            .position(span.0, self.encoding)
-            .expect("token boundary");
-        let end = lines
-            .position(span.1, self.encoding)
-            .expect("token boundary");
-        let range = json!({"start":{"line":start.line,"character":start.character},"end":{"line":end.line,"character":end.character}});
-        let items: Vec<_> = candidates.into_iter().take(256).map(|(name, target)| {
-            let (kind, detail) = match target {
-                ResolvedTarget::Item(id) => {
-                    let item = analysis.items().find(|item| item.id() == id).expect("resolved item");
-                    let kind = match item.kind() { ResolvedItemKind::Function => 3, ResolvedItemKind::Struct => 22, ResolvedItemKind::Enum => 13, ResolvedItemKind::OutputValue => 6, _ => 7 };
-                    let detail = analysis.function_type(id).map_or_else(|| format!("{:?}", item.kind()), |ty| display_type(analysis, ty, &mut 128, 0));
-                    (kind, detail)
-                }
-                ResolvedTarget::Local(id) => {
-                    let local = analysis.locals().find(|local|local.id() == id);
-                    let kind = if local.is_some_and(|local|local.kind() == syrox_lang::LocalKind::TypeParameter) {25} else {6};
-                    (kind,analysis.local_type(id).map_or_else(|| "local".into(), |ty| analysis.display_type(ty)))
-                },
-                ResolvedTarget::EnumVariant { .. } => (20,"enum variant".into()),
-                _ => (9, "module".into()),
-            };
-            json!({"label":name,"kind":kind,"detail":detail,"textEdit":{"range":range,"newText":name}})
-        }).collect();
-        json!({"isIncomplete":incomplete,"items":items})
+        let range = edit_range(&lines, span.0, span.1, self.encoding).expect("token boundary");
+        let items: Vec<_> = candidates
+            .into_iter()
+            .take(256)
+            .map(|(name, target)| {
+                let (kind, detail) = match target {
+                    ResolvedTarget::Item(id) => {
+                        let item = analysis
+                            .items()
+                            .find(|item| item.id() == id)
+                            .expect("resolved item");
+                        let kind = match item.kind() {
+                            ResolvedItemKind::Function => 3,
+                            ResolvedItemKind::Struct => 22,
+                            ResolvedItemKind::Enum => 13,
+                            ResolvedItemKind::OutputValue => 6,
+                            _ => 7,
+                        };
+                        let ty = analysis
+                            .function_type(id)
+                            .or_else(|| analysis.output_type(id));
+                        let detail = ty.map_or_else(
+                            || format!("{:?}", item.kind()),
+                            |ty| display_type(analysis, ty, &mut 128, 0),
+                        );
+                        (kind, detail)
+                    }
+                    ResolvedTarget::Local(id) => {
+                        let local = analysis.locals().find(|local| local.id() == id);
+                        let parameter = local.is_some_and(|local| {
+                            local.kind() == syrox_lang::resolver::LocalKind::TypeParameter
+                        });
+                        let kind = if parameter {
+                            25
+                        } else {
+                            6
+                        };
+                        let detail = analysis
+                            .local_type(id)
+                            .map_or_else(|| "local".into(), |ty| analysis.display_type(ty));
+                        (kind, detail)
+                    }
+                    ResolvedTarget::EnumVariant {
+                        ..
+                    } => (20, "enum variant".into()),
+                    _ => (9, "module".into()),
+                };
+                let edit = text_edit(range.clone(), name.clone());
+                json!({
+                    "label": name,
+                    "kind": kind,
+                    "detail": detail,
+                    "textEdit": edit,
+                })
+            })
+            .collect();
+        json!({ "isIncomplete": incomplete, "items": items })
     }
 
     pub(super) fn signature_help(
@@ -95,7 +127,9 @@ impl Server {
             _ => None,
         };
         let Some(Ty::Function {
-            parameters, result, ..
+            parameters,
+            result,
+            ..
         }) = signature
         else {
             return Value::Null;
@@ -112,11 +146,16 @@ impl Server {
             .map(|(index, ty)| {
                 let name = names
                     .and_then(|parameters| parameters.get(index))
-                    .map_or_else(String::new, |parameter| parameter.name.text.clone());
+                    .map_or_else(String::new, |parameter| {
+                        parameter.name.text.clone()
+                    });
                 if name.is_empty() {
                     display_type(analysis, ty, &mut budget, 0)
                 } else {
-                    format!("{name}: {}", display_type(analysis, ty, &mut budget, 0))
+                    format!(
+                        "{name}: {}",
+                        display_type(analysis, ty, &mut budget, 0)
+                    )
                 }
             })
             .collect();
@@ -135,7 +174,13 @@ impl Server {
         } else {
             json!(active.min(parameters.len() - 1))
         };
-        json!({"signatures":[{"label":label,"parameters":parameters,"activeParameter":active}],"activeSignature":0,"activeParameter":active})
+        json!({
+            "signatures": [{
+                "label": label,"parameters": parameters,"activeParameter": active
+            }],
+            "activeSignature": 0,
+            "activeParameter": active
+        })
     }
 }
 
@@ -205,7 +250,12 @@ fn completion_path(parsed: &ParsedFile, offset: u32) -> Option<(Vec<String>, (u3
         );
         index -= 2;
     }
-    if index > 0 && matches!(tokens[index - 1].kind, Token::Dot | Token::ColonColon) {
+    if index > 0
+        && matches!(
+            tokens[index - 1].kind,
+            Token::Dot | Token::ColonColon
+        )
+    {
         return None;
     }
     parts.reverse();
@@ -262,7 +312,12 @@ fn call_at(parsed: &ParsedFile, offset: u32) -> Option<(Vec<String>, usize)> {
     if parts.is_empty() {
         return None;
     }
-    if index > 0 && matches!(tokens[index - 1].kind, Token::Dot | Token::ColonColon) {
+    if index > 0
+        && matches!(
+            tokens[index - 1].kind,
+            Token::Dot | Token::ColonColon
+        )
+    {
         return None;
     }
     parts.reverse();
@@ -292,7 +347,7 @@ fn call_at(parsed: &ParsedFile, offset: u32) -> Option<(Vec<String>, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use syrox_lang::{Source, parse_file};
+    use syrox_lang::{source::Source, syntax::parse_file};
 
     #[test]
     fn completion_replaces_the_whole_identifier_and_ignores_comments_and_fields() {
@@ -317,9 +372,15 @@ mod tests {
         let text = "fn run() { choose([I(1), I(2)], S(\"a,b\"), I(3)); empty(); }";
         let parsed = parse_file(&Source::new("test.srx", text).unwrap());
         let offset = u32::try_from(text.find("I(3)").unwrap()).unwrap();
-        assert_eq!(call_at(&parsed, offset), Some((vec!["choose".into()], 2)));
+        assert_eq!(
+            call_at(&parsed, offset),
+            Some((vec!["choose".into()], 2))
+        );
         let empty = u32::try_from(text.find("empty(").unwrap() + 6).unwrap();
-        assert_eq!(call_at(&parsed, empty), Some((vec!["empty".into()], 0)));
+        assert_eq!(
+            call_at(&parsed, empty),
+            Some((vec!["empty".into()], 0))
+        );
         assert!(call_at(&parsed, 7).is_none());
     }
 }

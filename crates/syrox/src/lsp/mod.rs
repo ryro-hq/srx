@@ -1,13 +1,21 @@
+//! Sessão do editor e despacho das consultas LSP.
+//!
+//! A sessão guarda documentos, capabilities e geração atual. Parsing e análise
+//! trabalham com snapshots; respostas de outra geração são descartadas. O worker
+//! tem um job ativo e um pendente substituível para que edições rápidas não
+//! acumulem uma fila de análises antigas.
+
 mod actions;
 mod completion;
-mod construction;
 mod features;
 mod fields;
+mod formatting;
 mod hints;
 mod interpolation;
 mod navigation;
 mod pending;
 mod presentation;
+mod status;
 mod transport;
 mod worker;
 
@@ -17,9 +25,10 @@ use std::process::ExitCode;
 use std::sync::{Arc, mpsc};
 
 use serde_json::{Value, json};
-use syrox_engine::CheckConfiguration;
+use syrox_engine::project::CheckConfiguration;
 use syrox_lang::{
-    AnalysisCancellation, AnalysisHost, LineIndex, PositionEncoding, Source, TextPosition,
+    analysis::AnalysisCancellation, analysis::AnalysisHost, line_index::LineIndex,
+    line_index::PositionEncoding, line_index::TextPosition, source::Source,
 };
 use url::Url;
 
@@ -29,6 +38,7 @@ enum Event {
     InvalidJson,
     End(io::Result<()>),
     Analyzed(worker::ResultSet),
+    Formatted(formatting::Completed),
 }
 
 pub(super) fn run(path: Option<PathBuf>, configuration: CheckConfiguration) -> ExitCode {
@@ -68,7 +78,8 @@ fn serve(path: Option<PathBuf>, configuration: CheckConfiguration) -> io::Result
         }
     });
     let jobs = Arc::new(worker::Jobs::default());
-    worker::spawn(jobs.clone(), events, configuration);
+    worker::spawn(jobs.clone(), events.clone(), configuration);
+    let formatting = formatting::Formatting::new(events);
     let mut server = Server {
         workspace_mode: worker::WorkspaceMode::Project,
         explicit_root: path.is_some(),
@@ -83,7 +94,8 @@ fn serve(path: Option<PathBuf>, configuration: CheckConfiguration) -> io::Result
         cancellation: AnalysisCancellation::default(),
         jobs,
         latest: None,
-        pending_completions: Vec::new(),
+        pending_semantic_requests: Vec::new(),
+        formatting,
         hints: presentation::HintSettings::default(),
         hint_refresh: false,
         hint_resolve_tooltip: false,
@@ -108,6 +120,7 @@ fn serve(path: Option<PathBuf>, configuration: CheckConfiguration) -> io::Result
                     return Ok(server.lifecycle == Lifecycle::Shutdown);
                 }
                 Event::Analyzed(result) => server.analyzed(result, &mut writer)?,
+                Event::Formatted(result) => server.formatted(result, &mut writer)?,
             }
         }
         Ok(server.lifecycle == Lifecycle::Shutdown)
@@ -133,7 +146,8 @@ struct Server {
     cancellation: AnalysisCancellation,
     jobs: Arc<worker::Jobs>,
     latest: Option<worker::ResultSet>,
-    pending_completions: Vec<pending::PendingCompletion>,
+    pending_semantic_requests: Vec<pending::PendingSemanticRequest>,
+    formatting: formatting::Formatting,
     hints: presentation::HintSettings,
     hint_refresh: bool,
     hint_resolve_tooltip: bool,
@@ -201,13 +215,15 @@ impl Server {
                     }
                 }
                 "shutdown" => {
-                    self.invalidate_completions(writer)?;
+                    self.invalidate_semantic_requests(writer)?;
+                    self.formatting.invalidate(writer)?;
                     self.lifecycle = Lifecycle::Shutdown;
                     self.cancellation.cancel();
                     response(writer, id, Value::Null)
                 }
-                "textDocument/completion" => self.completion_request(id, params, writer),
-                "textDocument/hover"
+                "textDocument/formatting" => self.formatting_request(id, params, writer),
+                "textDocument/completion"
+                | "textDocument/hover"
                 | "textDocument/signatureHelp"
                 | "textDocument/definition"
                 | "textDocument/typeDefinition"
@@ -222,6 +238,7 @@ impl Server {
                     Ok(result) => response(writer, id, result),
                     Err(error) => response_error(writer, id, -32602, &error),
                 },
+                "syrox/projectStatus" => response(writer, id, self.project_status()),
                 _ => response_error(writer, id, -32601, "method not supported"),
             }
         } else {
@@ -239,7 +256,8 @@ impl Server {
             return Ok(());
         }
         if method == "$/cancelRequest" {
-            return self.cancel_completion(&params["id"], writer);
+            self.formatting.cancel(&params["id"], writer)?;
+            return self.cancel_semantic_request(&params["id"], writer);
         }
         if params["textDocument"]["uri"]
             .as_str()
@@ -262,7 +280,22 @@ impl Server {
                 self.watch_registration = false;
                 transport::write_message(
                     writer,
-                    &json!({"jsonrpc":"2.0","id":"srx/watch","method":"client/registerCapability","params":{"registrations":[{"id":"syrox-sources","method":"workspace/didChangeWatchedFiles","registerOptions":{"watchers":[{"globPattern":"**/*.srx"},{"globPattern":"**/Syrox.lock"}]}}]}}),
+                    &json!({
+                        "jsonrpc": "2.0",
+                        "id": "srx/watch",
+                        "method": "client/registerCapability",
+                        "params": {
+                            "registrations": [{
+                                "id": "syrox-sources","method": "workspace/didChangeWatchedFiles","registerOptions": {
+                                    "watchers": [{
+                                        "globPattern": "**/*.srx"
+                                    },{
+                                        "globPattern": "**/Syrox.lock"
+                                    }]
+                                }
+                            }]
+                        }
+                    }),
                 )?;
                 return Ok(());
             }
@@ -325,7 +358,11 @@ impl Server {
         self.hint_resolve_tooltip =
             params["capabilities"]["textDocument"]["inlayHint"]["resolveSupport"]["properties"]
                 .as_array()
-                .is_some_and(|properties| properties.iter().any(|property| property == "tooltip"));
+                .is_some_and(|properties| {
+                    properties
+                        .iter()
+                        .any(|property| property == "tooltip")
+                });
         self.hint_refresh = params["capabilities"]["workspace"]["inlayHint"]["refreshSupport"]
             .as_bool()
             == Some(true);
@@ -344,6 +381,7 @@ impl Server {
             json!({"capabilities": {
             "positionEncoding": if self.encoding == PositionEncoding::Utf8 {"utf-8"} else {"utf-16"},
             "textDocumentSync": {"openClose":true,"change":1,"save":{"includeText":false}},
+            "documentFormattingProvider":true,
             "hoverProvider":true,"definitionProvider":true,"documentSymbolProvider":true,
             "typeDefinitionProvider":true,"referencesProvider":true,"documentHighlightProvider":true,
             "inlayHintProvider":{"resolveProvider":true},
@@ -351,7 +389,10 @@ impl Server {
             "codeActionProvider": if self.versioned_edits { json!({"codeActionKinds":["quickfix"],"resolveProvider":true}) } else { json!(false) },
             "completionProvider":{"triggerCharacters":[":",".","{"],"resolveProvider":false},
             "signatureHelpProvider":{"triggerCharacters":["(",","],"retriggerCharacters":[","]},
-            "experimental":{"syroxVirtualSource":{"scheme":"syrox-source","request":"syrox/readSource"}}
+            "experimental":{
+                "syroxVirtualSource":{"revision":1,"scheme":"syrox-source","request":"syrox/readSource"},
+                "syroxProjectStatus":{"revision":1,"request":"syrox/projectStatus","notification":"syrox/projectStatus"}
+            }
         }, "serverInfo":{"name":"srx","version":env!("CARGO_PKG_VERSION")}}),
         )
     }
@@ -385,7 +426,9 @@ impl Server {
             .as_array()
             .ok_or("missing contentChanges")?
         {
-            let replacement = change["text"].as_str().ok_or("missing change text")?;
+            let replacement = change["text"]
+                .as_str()
+                .ok_or("missing change text")?;
             if let Some(range) = change.get("range") {
                 let source =
                     Source::new(&*uri, text.as_str()).map_err(|error| error.to_string())?;
@@ -417,7 +460,8 @@ impl Server {
     }
 
     fn schedule(&mut self, reload: bool, writer: &mut impl Write) -> io::Result<()> {
-        self.invalidate_completions(writer)?;
+        self.formatting.invalidate(writer)?;
+        self.invalidate_semantic_requests(writer)?;
         self.cancellation.cancel();
         self.cancellation = AnalysisCancellation::default();
         self.generation += 1;
@@ -426,6 +470,7 @@ impl Server {
         }
         self.latest = None;
         self.publish(None, writer)?;
+        self.publish_status(writer)?;
         self.jobs.submit(worker::Job {
             mode: self.workspace_mode,
             generation: self.generation,
@@ -449,7 +494,8 @@ impl Server {
             )?,
         }
         self.latest = Some(result);
-        self.finish_completions(writer)?;
+        self.publish_status(writer)?;
+        self.finish_semantic_requests(writer)?;
         self.refresh_hints(writer)
     }
 
@@ -458,7 +504,11 @@ impl Server {
             self.hint_refresh_serial += 1;
             transport::write_message(
                 writer,
-                &json!({"jsonrpc":"2.0","id":format!("srx/hints-refresh/{}",self.hint_refresh_serial),"method":"workspace/inlayHint/refresh"}),
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": format!("srx/hints-refresh/{}",self.hint_refresh_serial),
+                    "method": "workspace/inlayHint/refresh"
+                }),
             )?;
         }
         Ok(())
@@ -542,7 +592,8 @@ mod tests {
             cancellation: AnalysisCancellation::default(),
             jobs: Arc::new(worker::Jobs::default()),
             latest: None,
-            pending_completions: Vec::new(),
+            pending_semantic_requests: Vec::new(),
+            formatting: formatting::Formatting::new(mpsc::sync_channel(8).0),
             hints: presentation::HintSettings::default(),
             hint_refresh: false,
             hint_resolve_tooltip: false,
@@ -553,7 +604,10 @@ mod tests {
     #[test]
     fn newer_edits_cancel_work_and_obsolete_results_never_publish() {
         let mut server = server();
-        server.host.set_overlay("untitled:test", 1, "@").unwrap();
+        server
+            .host
+            .set_overlay("untitled:test", 1, "@")
+            .unwrap();
         server.schedule(false, &mut Vec::new()).unwrap();
         let previous = server.cancellation.clone();
         server
@@ -569,6 +623,8 @@ mod tests {
                     generation: 1,
                     analysis: Err("obsolete".into()),
                     paths: BTreeMap::new(),
+                    lock_status: syrox_engine::project::ProjectAnalysisLockStatus::Unchecked,
+                    metadata_truncated: false,
                 },
                 &mut output,
             )
@@ -582,6 +638,8 @@ mod tests {
                     generation: 2,
                     analysis: Err("after shutdown".into()),
                     paths: BTreeMap::new(),
+                    lock_status: syrox_engine::project::ProjectAnalysisLockStatus::Unchecked,
+                    metadata_truncated: false,
                 },
                 &mut output,
             )
@@ -601,12 +659,19 @@ mod tests {
             json!({"textDocument":{"uri":"untitled:test"},"position":{"line":0,"character":0}});
         let mut output = Vec::new();
         server
-            .completion_request(json!(1), &params, &mut output)
+            .semantic_request(
+                "textDocument/completion",
+                json!(1),
+                &params,
+                &mut output,
+            )
             .unwrap();
         assert!(output.is_empty());
-        assert_eq!(server.pending_completions.len(), 1);
-        server.cancel_completion(&json!(1), &mut output).unwrap();
-        assert!(server.pending_completions.is_empty());
+        assert_eq!(server.pending_semantic_requests.len(), 1);
+        server
+            .cancel_semantic_request(&json!(1), &mut output)
+            .unwrap();
+        assert!(server.pending_semantic_requests.is_empty());
         let frame = transport::read_frame(&mut output.as_slice())
             .unwrap()
             .unwrap();
@@ -616,14 +681,19 @@ mod tests {
         );
         output.clear();
         server
-            .completion_request(json!(2), &params, &mut output)
+            .semantic_request(
+                "textDocument/completion",
+                json!(2),
+                &params,
+                &mut output,
+            )
             .unwrap();
         server
             .host
             .set_overlay("untitled:test", 2, "fn better() {}")
             .unwrap();
         server.schedule(false, &mut output).unwrap();
-        assert!(server.pending_completions.is_empty());
+        assert!(server.pending_semantic_requests.is_empty());
         let frame = transport::read_frame(&mut output.as_slice())
             .unwrap()
             .unwrap();
@@ -633,7 +703,12 @@ mod tests {
         );
         output.clear();
         server
-            .completion_request(json!(3), &params, &mut output)
+            .semantic_request(
+                "textDocument/completion",
+                json!(3),
+                &params,
+                &mut output,
+            )
             .unwrap();
         server
             .analyzed(
@@ -641,6 +716,8 @@ mod tests {
                     generation: 1,
                     analysis: Err("old".into()),
                     paths: BTreeMap::new(),
+                    lock_status: syrox_engine::project::ProjectAnalysisLockStatus::Unchecked,
+                    metadata_truncated: false,
                 },
                 &mut output,
             )
@@ -652,17 +729,189 @@ mod tests {
                     generation: 2,
                     analysis: Err("syntax-only fallback".into()),
                     paths: BTreeMap::new(),
+                    lock_status: syrox_engine::project::ProjectAnalysisLockStatus::Unchecked,
+                    metadata_truncated: false,
                 },
                 &mut output,
             )
             .unwrap();
-        assert!(server.pending_completions.is_empty());
+        assert!(server.pending_semantic_requests.is_empty());
         let mut frames = output.as_slice();
         transport::read_frame(&mut frames).unwrap(); // project fallback log
-        let response =
-            serde_json::from_slice::<Value>(&transport::read_frame(&mut frames).unwrap().unwrap())
-                .unwrap();
+        let status = serde_json::from_slice::<Value>(
+            &transport::read_frame(&mut frames)
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(status["method"], "syrox/projectStatus");
+        assert_eq!(status["params"]["state"], "unavailable");
+        let response = serde_json::from_slice::<Value>(
+            &transport::read_frame(&mut frames)
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
         assert_eq!(response["id"], 3);
         assert_eq!(response["result"]["items"], json!([]));
+    }
+    #[test]
+    fn semantic_queries_without_cursor_share_deferral_and_cancellation() {
+        let mut server = server();
+        server
+            .host
+            .set_overlay("untitled:test", 1, "fn good() {}")
+            .unwrap();
+        server.schedule(false, &mut Vec::new()).unwrap();
+        let params = json!({"textDocument":{"uri":"untitled:test"}});
+        let methods = [
+            "textDocument/documentSymbol",
+            "textDocument/inlayHint",
+            "textDocument/semanticTokens/full",
+        ];
+        let mut output = Vec::new();
+        for (id, method) in methods.into_iter().enumerate() {
+            server
+                .semantic_request(method, json!(id), &params, &mut output)
+                .unwrap();
+        }
+        assert!(output.is_empty());
+        assert_eq!(server.pending_semantic_requests.len(), 3);
+        server
+            .cancel_semantic_request(&json!(1), &mut output)
+            .unwrap();
+        let cancelled: Value = serde_json::from_slice(
+            &transport::read_frame(&mut output.as_slice())
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(cancelled["id"], 1);
+        assert_eq!(cancelled["error"]["code"], -32800);
+        output.clear();
+        server
+            .invalidate_semantic_requests(&mut output)
+            .unwrap();
+        assert!(server.pending_semantic_requests.is_empty());
+        let mut frames = output.as_slice();
+        let symbols: Value = serde_json::from_slice(
+            &transport::read_frame(&mut frames)
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        let tokens: Value = serde_json::from_slice(
+            &transport::read_frame(&mut frames)
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(symbols["id"], 0);
+        assert_eq!(symbols["result"], json!([]));
+        assert_eq!(tokens["id"], 2);
+        assert_eq!(tokens["result"], json!({"data": []}));
+        assert!(
+            transport::read_frame(&mut frames)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn formatting_refuses_disk_document_without_open_overlay() {
+        let mut server = server();
+        let uri = "file:///tmp/disk-only.srx";
+        server.host.set_disk(uri, "fn f()->T{x}").unwrap();
+        let mut bytes = Vec::new();
+        server.message(&json!({"jsonrpc":"2.0","id":700,"method":"textDocument/formatting","params":{"textDocument":{"uri":uri}}}), &mut bytes).unwrap();
+        let mut frames = io::Cursor::new(bytes);
+        let reply: Value = serde_json::from_slice(
+            &transport::read_frame(&mut frames)
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(reply["error"]["code"], -32602);
+        assert!(
+            transport::read_frame(&mut frames)
+                .unwrap()
+                .is_none()
+        );
+    }
+    #[test]
+    fn formatting_cancel_and_superseded_versions_never_publish_late_edits() {
+        let mut server = server();
+        let (sender, receiver) = mpsc::sync_channel(8);
+        server.formatting = formatting::Formatting::new(sender);
+        let uri = "file:///tmp/formatting-overlay.srx";
+        server
+            .host
+            .set_overlay(uri, 1, "fn f()->T{x}")
+            .unwrap();
+        let mut bytes = Vec::new();
+        server.message(&json!({"jsonrpc":"2.0","id":701,"method":"textDocument/formatting","params":{"textDocument":{"uri":uri}}}), &mut bytes).unwrap();
+        server
+            .message(
+                &json!({"jsonrpc":"2.0","method":"$/cancelRequest","params":{"id":701}}),
+                &mut bytes,
+            )
+            .unwrap();
+        let Event::Formatted(result) = receiver
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap()
+        else {
+            panic!("format result");
+        };
+        server.formatted(result, &mut bytes).unwrap();
+        let mut frames = io::Cursor::new(&bytes);
+        let cancelled: Value = serde_json::from_slice(
+            &transport::read_frame(&mut frames)
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(cancelled["error"]["code"], -32800);
+        assert!(
+            transport::read_frame(&mut frames)
+                .unwrap()
+                .is_none()
+        );
+        bytes.clear();
+        server.message(&json!({"jsonrpc":"2.0","id":702,"method":"textDocument/formatting","params":{"textDocument":{"uri":uri}}}), &mut bytes).unwrap();
+        server
+            .message(
+                &json!({
+                    "jsonrpc": "2.0",
+                    "method": "textDocument/didChange",
+                    "params": {
+                        "textDocument": {
+                            "uri": uri,
+                            "version": 2
+                        },
+                        "contentChanges": [{
+                            "text": "fn f()->T{changed}"
+                        }]
+                    }
+                }),
+                &mut bytes,
+            )
+            .unwrap();
+        let Event::Formatted(result) = receiver
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap()
+        else {
+            panic!("format result");
+        };
+        server.formatted(result, &mut bytes).unwrap();
+        let mut frames = io::Cursor::new(&bytes);
+        let mut replies = Vec::new();
+        while let Some(frame) = transport::read_frame(&mut frames).unwrap() {
+            let value: Value = serde_json::from_slice(&frame).unwrap();
+            if value["id"] == 702 {
+                replies.push(value);
+            }
+        }
+        assert_eq!(replies.len(), 1);
+        assert_eq!(replies[0]["result"], json!([]));
     }
 }

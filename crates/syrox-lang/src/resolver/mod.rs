@@ -1,8 +1,11 @@
-//! Name resolution for parsed Syrox programs.
+//! Liga cada nome à declaração que ele pode acessar.
 //!
-//! Canonical identity is structural: module and item paths are vectors of
-//! segments, never formatted strings. The resolver collects the complete
-//! namespace before looking up references, so declaration order is irrelevant.
+//! O namespace inteiro é coletado antes de resolver referências, então a ordem
+//! das declarações não define a visibilidade. A identidade de um item é seu
+//! domínio e a sequência de segmentos do path, não o texto usado para exibi-lo.
+//!
+//! [`resolve`] entrega um programa válido ou diagnósticos. A análise do editor
+//! usa a resolução parcial para consultar as declarações que já estão disponíveis.
 
 mod body;
 mod collections;
@@ -12,7 +15,11 @@ mod model;
 mod namespace;
 mod owners;
 
-pub use model::*;
+pub use model::{
+    CanonicalPath, ItemId, LocalId, LocalKind, ModuleId, PublicationId, PublishedMember,
+    ReferenceKind, ResolvedItem, ResolvedItemKind, ResolvedLocal, ResolvedModule,
+    ResolvedModuleExport, ResolvedProgram, ResolvedReference, ResolvedTarget,
+};
 pub use owners::{
     NamespaceDependency, NamespaceExport, NamespaceOutcome, NamespaceQuery, NamespaceTarget,
     OwnerDiagnostic, OwnerLocal, OwnerReference, OwnerReferenceTarget, OwnerRelativeSpan,
@@ -23,15 +30,19 @@ pub use owners::{
 mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use crate::{
-    Block, Diagnostic, Expression, ExpressionKind, Function, Item, ItemKind, Literal,
-    MAX_DIAGNOSTICS, MatchArm, ParsedSources, Path, Pattern, RefinementKind, SourceDomainId, Span,
-    StatementKind, StringLiteral, StringPart, Type, TypeKind,
+    MAX_DIAGNOSTICS, diagnostic::Diagnostic, source::SourceDomainId, source::Span, syntax::Block,
+    syntax::Expression, syntax::ExpressionKind, syntax::Function, syntax::Item, syntax::ItemKind,
+    syntax::Literal, syntax::MatchArm, syntax::ParsedSources, syntax::Path, syntax::Pattern,
+    syntax::RefinementKind, syntax::StatementKind, syntax::StringLiteral, syntax::StringPart,
+    syntax::Type, syntax::TypeKind,
 };
 
 /// Maximum namespace and reference operations performed by one resolution.
 pub const MAX_RESOLUTION_WORK: usize = 4_000_000;
+pub const MAX_PUBLICATION_METADATA_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Clone)]
 pub(super) struct PendingItem {
@@ -74,16 +85,22 @@ pub(super) struct Resolver<'a> {
     pub(super) items: Vec<ResolvedItem>,
     pub(super) item_ids: BTreeMap<DomainPath, ItemId>,
     pub(super) input_domains: BTreeMap<SourceDomainId, BTreeMap<String, SourceDomainId>>,
+    pub(super) project_owners: BTreeMap<SourceDomainId, SourceDomainId>,
     pub(super) public_imports: BTreeSet<(ModuleId, String)>,
     pub(super) enum_variants: BTreeMap<ItemId, BTreeMap<String, u32>>,
     pub(super) references: Vec<ResolvedReference>,
-    pub(super) module_exports: BTreeMap<(usize, u32, u32), Vec<ResolvedModuleExport>>,
+    pub(super) module_exports: BTreeMap<(usize, u32, u32), Arc<[ResolvedModuleExport]>>,
+    pub(super) inventories: BTreeSet<Arc<[ResolvedModuleExport]>>,
+    pub(super) export_queries: BTreeMap<(ModuleId, ModuleId, String), Arc<[ResolvedModuleExport]>>,
+    pub(super) publications: BTreeMap<PublicationId, Arc<[ResolvedModuleExport]>>,
+    pub(super) publication_bytes: usize,
+    pub(super) catalog_members: BTreeMap<ItemId, PublishedMember>,
     pub(super) locals: Vec<ResolvedLocal>,
     pub(super) diagnostics: Vec<Diagnostic>,
     pub(super) work: usize,
     pub(super) exhausted: bool,
     pub(super) next_local: u32,
-    cancellation: Option<&'a crate::AnalysisCancellation>,
+    cancellation: Option<&'a crate::analysis::AnalysisCancellation>,
     editor_locals: Vec<(String, LocalId, Span)>,
     owners: owners::OwnerTable,
 }
@@ -100,13 +117,18 @@ pub fn resolve(parsed: ParsedSources) -> Result<ResolvedProgram, Vec<Diagnostic>
 
 pub(crate) fn resolve_partial(
     parsed: ParsedSources,
-    cancellation: Option<&crate::AnalysisCancellation>,
+    cancellation: Option<&crate::analysis::AnalysisCancellation>,
 ) -> (ResolvedProgram, Vec<Diagnostic>, bool) {
     let mut resolver = Resolver::new(&parsed);
     resolver.cancellation = cancellation;
     resolver.collect();
+    resolver.index_project_owners();
     if !resolver.exhausted {
-        resolver.bind_interfaces_and_imports();
+        resolver.bind_interfaces();
+        resolver.collect_catalog_members();
+        resolver.bind_imports();
+        // Imports and synthetic publication namespaces are now complete.
+        resolver.export_queries.clear();
         resolver.resolve_contents();
     }
     resolver.diagnostics.sort_by_key(|diagnostic| {
@@ -117,15 +139,18 @@ pub(crate) fn resolve_partial(
         )
     });
     {
+        let visible_members = resolver.visible_publications();
         let modules = std::mem::take(&mut resolver.modules);
         let items = std::mem::take(&mut resolver.items);
         let references = std::mem::take(&mut resolver.references);
         let locals = std::mem::take(&mut resolver.locals);
         let module_exports = std::mem::take(&mut resolver.module_exports);
+        let catalog_members = std::mem::take(&mut resolver.catalog_members);
+        let publications = std::mem::take(&mut resolver.publications);
         let diagnostics = std::mem::take(&mut resolver.diagnostics);
         let exhausted = resolver.exhausted;
         let editor = if cancellation.is_some() && !exhausted {
-            Some(std::sync::Arc::new(editor::Namespace::take(&mut resolver)))
+            Some(Arc::new(editor::Namespace::take(&mut resolver)))
         } else {
             None
         };
@@ -139,6 +164,9 @@ pub(crate) fn resolve_partial(
                 references,
                 locals,
                 module_exports,
+                catalog_members,
+                publications,
+                visible_members,
                 editor,
             },
             diagnostics,
@@ -148,6 +176,19 @@ pub(crate) fn resolve_partial(
 }
 
 impl<'a> Resolver<'a> {
+    fn index_project_owners(&mut self) {
+        for (&owner, inputs) in &self.input_domains {
+            for &domain in inputs.values() {
+                self.work = self.work.saturating_add(1);
+                if self.work > MAX_RESOLUTION_WORK {
+                    self.exhausted = true;
+                    return;
+                }
+                self.project_owners.insert(domain, owner);
+            }
+        }
+    }
+
     pub(super) fn new(parsed: &'a ParsedSources) -> Self {
         Self {
             parsed,
@@ -157,10 +198,16 @@ impl<'a> Resolver<'a> {
             items: Vec::new(),
             item_ids: BTreeMap::new(),
             input_domains: BTreeMap::new(),
+            project_owners: BTreeMap::new(),
             public_imports: BTreeSet::new(),
             enum_variants: BTreeMap::new(),
             references: Vec::new(),
             module_exports: BTreeMap::new(),
+            inventories: BTreeSet::new(),
+            export_queries: BTreeMap::new(),
+            publications: BTreeMap::new(),
+            publication_bytes: 0,
+            catalog_members: BTreeMap::new(),
             locals: Vec::new(),
             diagnostics: Vec::new(),
             work: 0,
@@ -173,6 +220,9 @@ impl<'a> Resolver<'a> {
     }
 
     pub(super) fn charge(&mut self, span: Span) -> bool {
+        if self.exhausted {
+            return false;
+        }
         if self
             .cancellation
             .is_some_and(|cancellation| cancellation.check().is_err())
@@ -194,12 +244,17 @@ impl<'a> Resolver<'a> {
     pub(super) fn error(&mut self, message: impl Into<String>, span: Span) {
         if self.diagnostics.len() < MAX_DIAGNOSTICS {
             self.diagnostics.push(
-                Diagnostic::error(message, span).with_code(crate::DiagnosticCode::Resolution),
+                Diagnostic::error(message, span)
+                    .with_code(crate::diagnostic::DiagnosticCode::Resolution),
             );
         }
     }
 
-    pub(super) fn local(&mut self, name: &crate::Ident, kind: LocalKind) -> Option<LocalId> {
+    pub(super) fn local(
+        &mut self,
+        name: &crate::syntax::Ident,
+        kind: LocalKind,
+    ) -> Option<LocalId> {
         let span = name.span;
         if !self.charge(span) {
             return None;

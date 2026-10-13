@@ -2,9 +2,11 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 
 use syrox_lang::{
-    AnalysisCancellation, AnalysisCancelled, AnalysisHost, AnalysisLimits, AnalysisRevision,
-    AnalysisSnapshot, AnalysisUpdateError, CheckPolicy, DocumentSnapshot, ItemKind,
-    SemanticAnalysis, SemanticAnalysisError, SourceId, SourceSet, SyntaxKeyword, SyntaxTokenKind,
+    analysis::AnalysisCancellation, analysis::AnalysisCancelled, analysis::AnalysisHost,
+    analysis::AnalysisLimits, analysis::AnalysisRevision, analysis::AnalysisSnapshot,
+    analysis::AnalysisUpdateError, analysis::DocumentSnapshot, analysis::SemanticAnalysis,
+    analysis::SemanticAnalysisError, checker::CheckPolicy, source::SourceId, source::SourceSet,
+    syntax::ItemKind, syntax::SyntaxKeyword, syntax::SyntaxTokenKind,
 };
 use thiserror::Error;
 
@@ -28,6 +30,8 @@ pub enum ProjectAnalysisError {
     Semantic(#[from] SemanticAnalysisError),
     #[error("editor source is not part of the loaded project graph")]
     UnknownSource,
+    #[error("authenticated virtual sources are read-only")]
+    ReadOnlySource,
     #[error("input declarations changed or are incomplete; reload the project graph")]
     TopologyChanged,
 }
@@ -78,7 +82,10 @@ impl ProjectAnalysis {
             // to this topology and cannot alias another project's source.
             let key = format!("source:{}", id.index());
             host.set_disk(&key, source.text())?;
-            inputs.insert(id, input_contract(&syrox_lang::parse_file(source))?);
+            inputs.insert(
+                id,
+                input_contract(&syrox_lang::syntax::parse_file(source))?,
+            );
             bindings.insert(id, key);
         }
         Ok(Self {
@@ -100,6 +107,9 @@ impl ProjectAnalysis {
         version: i32,
         text: &str,
     ) -> Result<AnalysisRevision, ProjectAnalysisError> {
+        if !self.paths.contains_key(&id) && self.bindings.contains_key(&id) {
+            return Err(ProjectAnalysisError::ReadOnlySource);
+        }
         let key = self
             .bindings
             .get(&id)
@@ -243,7 +253,10 @@ impl ProjectAnalysisSnapshot {
         if let Some(cached) = self.cache.get() {
             return Ok(cached.clone());
         }
-        if let Some(previous) = self.reusable.as_ref().and_then(|cache| cache.get())
+        if let Some(previous) = self
+            .reusable
+            .as_ref()
+            .and_then(|cache| cache.get())
             && let Some(reused) = self
                 .snapshot
                 .revalidate_project_analysis(previous, cancellation)?
@@ -276,12 +289,17 @@ fn source_paths(loaded: &LoadedProject) -> BTreeMap<SourceId, std::path::PathBuf
     fn collect(
         project: &LoadedProject,
         topology: &SourceSet,
-        index: &BTreeMap<(syrox_lang::SourceDomainId, &str), SourceId>,
-        owner: syrox_lang::SourceDomainId,
+        index: &BTreeMap<(syrox_lang::source::SourceDomainId, &str), SourceId>,
+        owner: syrox_lang::source::SourceDomainId,
         paths: &mut BTreeMap<SourceId, std::path::PathBuf>,
-        visited: &mut std::collections::BTreeSet<syrox_lang::SourceDomainId>,
+        visited: &mut std::collections::BTreeSet<syrox_lang::source::SourceDomainId>,
     ) {
         if !visited.insert(owner) {
+            return;
+        }
+        #[cfg(target_os = "linux")]
+        if project.snapshot.is_some() {
+            // The LSP serves these sources through its read-only virtual scheme.
             return;
         }
         if let Some(&id) = index.get(&(owner, project.main_source().name())) {
@@ -300,7 +318,13 @@ fn source_paths(loaded: &LoadedProject) -> BTreeMap<SourceId, std::path::PathBuf
                     .get(file.source_id())
                     .expect("loaded input source");
                 if let Some(&id) = index.get(&(domain, original.name())) {
-                    paths.insert(id, project.path().join(relative).join(file.relative_path()));
+                    paths.insert(
+                        id,
+                        project
+                            .path()
+                            .join(relative)
+                            .join(file.relative_path()),
+                    );
                 }
             }
         }
@@ -332,7 +356,7 @@ fn source_paths(loaded: &LoadedProject) -> BTreeMap<SourceId, std::path::PathBuf
         loaded,
         loaded.sources(),
         &index,
-        syrox_lang::SourceDomainId::project(),
+        syrox_lang::source::SourceDomainId::project(),
         &mut paths,
         &mut std::collections::BTreeSet::new(),
     );
@@ -340,19 +364,19 @@ fn source_paths(loaded: &LoadedProject) -> BTreeMap<SourceId, std::path::PathBuf
 }
 
 fn input_contract(
-    parsed: &syrox_lang::ParsedFile,
+    parsed: &syrox_lang::syntax::ParsedFile,
 ) -> Result<Vec<(String, String)>, ProjectAnalysisError> {
     let mut blocks = 0;
     let mut inputs = Vec::new();
     for item in parsed.recovered_items() {
         if let ItemKind::Inputs(declaration) = &item.kind {
             blocks += 1;
-            inputs.extend(
-                declaration
-                    .entries
-                    .iter()
-                    .map(|input| (input.name.text.clone(), input.value.source.clone())),
-            );
+            inputs.extend(declaration.entries.iter().map(|input| {
+                (
+                    input.name.text.clone(),
+                    input.value.source.clone(),
+                )
+            }));
         }
     }
     // Missing/nested input blocks cannot silently inherit the old graph.
@@ -375,9 +399,11 @@ pub fn open_project_analysis_with(
 ) -> Result<ProjectAnalysis, super::ProjectOperationError> {
     super::validate_project_limits(configuration.project_limits)?;
     let loaded = super::loader::load_project_linux(path, configuration)?;
-    let expected =
-        crate::lock::LockManifest::generate(&loaded, configuration.standard_library.as_ref())
-            .map_err(super::map_generated_lock_error)?;
+    let expected = crate::project::lock::LockManifest::generate(
+        &loaded,
+        configuration.standard_library.as_ref(),
+    )
+    .map_err(super::map_generated_lock_error)?;
     let status = match super::read_lock(&loaded)? {
         None => ProjectAnalysisLockStatus::Missing,
         Some(actual)

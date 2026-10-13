@@ -71,7 +71,12 @@ fn projection_completion_handles_calls_and_parentheses_before_a_field_name_exist
     for (index, receiver) in ["make()", "(boxed)"].into_iter().enumerate() {
         let changed = base.replace("make().;", &format!("{receiver}.;"));
         client.notify("textDocument/didChange",json!({"textDocument":{"uri":document,"version":index+2},"contentChanges":[{"text":changed}]}));
-        let response = complete(&mut client, &document, &changed, &format!("{receiver}."));
+        let response = complete(
+            &mut client,
+            &document,
+            &changed,
+            &format!("{receiver}."),
+        );
         assert!(
             response["items"]
                 .as_array()

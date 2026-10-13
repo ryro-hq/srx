@@ -5,20 +5,31 @@ use super::{
 };
 
 impl Resolver<'_> {
-    fn resolve_enum(&mut self, module: ModuleId, enumeration: &crate::Enum, scope: crate::Span) {
+    fn resolve_enum(
+        &mut self,
+        module: ModuleId,
+        enumeration: &crate::syntax::Enum,
+        scope: crate::source::Span,
+    ) {
         let mut types = BTreeMap::new();
         for parameter in &enumeration.type_parameters {
             if !self.charge(parameter.span) {
                 return;
             }
             if parameter.owner {
-                self.error("`owner` is only valid on an opaque struct", parameter.span);
+                self.error(
+                    "`owner` is only valid on an opaque struct",
+                    parameter.span,
+                );
             }
             if types.contains_key(&parameter.name.text) {
                 self.error("duplicate type parameter", parameter.span);
                 continue;
             }
-            let Some(id) = self.local(&parameter.name, crate::LocalKind::TypeParameter) else {
+            let Some(id) = self.local(
+                &parameter.name,
+                crate::resolver::LocalKind::TypeParameter,
+            ) else {
                 return;
             };
             types.insert(parameter.name.text.clone(), id);
@@ -40,7 +51,11 @@ impl Resolver<'_> {
     ) {
         let path = match &arm.pattern {
             Pattern::Wildcard(_) => None,
-            Pattern::Path(path) | Pattern::Variant { path, .. } => Some(path),
+            Pattern::Path(path)
+            | Pattern::Variant {
+                path,
+                ..
+            } => Some(path),
         };
         if let Some(path) = path {
             if path.segments.len() == 1 {
@@ -63,7 +78,11 @@ impl Resolver<'_> {
             }
         }
         let mut values = values.clone();
-        if let Pattern::Variant { bindings, .. } = &arm.pattern {
+        if let Pattern::Variant {
+            bindings,
+            ..
+        } = &arm.pattern
+        {
             let mut names = std::collections::BTreeSet::new();
             for binding in bindings {
                 if binding.text == "_" {
@@ -72,7 +91,7 @@ impl Resolver<'_> {
                 if !names.insert(&binding.text) {
                     self.error("duplicate pattern binding", binding.span);
                 }
-                let Some(id) = self.local(binding, crate::LocalKind::Pattern) else {
+                let Some(id) = self.local(binding, crate::resolver::LocalKind::Pattern) else {
                     return;
                 };
                 values.insert(binding.text.clone(), id);
@@ -96,6 +115,21 @@ impl Resolver<'_> {
                     located.item.span,
                     |resolver| resolver.resolve_item_contents(module, &located),
                 );
+            } else if let ItemKind::Publication(publication) = &located.item.kind {
+                let namespace = publication
+                    .namespace
+                    .segments
+                    .iter()
+                    .map(|segment| segment.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("::");
+                self.with_owner(
+                    module,
+                    &publication.export.text,
+                    super::ResolutionOwnerPart::Publication(namespace),
+                    located.item.span,
+                    |resolver| resolver.resolve_item_contents(module, &located),
+                );
             } else {
                 self.resolve_item_contents(module, &located);
             }
@@ -105,7 +139,7 @@ impl Resolver<'_> {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
+    // Exhaustive traversal keeps lexical scopes and recovery in syntax order.
     fn resolve_item_contents(&mut self, module: ModuleId, located: &super::LocatedItem<'_>) {
         match &located.item.kind {
             ItemKind::Module(_) | ItemKind::Use(_) => {}
@@ -124,14 +158,19 @@ impl Resolver<'_> {
                         return;
                     }
                     if parameter.owner {
-                        self.error("`owner` is only valid on an opaque struct", parameter.span);
+                        self.error(
+                            "`owner` is only valid on an opaque struct",
+                            parameter.span,
+                        );
                     }
                     if type_locals.contains_key(&parameter.name.text) {
                         self.error("duplicate type parameter", parameter.span);
                         continue;
                     }
-                    let Some(id) = self.local(&parameter.name, crate::LocalKind::TypeParameter)
-                    else {
+                    let Some(id) = self.local(
+                        &parameter.name,
+                        crate::resolver::LocalKind::TypeParameter,
+                    ) else {
                         return;
                     };
                     type_locals.insert(parameter.name.text.clone(), id);
@@ -149,8 +188,10 @@ impl Resolver<'_> {
                         self.error("duplicate type parameter", parameter.span);
                         continue;
                     }
-                    let Some(id) = self.local(&parameter.name, crate::LocalKind::TypeParameter)
-                    else {
+                    let Some(id) = self.local(
+                        &parameter.name,
+                        crate::resolver::LocalKind::TypeParameter,
+                    ) else {
                         return;
                     };
                     type_locals.insert(parameter.name.text.clone(), id);
@@ -205,18 +246,33 @@ impl Resolver<'_> {
                                 }
                             }
                         }
-                        RefinementKind::Range { .. } => {}
+                        RefinementKind::Range {
+                            ..
+                        } => {}
                     }
                 }
             }
             ItemKind::Function(function) => self.resolve_function(module, function),
+            ItemKind::Publication(publication) => {
+                self.resolve_type(module, &publication.result, &BTreeMap::new());
+                self.resolve_module_exports(
+                    module,
+                    &publication.namespace,
+                    &publication.export,
+                    located.item.span,
+                );
+            }
             ItemKind::Outputs(outputs) => {
                 for output in &outputs.entries {
                     if !self.charge(output.span) {
                         return;
                     }
                     match &output.kind {
-                        crate::OutputKind::Value { name, ty, value } => {
+                        crate::syntax::OutputKind::Value {
+                            name,
+                            ty,
+                            value,
+                        } => {
                             self.with_owner(
                                 module,
                                 &name.text,
@@ -233,7 +289,10 @@ impl Resolver<'_> {
                                 },
                             );
                         }
-                        crate::OutputKind::Type { ty, .. } => {
+                        crate::syntax::OutputKind::Type {
+                            ty,
+                            ..
+                        } => {
                             self.resolve_type(module, ty, &BTreeMap::new());
                         }
                     }
@@ -250,13 +309,19 @@ impl Resolver<'_> {
                 return;
             }
             if parameter.owner {
-                self.error("`owner` is only valid on an opaque struct", parameter.span);
+                self.error(
+                    "`owner` is only valid on an opaque struct",
+                    parameter.span,
+                );
             }
             if types.contains_key(&parameter.name.text) {
                 self.error("duplicate type parameter", parameter.span);
                 continue;
             }
-            let Some(id) = self.local(&parameter.name, crate::LocalKind::TypeParameter) else {
+            let Some(id) = self.local(
+                &parameter.name,
+                crate::resolver::LocalKind::TypeParameter,
+            ) else {
                 return;
             };
             types.insert(parameter.name.text.clone(), id);
@@ -272,7 +337,10 @@ impl Resolver<'_> {
                 self.error("duplicate function parameter", parameter.span);
                 continue;
             }
-            let Some(id) = self.local(&parameter.name, crate::LocalKind::Parameter) else {
+            let Some(id) = self.local(
+                &parameter.name,
+                crate::resolver::LocalKind::Parameter,
+            ) else {
                 return;
             };
             locals.insert(parameter.name.text.clone(), id);
@@ -293,19 +361,23 @@ impl Resolver<'_> {
     ) {
         for statement in &block.statements {
             match &statement.kind {
-                StatementKind::Recovery { binding } => {
+                StatementKind::Recovery {
+                    binding,
+                } => {
                     if let Some(binding) = binding {
                         if let Some(ty) = &binding.ty {
                             self.resolve_type(module, ty, types);
                         }
-                        let Some(id) = self.local(&binding.name, crate::LocalKind::Binding) else {
+                        let Some(id) =
+                            self.local(&binding.name, crate::resolver::LocalKind::Binding)
+                        else {
                             return;
                         };
                         locals.insert(binding.name.text.clone(), id);
                         self.editor_local(
                             &binding.name,
                             id,
-                            crate::Span::new(
+                            crate::source::Span::new(
                                 block.span.source_id(),
                                 statement.span.end(),
                                 block.span.end(),
@@ -313,19 +385,23 @@ impl Resolver<'_> {
                         );
                     }
                 }
-                StatementKind::Let { name, ty, value } => {
+                StatementKind::Let {
+                    name,
+                    ty,
+                    value,
+                } => {
                     if let Some(ty) = ty {
                         self.resolve_type(module, ty, types);
                     }
                     self.resolve_expression(module, value, locals, types);
-                    let Some(id) = self.local(name, crate::LocalKind::Binding) else {
+                    let Some(id) = self.local(name, crate::resolver::LocalKind::Binding) else {
                         return;
                     };
                     locals.insert(name.text.clone(), id);
                     self.editor_local(
                         name,
                         id,
-                        crate::Span::new(
+                        crate::source::Span::new(
                             block.span.source_id(),
                             statement.span.end(),
                             block.span.end(),
@@ -354,7 +430,10 @@ impl Resolver<'_> {
                 return;
             }
             match &ty.kind {
-                TypeKind::Named { path, arguments } => {
+                TypeKind::Named {
+                    path,
+                    arguments,
+                } => {
                     if let Some(local) = single_local(path, locals) {
                         self.references.push(ResolvedReference {
                             span: path.span,
@@ -368,7 +447,9 @@ impl Resolver<'_> {
                 }
                 TypeKind::List(element) => stack.push(element),
                 TypeKind::Function {
-                    parameters, result, ..
+                    parameters,
+                    result,
+                    ..
                 } => {
                     stack.push(result);
                     stack.extend(parameters.iter().rev());
@@ -377,7 +458,7 @@ impl Resolver<'_> {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
+    // Exhaustive traversal keeps lexical scopes and recovery in syntax order.
     pub(super) fn resolve_expression(
         &mut self,
         module: ModuleId,
@@ -397,6 +478,12 @@ impl Resolver<'_> {
                 }
                 ExpressionKind::Path(path) => self.resolve_value_path(module, path, value_locals),
                 ExpressionKind::Memoize(value) => stack.push(value),
+                ExpressionKind::SortByKeys {
+                    items,
+                    keys,
+                } => {
+                    stack.extend([keys.as_ref(), items.as_ref()]);
+                }
                 ExpressionKind::ModuleExports {
                     namespace,
                     export,
@@ -419,7 +506,11 @@ impl Resolver<'_> {
                     initial,
                     step,
                 } => {
-                    stack.extend([step.as_ref(), initial.as_ref(), items.as_ref()]);
+                    stack.extend([
+                        step.as_ref(),
+                        initial.as_ref(),
+                        items.as_ref(),
+                    ]);
                 }
                 ExpressionKind::Specialize {
                     function,
@@ -430,11 +521,17 @@ impl Resolver<'_> {
                         self.resolve_type(module, ty, type_locals);
                     }
                 }
-                ExpressionKind::Call { callee, arguments } => {
+                ExpressionKind::Call {
+                    callee,
+                    arguments,
+                } => {
                     self.resolve_callee(module, callee, value_locals);
                     stack.extend(arguments.iter().rev());
                 }
-                ExpressionKind::Apply { callee, arguments } => {
+                ExpressionKind::Apply {
+                    callee,
+                    arguments,
+                } => {
                     stack.extend(arguments.iter().rev());
                     stack.push(callee);
                 }
@@ -471,17 +568,27 @@ impl Resolver<'_> {
                 ExpressionKind::List(items) | ExpressionKind::Concat(items) => {
                     stack.extend(items.iter().rev());
                 }
-                ExpressionKind::Erase { ty, value } => {
+                ExpressionKind::Erase {
+                    ty,
+                    value,
+                } => {
                     self.resolve_type(module, ty, type_locals);
                     stack.push(value);
                 }
-                ExpressionKind::Match { value, arms } => {
+                ExpressionKind::Match {
+                    value,
+                    arms,
+                } => {
                     stack.push(value);
                     for arm in arms {
                         self.resolve_match_arm(module, arm, value_locals, type_locals);
                     }
                 }
-                ExpressionKind::Group(inner) | ExpressionKind::Field { value: inner, .. } => {
+                ExpressionKind::Group(inner)
+                | ExpressionKind::Field {
+                    value: inner,
+                    ..
+                } => {
                     stack.push(inner);
                 }
             }
@@ -501,8 +608,16 @@ impl Resolver<'_> {
                 target: ResolvedTarget::Local(local),
             });
         } else if path.segments.len() == 1 {
-            if self.lookup(module, path, Expected::Value).is_some() {
-                self.resolve_path(module, path, Expected::Value, ReferenceKind::Value);
+            if self
+                .lookup(module, path, Expected::Value)
+                .is_some()
+            {
+                self.resolve_path(
+                    module,
+                    path,
+                    Expected::Value,
+                    ReferenceKind::Value,
+                );
             } else {
                 self.references.push(ResolvedReference {
                     span: path.span,
@@ -515,7 +630,10 @@ impl Resolver<'_> {
             .first()
             .is_some_and(|segment| locals.contains_key(&segment.text))
         {
-            self.error("local value cannot qualify a `::` path", path.span);
+            self.error(
+                "local value cannot qualify a `::` path",
+                path.span,
+            );
         } else {
             self.resolve_qualified_value(module, path, ReferenceKind::Value);
         }
@@ -524,7 +642,7 @@ impl Resolver<'_> {
     fn resolve_closure(
         &mut self,
         module: ModuleId,
-        parameters: &[crate::Parameter],
+        parameters: &[crate::syntax::Parameter],
         result: &Type,
         body: &Block,
         value_locals: &BTreeMap<String, LocalId>,
@@ -538,7 +656,10 @@ impl Resolver<'_> {
                 self.error("duplicate closure parameter", parameter.span);
                 continue;
             }
-            let Some(id) = self.local(&parameter.name, crate::LocalKind::Parameter) else {
+            let Some(id) = self.local(
+                &parameter.name,
+                crate::resolver::LocalKind::Parameter,
+            ) else {
                 return;
             };
             locals.insert(parameter.name.text.clone(), id);
@@ -564,10 +685,18 @@ impl Resolver<'_> {
             self.references.push(ResolvedReference {
                 span: callee.span,
                 kind: ReferenceKind::Function,
-                target: ResolvedTarget::EnumVariant { enumeration, index },
+                target: ResolvedTarget::EnumVariant {
+                    enumeration,
+                    index,
+                },
             });
         } else {
-            self.resolve_path(module, callee, Expected::Function, ReferenceKind::Function);
+            self.resolve_path(
+                module,
+                callee,
+                Expected::Function,
+                ReferenceKind::Function,
+            );
         }
     }
 
@@ -581,7 +710,10 @@ impl Resolver<'_> {
             self.references.push(ResolvedReference {
                 span: path.span,
                 kind,
-                target: ResolvedTarget::EnumVariant { enumeration, index },
+                target: ResolvedTarget::EnumVariant {
+                    enumeration,
+                    index,
+                },
             });
         } else {
             self.resolve_path(module, path, Expected::Value, kind);
@@ -594,7 +726,11 @@ impl Resolver<'_> {
         locals: &BTreeMap<String, LocalId>,
     ) {
         for part in &string.parts {
-            let StringPart::Interpolation { path, .. } = part else {
+            let StringPart::Interpolation {
+                path,
+                ..
+            } = part
+            else {
                 continue;
             };
             if !self.charge(path.span) {

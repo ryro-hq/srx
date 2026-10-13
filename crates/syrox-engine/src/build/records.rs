@@ -1,225 +1,230 @@
-//! Canonical build identities and named-output receipts.
-use super::{BuildError, BuildProtocol, BuildSpecification, GLIBC_PROFILE, PROFILE, relative_path};
-use crate::{ContentDigest, RootName};
+//! Bytes que entram no digest da action e nos receipts.
+//!
+//! A ordem dos campos e o formato persistido fazem parte da identidade do build.
+//! Mudar o modo de escrever esses registros exige considerar os objetos e
+//! receipts que já estão na Store.
+
+use super::{
+    BuildError, BuildProfile, BuildProgram, BuildResources, BuildSpecification, PROFILE,
+    relative_path,
+};
+use crate::{
+    plan::Plan, plan::PlanPackageId, result::OutputOrigin, store::ContentDigest, store::RootName,
+};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-pub(super) const MAX_RECORD_BYTES: u64 = 4096;
+pub(crate) const MAX_RECORD_BYTES: u64 = 2 * super::MAX_BUILD_PROGRAM_BYTES as u64 + 32 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Action {
-    pub protocol: BuildProtocol,
-    pub lock: ContentDigest,
-    pub package: String,
+    pub program: BuildProgram,
     pub source: ContentDigest,
-    pub toolchain: ContentDigest,
+    pub toolchain: Option<ContentDigest>,
     pub worker: ContentDigest,
     pub directory: String,
-    pub entry: String,
-    pub timeout: u32,
-    pub runtime: Option<ContentDigest>,
-    pub development: Option<(ContentDigest, ContentDigest)>,
-    pub output_names: Vec<String>,
+    pub inputs: Vec<InputIdentity>,
 }
 
-/// The locked provider identity expected by both fresh builds and post-GC
-/// consumer lookup. Its receipt digest is already bound in the consumer Action.
-pub(super) struct ProviderIdentity<'a> {
-    pub lock: &'a [u8; 32],
-    pub package: &'a str,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct InputIdentity {
+    pub origin: OutputOrigin,
+    pub action: ContentDigest,
+    pub artifact: ContentDigest,
+    pub output: String,
+}
+
+impl From<&crate::result::OutputIdentity> for InputIdentity {
+    fn from(identity: &crate::result::OutputIdentity) -> Self {
+        Self {
+            origin: identity.origin.clone(),
+            action: identity.action,
+            artifact: identity.artifact,
+            output: identity.output.clone(),
+        }
+    }
+}
+
+pub(crate) fn origin_pin(origin: &OutputOrigin) -> ContentDigest {
+    match origin {
+        OutputOrigin::Built {
+            receipt,
+        } => *receipt,
+        OutputOrigin::Imported {
+            manifest,
+        } => *manifest,
+    }
+}
+fn origin_name(origin: &OutputOrigin) -> &'static str {
+    match origin {
+        OutputOrigin::Built {
+            ..
+        } => "built",
+        OutputOrigin::Imported {
+            ..
+        } => "imported",
+    }
+}
+
+/// Effective build values selected from an authenticated Plan. Graph labels,
+/// the enclosing Lock and attempt deadlines are not result identities.
+pub(crate) struct BuildDescription<'a> {
     pub source: ContentDigest,
-    pub worker: ContentDigest,
-    pub toolchain: ContentDigest,
-    pub protocol: BuildProtocol,
+    pub program: &'a BuildProgram,
     pub directory: &'a str,
-    pub entry: &'a str,
-    pub deadline: u32,
 }
 
-impl ProviderIdentity<'_> {
+impl<'a> BuildDescription<'a> {
+    pub fn from_plan(plan: &'a Plan, package: &PlanPackageId) -> Result<Self, BuildError> {
+        let build = plan
+            .builds()
+            .find(|build| build.package() == package)
+            .ok_or(BuildError::UnsupportedInputs)?;
+        let acquisition = plan
+            .acquisitions()
+            .find(|acquisition| acquisition.package() == package)
+            .filter(|acquisition| acquisition.sources().len() == 1)
+            .ok_or(BuildError::UnsupportedInputs)?;
+        Ok(Self {
+            source: acquisition
+                .sources()
+                .next()
+                .expect("one source")
+                .digest(),
+            program: build.program(),
+            directory: build.source_directory(),
+        })
+    }
     pub fn matches(&self, action: &Action) -> bool {
-        action.lock.as_bytes() == self.lock
-            && action.package == self.package
-            && action.source == self.source
-            && action.worker == self.worker
-            && action.toolchain == self.toolchain
-            && action.protocol == self.protocol
+        action.source == self.source
+            && &action.program == self.program
             && action.directory == self.directory
-            && action.entry == self.entry
-            && action.timeout == self.deadline
-            && action.runtime.is_none()
-            && action.development.is_none()
     }
 }
 
 impl Action {
-    pub(super) fn new(
-        lock: &[u8],
+    pub(crate) fn new(
         request: &BuildSpecification,
         source: ContentDigest,
-        toolchain: ContentDigest,
+        toolchain: Option<ContentDigest>,
         worker: ContentDigest,
-        development: Option<(ContentDigest, ContentDigest)>,
     ) -> Self {
-        let mut hex = String::with_capacity(64);
-        for byte in lock {
-            write!(hex, "{byte:02x}").expect("String writes are infallible");
-        }
-        let lock = hex.parse().expect("locked SHA-256");
         Self {
-            protocol: request.protocol(),
-            lock,
-            package: request.package.clone(),
+            program: request.program.clone(),
             source,
             toolchain,
             worker,
             directory: request.source_directory.clone(),
-            entry: request.entry.clone(),
-            timeout: request.timeout_seconds,
-            runtime: request.provider().map(|input| input.receipt),
-            development,
-            output_names: if request.protocol() == BuildProtocol::Glibc {
-                vec!["dev".into(), "out".into()]
-            } else {
-                vec!["out".into()]
-            },
+            inputs: Vec::new(),
         }
     }
 
-    pub(super) fn encode(&self) -> Vec<u8> {
-        let (profile, protocol, configure, install) = match self.protocol {
-            BuildProtocol::Glibc => (
-                GLIBC_PROFILE,
-                "glibc",
-                "glibc configure in /work/build --prefix=/syrox/store/<action>/out/usr --disable-werror",
-                "glibc install DESTDIR=/out; split runtime and dev; collect named outputs",
-            ),
-            BuildProtocol::Autotools => (
-                PROFILE,
-                "autotools",
-                "configure --prefix=/syrox/store/<action>/out/usr --disable-nls; declared C build inputs",
-                "install DESTDIR=/out; collect /out/syrox/store/<action>/out",
-            ),
-        };
-        let envelope = envelope(self.protocol);
+    pub(crate) fn encode(&self) -> Vec<u8> {
+        let profile = profile_name(self.program.profile);
+        let envelope = envelope(self.program.resources);
         let mut text = format!(
-            "syrox-build-action\nprofile {profile}\nlock {}\npackage {}\nsource {}\ntoolchain {}\nworker {}\ndirectory {}\nentry {}\ntimeout {}\nprotocol {protocol}\nenvelope {envelope}\n",
-            self.lock,
-            self.package,
+            "syrox-build-action-v5\nprofile {profile}\nsource {}\ntoolchain {}\nworker {}\ndirectory {}\nenvelope {envelope}\n",
             self.source,
-            self.toolchain,
+            optional_pin(self.toolchain),
             self.worker,
-            self.directory,
-            self.entry,
-            self.timeout
+            self.directory
         );
-        if let Some(runtime) = self.runtime {
-            writeln!(text, "runtime {runtime}").expect("String writes are infallible");
+        writeln!(text, "selected-inputs {}", self.inputs.len()).expect("String write");
+        for input in &self.inputs {
+            writeln!(
+                text,
+                "selected-input {} {} {} {} {}",
+                origin_name(&input.origin),
+                origin_pin(&input.origin),
+                input.action,
+                input.artifact,
+                input.output
+            )
+            .expect("String write");
         }
-        if let Some((receipt, artifact)) = self.development {
-            writeln!(text, "build-input dev {receipt} {artifact}")
-                .expect("String writes are infallible");
+        text.push_str("program ");
+        for byte in self.program.encode() {
+            write!(text, "{byte:02x}").expect("String write");
         }
-        writeln!(text, "outputs {}", self.output_names.len())
-            .expect("String writes are infallible");
-        for name in &self.output_names {
-            writeln!(text, "output {name}").expect("String writes are infallible");
-        }
-        write!(
-            text,
-            "{configure}\nmake -j2\n{install}\npayload-settlement subreaper-echild\n"
-        )
-        .expect("String writes are infallible");
+        text.push_str("\npayload-settlement subreaper-echild\n");
         text.into_bytes()
     }
 
-    pub(super) fn digest(&self) -> ContentDigest {
+    pub(crate) fn digest(&self) -> ContentDigest {
         ContentDigest::sha256(&self.encode())
     }
 
-    pub(super) fn parse(bytes: &[u8]) -> Result<Self, BuildError> {
+    pub(crate) fn parse(bytes: &[u8]) -> Result<Self, BuildError> {
         let text = record_text(bytes)?;
         let mut lines = text.lines();
-        if lines.next() != Some("syrox-build-action") {
+        if lines.next() != Some("syrox-build-action-v5") {
             return Err(invalid("unsupported action format"));
         }
         let profile = field(&mut lines, "profile ")?;
-        let protocol = match profile {
-            GLIBC_PROFILE => BuildProtocol::Glibc,
-            PROFILE => BuildProtocol::Autotools,
-            _ => return Err(invalid("unsupported action profile")),
-        };
-        let mut action = Self {
-            protocol,
-            lock: digest(field(&mut lines, "lock ")?)?,
-            package: field(&mut lines, "package ")?.to_owned(),
-            source: digest(field(&mut lines, "source ")?)?,
-            toolchain: digest(field(&mut lines, "toolchain ")?)?,
-            worker: digest(field(&mut lines, "worker ")?)?,
-            directory: field(&mut lines, "directory ")?.to_owned(),
-            entry: field(&mut lines, "entry ")?.to_owned(),
-            timeout: field(&mut lines, "timeout ")?
-                .parse()
-                .map_err(|_| invalid("invalid action deadline"))?,
-            runtime: None,
-            development: None,
-            output_names: Vec::new(),
-        };
-        if field(&mut lines, "protocol ")?
-            != if protocol == BuildProtocol::Glibc {
-                "glibc"
-            } else {
-                "autotools"
-            }
-        {
-            return Err(invalid("unsupported build protocol"));
+        if profile != PROFILE && profile != super::MANAGED_PROFILE {
+            return Err(invalid("unsupported action profile"));
         }
-        if field(&mut lines, "envelope ")? != envelope(protocol) {
+        let source = digest(field(&mut lines, "source ")?)?;
+        let toolchain = parse_optional_pin(field(&mut lines, "toolchain ")?)?;
+        let worker = digest(field(&mut lines, "worker ")?)?;
+        let directory = field(&mut lines, "directory ")?.to_owned();
+        let limits = field(&mut lines, "envelope ")?;
+        let count: usize = field(&mut lines, "selected-inputs ")?
+            .parse()
+            .map_err(|_| invalid("invalid build inputs"))?;
+        if count > 64 {
+            return Err(invalid("too many build inputs"));
+        }
+        let mut inputs = Vec::with_capacity(count);
+        for _ in 0..count {
+            let fields = field(&mut lines, "selected-input ")?
+                .split(' ')
+                .collect::<Vec<_>>();
+            let [origin, pin, action, artifact, output] = fields.as_slice() else {
+                return Err(invalid("invalid input identity"));
+            };
+            if !valid_output_name(output) {
+                return Err(invalid("invalid input output name"));
+            }
+            inputs.push(InputIdentity {
+                origin: match *origin {
+                    "built" => OutputOrigin::Built {
+                        receipt: digest(pin)?,
+                    },
+                    "imported" => OutputOrigin::Imported {
+                        manifest: digest(pin)?,
+                    },
+                    _ => return Err(invalid("invalid input origin")),
+                },
+                action: digest(action)?,
+                artifact: digest(artifact)?,
+                output: (*output).to_owned(),
+            });
+        }
+        let program = decode_program(field(&mut lines, "program ")?)?;
+        if profile != profile_name(program.profile)
+            || toolchain.is_some() != (program.profile == BuildProfile::HostBootstrap)
+        {
+            return Err(invalid("profile and toolchain provenance differ"));
+        }
+        if limits != envelope(program.resources) {
             return Err(invalid("unsupported build envelope"));
         }
-        if lines
-            .clone()
-            .next()
-            .is_some_and(|line| line.starts_with("runtime "))
-        {
-            action.runtime = Some(digest(field(&mut lines, "runtime ")?)?);
-        }
-        if lines
-            .clone()
-            .next()
-            .is_some_and(|line| line.starts_with("build-input dev "))
-        {
-            let line = field(&mut lines, "build-input dev ")?;
-            let (receipt, artifact) = line
-                .split_once(' ')
-                .ok_or_else(|| invalid("invalid build input"))?;
-            action.development = Some((digest(receipt)?, digest(artifact)?));
-        }
-        let count: usize = field(&mut lines, "outputs ")?
-            .parse()
-            .map_err(|_| invalid("invalid action output count"))?;
-        if !(1..=9).contains(&count) {
-            return Err(invalid("invalid action output count"));
-        }
-        for _ in 0..count {
-            action
-                .output_names
-                .push(field(&mut lines, "output ")?.to_owned());
-        }
-        if !crate::plan::valid_package_id(&action.package)
-            || !relative_path(&action.directory)
+        let action = Self {
+            program,
+            source,
+            toolchain,
+            worker,
+            directory,
+            inputs,
+        };
+        if !relative_path(&action.directory)
             || action.directory.contains('/')
-            || !relative_path(&action.entry)
-            || !(1..=if protocol == BuildProtocol::Glibc {
-                1800
-            } else {
-                300
-            })
-                .contains(&action.timeout)
-            || !valid_output_names(&action.output_names, protocol == BuildProtocol::Glibc)
-            || (protocol == BuildProtocol::Glibc
-                && (action.runtime.is_some() || action.development.is_some()))
-            || (action.development.is_some() && action.runtime.is_none())
+            || action
+                .program
+                .input_indices()
+                .iter()
+                .any(|index| *index as usize >= action.inputs.len())
             || action.encode() != bytes
         {
             return Err(invalid("noncanonical or invalid action"));
@@ -228,8 +233,29 @@ impl Action {
     }
 }
 
-fn envelope(protocol: BuildProtocol) -> String {
-    let limits = protocol.envelope();
+fn decode_program(hex: &str) -> Result<BuildProgram, BuildError> {
+    if !hex.len().is_multiple_of(2) || hex.len() > 2 * super::MAX_BUILD_PROGRAM_BYTES {
+        return Err(invalid("invalid program length"));
+    }
+    let bytes = hex
+        .as_bytes()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| {
+            let digit = |c: u8| match c {
+                b'0'..=b'9' => Ok(c - b'0'),
+                b'a'..=b'f' => Ok(c - b'a' + 10),
+                _ => Err(invalid("invalid program hex")),
+            };
+            Ok((digit(pair[0])? << 4) | digit(pair[1])?)
+        })
+        .collect::<Result<Vec<_>, BuildError>>()?;
+    BuildProgram::decode(&bytes)
+}
+
+fn envelope(resources: BuildResources) -> String {
+    let limits = resources.envelope();
     format!(
         "memory {} tasks {} cpu-percent {} nofile {} output-bytes {} work-tmpfs {} output-tmpfs {}",
         limits.memory,
@@ -243,56 +269,55 @@ fn envelope(protocol: BuildProtocol) -> String {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Receipt {
+pub(crate) struct Receipt {
     pub action: ContentDigest,
     pub source: ContentDigest,
-    pub toolchain: ContentDigest,
+    pub toolchain: Option<ContentDigest>,
     /// Objects retained from the declared provider's complete result root.
     pub inputs: Vec<ContentDigest>,
     pub outputs: BTreeMap<String, NamedOutput>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct NamedOutput {
+pub(crate) struct NamedOutput {
     pub artifact: ContentDigest,
     pub files: usize,
-    /// Empty for data/development outputs without an executable entry.
-    pub entry: String,
 }
 
 impl Receipt {
     /// The root lists opaque digests; its presence alone does not prove that
     /// every referenced input still exists or matches its named object.
-    pub(super) fn verify_retained_inputs(
+    pub(crate) fn verify_retained_inputs(
         &self,
-        lease: &crate::OperationLease,
+        lease: &crate::store::OperationLease,
         action: &Action,
         mut check: impl FnMut() -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
-        for (digest, maximum) in [
-            (
-                self.source,
-                if action.protocol == BuildProtocol::Glibc {
-                    super::MAX_LARGE_SOURCE_BYTES
-                } else {
-                    super::MAX_SOURCE_BYTES
-                },
-            ),
-            (self.toolchain, super::cache::MAX_INVENTORY_BYTES),
-        ] {
+        let source = (
+            self.source,
+            if action.program.resources == BuildResources::Large {
+                super::MAX_LARGE_SOURCE_BYTES
+            } else {
+                super::MAX_SOURCE_BYTES
+            },
+        );
+        for (digest, maximum) in std::iter::once(source).chain(
+            self.toolchain
+                .map(|pin| (pin, super::cache::MAX_INVENTORY_BYTES)),
+        ) {
             check()?;
             if lease.open_verified_checked(digest, maximum, || {
                 check().map_err(|_| std::io::Error::new(std::io::ErrorKind::Interrupted, "build cancelled"))
-            }).map_err(|error| if matches!(error, crate::StoreError::Io(ref io) if io.kind() == std::io::ErrorKind::Interrupted) { BuildError::Cancelled } else { error.into() })?.is_none() {
+            }).map_err(|error| if matches!(error, crate::store::StoreError::Io(ref io) if io.kind() == std::io::ErrorKind::Interrupted) { BuildError::Cancelled } else { error.into() })?.is_none() {
                 return Err(invalid("retained build input is missing"));
             }
         }
         for digest in &self.inputs {
             check()?;
             if lease
-                .open_verified_checked(*digest, crate::MAX_STORE_BLOB_BYTES, || {
+                .open_verified_checked(*digest, crate::store::MAX_STORE_BLOB_BYTES, || {
                     check().map_err(|_| std::io::Error::new(std::io::ErrorKind::Interrupted, "build cancelled"))
-                }).map_err(|error| if matches!(error, crate::StoreError::Io(ref io) if io.kind() == std::io::ErrorKind::Interrupted) { BuildError::Cancelled } else { error.into() })?
+                }).map_err(|error| if matches!(error, crate::store::StoreError::Io(ref io) if io.kind() == std::io::ErrorKind::Interrupted) { BuildError::Cancelled } else { error.into() })?
                 .is_none()
             {
                 return Err(invalid("retained provider input is missing"));
@@ -301,7 +326,7 @@ impl Receipt {
         Ok(())
     }
 
-    pub(super) fn new(action: &Action, artifact: ContentDigest, files: usize) -> Self {
+    pub(crate) fn new(action: &Action, artifact: ContentDigest, files: usize) -> Self {
         Self {
             action: action.digest(),
             source: action.source,
@@ -312,12 +337,11 @@ impl Receipt {
                 NamedOutput {
                     artifact,
                     files,
-                    entry: action.entry.clone(),
                 },
             )]),
         }
     }
-    pub(super) fn with_outputs(
+    pub(crate) fn with_outputs(
         mut self,
         action: &Action,
         outputs: BTreeMap<String, NamedOutput>,
@@ -331,9 +355,8 @@ impl Receipt {
         sorted.sort();
         if outputs.is_empty()
             || outputs.len() > 8
-            || action.protocol != BuildProtocol::Glibc
             || action.digest() != self.action
-            || action.output_names != sorted
+            || action.program.outputs != sorted
             || outputs.iter().any(|(name, output)| {
                 !valid_output_name(name) || name == "out" || !valid_output(output)
             })
@@ -343,7 +366,7 @@ impl Receipt {
         self.outputs.extend(outputs);
         Ok(self)
     }
-    pub(super) fn with_inputs(
+    pub(crate) fn with_inputs(
         mut self,
         action: &Action,
         inputs: Vec<ContentDigest>,
@@ -354,75 +377,215 @@ impl Receipt {
         }
         Ok(self)
     }
-    pub(super) fn matches_inputs(&self, action: &Action) -> bool {
-        self.inputs.len() <= 32
-            && self.inputs.windows(2).all(|pair| pair[0] < pair[1])
-            && match action.runtime {
-                Some(receipt) => self.inputs.contains(&receipt),
-                None => self.inputs.is_empty(),
-            }
-            && action.development.is_none_or(|(receipt, artifact)| {
-                self.inputs.contains(&receipt) && self.inputs.contains(&artifact)
+    pub(crate) fn matches_inputs(&self, action: &Action) -> bool {
+        self.inputs.len() <= 4096
+            && self
+                .inputs
+                .windows(2)
+                .all(|pair| pair[0] < pair[1])
+            && (!action.inputs.is_empty() || self.inputs.is_empty())
+            && action.inputs.iter().all(|input| {
+                self.inputs.contains(&origin_pin(&input.origin))
+                    && self.inputs.contains(&input.artifact)
+                    && (matches!(input.origin, OutputOrigin::Imported { .. })
+                        || self.inputs.contains(&input.action))
             })
     }
-    pub(super) fn matches_action(&self, action: &Action) -> bool {
+    pub(crate) fn matches_action(&self, action: &Action) -> bool {
         self.action == action.digest()
             && self.source == action.source
             && self.toolchain == action.toolchain
-            && self.names() == action.output_names
-            && self
-                .output("out")
-                .is_some_and(|out| out.entry == action.entry)
+            && self.names() == action.program.outputs
+            && self.output("out").is_some()
             && self.matches_inputs(action)
     }
-    pub(super) fn verify_inputs(
+    pub(crate) fn verify_inputs(
         &self,
-        lease: &crate::OperationLease,
+        lease: &crate::store::OperationLease,
         action: &Action,
+        cancellation: &(impl crate::cancellation::OperationControl + ?Sized),
     ) -> Result<(), BuildError> {
-        if !self.matches_inputs(action) {
-            return Err(invalid("invalid retained build input closure"));
-        }
-        let Some(provider_digest) = action.runtime else {
-            return Ok(());
-        };
-        let bytes = lease
-            .read_verified(provider_digest, MAX_RECORD_BYTES)?
-            .ok_or_else(|| invalid("provider receipt is missing"))?;
-        let provider = Self::parse(bytes.as_bytes())?;
-        if provider.digest() != provider_digest
-            || !provider.inputs.is_empty()
-            || provider.references() != self.inputs
-            || action.development.is_some_and(|(receipt, artifact)| {
-                receipt != provider_digest
-                    || provider
-                        .output("dev")
-                        .is_none_or(|output| output.artifact != artifact)
-            })
-        {
-            return Err(invalid("provider closure disagrees with retained inputs"));
-        }
-        let bytes = lease
-            .read_verified(provider.action, MAX_RECORD_BYTES)?
-            .ok_or_else(|| invalid("provider action is missing"))?;
-        let provider_action = Action::parse(bytes.as_bytes())?;
-        if !provider.matches_action(&provider_action) {
-            return Err(invalid("provider action disagrees with receipt"));
+        let mut pending = vec![(self.clone(), action.clone())];
+        let mut visited = std::collections::BTreeSet::from([self.digest()]);
+        let mut imported = BTreeMap::new();
+        while let Some((receipt, selected)) = pending.pop() {
+            receipt.verify_inputs_once(
+                lease,
+                &selected,
+                cancellation,
+                &mut pending,
+                &mut visited,
+                &mut imported,
+            )?;
         }
         Ok(())
     }
-    pub(super) fn output(&self, name: &str) -> Option<&NamedOutput> {
+    fn verify_inputs_once(
+        &self,
+        lease: &crate::store::OperationLease,
+        action: &Action,
+        cancellation: &(impl crate::cancellation::OperationControl + ?Sized),
+        pending: &mut Vec<(Self, Action)>,
+        visited: &mut std::collections::BTreeSet<ContentDigest>,
+        imported: &mut BTreeMap<ContentDigest, crate::result::ResultManifest>,
+    ) -> Result<(), BuildError> {
+        cancellation
+            .check_cancelled()
+            .map_err(BuildError::from)?;
+        if !self.matches_inputs(action) {
+            return Err(invalid("invalid retained build input closure"));
+        }
+        let mut expected = std::collections::BTreeSet::new();
+        let providers = action
+            .inputs
+            .iter()
+            .map(|input| input.origin.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        for origin in providers {
+            let provider_digest = origin_pin(&origin);
+            if matches!(origin, OutputOrigin::Imported { .. }) {
+                if let std::collections::btree_map::Entry::Vacant(entry) =
+                    imported.entry(provider_digest)
+                {
+                    if visited.len() >= 4096 {
+                        return Err(invalid("input graph exceeds limit"));
+                    }
+                    let manifest = crate::result::verify_build_input_manifest(
+                        lease,
+                        provider_digest,
+                        cancellation,
+                    )?;
+                    entry.insert(manifest);
+                    visited.insert(provider_digest);
+                }
+                let manifest = &imported[&provider_digest];
+                for input in action
+                    .inputs
+                    .iter()
+                    .filter(|input| input.origin == origin)
+                {
+                    if !manifest.outputs().values().any(|output| {
+                        output.action == input.action
+                            && output.artifact == input.artifact
+                            && output.output == input.output
+                    }) {
+                        return Err(invalid(
+                            "imported selection disagrees with manifest",
+                        ));
+                    }
+                }
+                expected.extend(
+                    manifest
+                        .references()
+                        .map_err(|_| invalid("invalid imported references"))?,
+                );
+                if expected.len() > 4096 {
+                    return Err(invalid("input closure exceeds limit"));
+                }
+                continue;
+            }
+            cancellation
+                .check_cancelled()
+                .map_err(BuildError::from)?;
+            let bytes = lease
+                .read_verified(provider_digest, MAX_RECORD_BYTES)?
+                .ok_or_else(|| invalid("provider receipt is missing"))?;
+            let provider = Self::parse(bytes.as_bytes())?;
+            if provider.digest() != provider_digest
+                || action
+                    .inputs
+                    .iter()
+                    .filter(|input| input.origin == origin)
+                    .any(|input| {
+                        input.action != provider.action
+                            || provider
+                                .output(&input.output)
+                                .is_none_or(|output| input.artifact != output.artifact)
+                    })
+            {
+                return Err(invalid(
+                    "provider closure disagrees with retained inputs",
+                ));
+            }
+            let bytes = lease
+                .read_verified(provider.action, MAX_RECORD_BYTES)?
+                .ok_or_else(|| invalid("provider action is missing"))?;
+            let provider_action = Action::parse(bytes.as_bytes())?;
+            if !provider.matches_action(&provider_action) {
+                return Err(invalid("provider action disagrees with receipt"));
+            }
+            if visited.insert(provider_digest) {
+                if visited.len() > 4096 {
+                    return Err(invalid("input graph exceeds limit"));
+                }
+                provider.verify_retained_inputs(lease, &provider_action, || {
+                    cancellation
+                        .check_cancelled()
+                        .map_err(BuildError::from)
+                })?;
+                provider.verify_artifacts(lease, &provider_action, cancellation)?;
+                pending.push((provider.clone(), provider_action));
+            }
+            expected.extend(provider.references());
+            if expected.len() > 4096 {
+                return Err(invalid("input closure exceeds limit"));
+            }
+        }
+        if expected
+            .into_iter()
+            .ne(self.inputs.iter().copied())
+        {
+            return Err(invalid(
+                "input closure disagrees with retained inputs",
+            ));
+        }
+        Ok(())
+    }
+    fn verify_artifacts(
+        &self,
+        lease: &crate::store::OperationLease,
+        action: &Action,
+        cancellation: &(impl crate::cancellation::OperationControl + ?Sized),
+    ) -> Result<(), BuildError> {
+        for output in self.outputs.values() {
+            let artifact = lease
+                .open_verified_checked(
+                    output.artifact,
+                    action.program.resources.envelope().output_bytes,
+                    || {
+                        cancellation
+                            .check_cancelled()
+                            .map_err(|_| crate::cancellation::cancellation_io())
+                    },
+                )
+                .map_err(|error| {
+                    if cancellation.is_cancelled() {
+                        BuildError::Cancelled
+                    } else {
+                        error.into()
+                    }
+                })?
+                .ok_or_else(|| invalid("provider artifact is absent"))?;
+            if crate::result::artifact::validate_stream_checked(artifact, "", cancellation)?
+                != output.files
+            {
+                return Err(invalid("provider artifact file count differs"));
+            }
+        }
+        Ok(())
+    }
+    pub(crate) fn output(&self, name: &str) -> Option<&NamedOutput> {
         self.outputs.get(name)
     }
-    pub(super) fn names(&self) -> Vec<String> {
+    pub(crate) fn names(&self) -> Vec<String> {
         self.outputs.keys().cloned().collect()
     }
-    pub(super) fn encode(&self) -> Vec<u8> {
+    pub(crate) fn encode(&self) -> Vec<u8> {
         let mut text = format!(
-            "syrox-build-result\naction {}\nsource {}\ntoolchain {}\ninputs {}\n",
+            "syrox-build-result-v4\naction {}\nsource {}\ntoolchain {}\ninputs {}\n",
             self.action,
             self.source,
-            self.toolchain,
+            optional_pin(self.toolchain),
             self.inputs.len()
         );
         for digest in &self.inputs {
@@ -432,14 +595,8 @@ impl Receipt {
         for (name, output) in &self.outputs {
             writeln!(
                 text,
-                "output {name} {} {} {}",
-                output.artifact,
-                output.files,
-                if output.entry.is_empty() {
-                    "-"
-                } else {
-                    &output.entry
-                }
+                "output {name} {} {}",
+                output.artifact, output.files
             )
             .expect("String writes are infallible");
         }
@@ -448,39 +605,47 @@ impl Receipt {
         );
         text.into_bytes()
     }
-    pub(super) fn digest(&self) -> ContentDigest {
+    pub(crate) fn digest(&self) -> ContentDigest {
         ContentDigest::sha256(&self.encode())
     }
-    pub(super) fn root(&self) -> RootName {
+    pub(crate) fn root(&self) -> RootName {
         RootName::new(format!("build_{}", self.digest())).expect("receipt-derived root")
     }
-    pub(super) fn references(&self) -> Vec<ContentDigest> {
-        let mut references = vec![self.action, self.source, self.toolchain, self.digest()];
+    pub(crate) fn references(&self) -> Vec<ContentDigest> {
+        let mut references = vec![self.action, self.source, self.digest()];
+        references.extend(self.toolchain);
         references.extend_from_slice(&self.inputs);
-        references.extend(self.outputs.values().map(|output| output.artifact));
+        references.extend(
+            self.outputs
+                .values()
+                .map(|output| output.artifact),
+        );
         references.sort_unstable();
         references.dedup();
         references
     }
-    pub(super) fn parse(bytes: &[u8]) -> Result<Self, BuildError> {
+    pub(crate) fn parse(bytes: &[u8]) -> Result<Self, BuildError> {
         let text = record_text(bytes)?;
         let mut lines = text.lines();
-        if lines.next() != Some("syrox-build-result") {
+        if lines.next() != Some("syrox-build-result-v4") {
             return Err(invalid("unsupported receipt format"));
         }
         let action = digest(field(&mut lines, "action ")?)?;
         let source = digest(field(&mut lines, "source ")?)?;
-        let toolchain = digest(field(&mut lines, "toolchain ")?)?;
+        let toolchain = parse_optional_pin(field(&mut lines, "toolchain ")?)?;
         let input_count: usize = field(&mut lines, "inputs ")?
             .parse()
             .map_err(|_| invalid("invalid input count"))?;
-        if input_count > 32 {
+        if input_count > 4096 {
             return Err(invalid("too many retained inputs"));
         }
         let mut inputs = Vec::with_capacity(input_count);
         for _ in 0..input_count {
             let input = digest(field(&mut lines, "input ")?)?;
-            if inputs.last().is_some_and(|previous| *previous >= input) {
+            if inputs
+                .last()
+                .is_some_and(|previous| *previous >= input)
+            {
                 return Err(invalid("unsorted retained inputs"));
             }
             inputs.push(input);
@@ -496,7 +661,9 @@ impl Receipt {
         for _ in 0..count {
             let line = field(&mut lines, "output ")?;
             let mut parts = line.split(' ');
-            let name = parts.next().ok_or_else(|| invalid("missing output name"))?;
+            let name = parts
+                .next()
+                .ok_or_else(|| invalid("missing output name"))?;
             let output = NamedOutput {
                 artifact: digest(
                     parts
@@ -508,18 +675,6 @@ impl Receipt {
                     .ok_or_else(|| invalid("missing output file count"))?
                     .parse()
                     .map_err(|_| invalid("invalid output file count"))?,
-                entry: parts
-                    .next()
-                    .ok_or_else(|| invalid("missing output entry"))?
-                    .to_owned(),
-            };
-            let output = NamedOutput {
-                entry: if output.entry == "-" {
-                    String::new()
-                } else {
-                    output.entry
-                },
-                ..output
             };
             if parts.next().is_some()
                 || !valid_output_name(name)
@@ -540,9 +695,7 @@ impl Receipt {
             inputs,
             outputs,
         };
-        if receipt
-            .output("out")
-            .is_none_or(|out| !relative_path(&out.entry))
+        if receipt.output("out").is_none()
             || receipt.outputs.len() != count
             || receipt.encode() != bytes
         {
@@ -560,19 +713,8 @@ fn valid_output_name(name: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
-fn valid_output_names(names: &[String], multi_output: bool) -> bool {
-    names.len() >= if multi_output { 2 } else { 1 }
-        && names.len() <= 9
-        && names.iter().any(|name| name == "out")
-        && (!multi_output || names.iter().any(|name| name == "dev"))
-        && names.iter().all(|name| valid_output_name(name))
-        && names.windows(2).all(|pair| pair[0] < pair[1])
-}
-
 fn valid_output(output: &NamedOutput) -> bool {
     (1..=16384).contains(&output.files)
-        && output.entry != "-"
-        && (output.entry.is_empty() || relative_path(&output.entry))
 }
 
 fn record_text(bytes: &[u8]) -> Result<&str, BuildError> {
@@ -591,8 +733,25 @@ fn digest(text: &str) -> Result<ContentDigest, BuildError> {
     text.parse()
         .map_err(|_| invalid("invalid build record digest"))
 }
-pub(super) fn invalid(reason: &str) -> BuildError {
+pub(crate) fn invalid(reason: &str) -> BuildError {
     BuildError::Cache(reason.to_owned())
+}
+
+fn profile_name(profile: BuildProfile) -> &'static str {
+    match profile {
+        BuildProfile::HostBootstrap => PROFILE,
+        BuildProfile::Managed => super::MANAGED_PROFILE,
+    }
+}
+fn optional_pin(pin: Option<ContentDigest>) -> String {
+    pin.map_or_else(|| "none".into(), |pin| pin.to_string())
+}
+fn parse_optional_pin(text: &str) -> Result<Option<ContentDigest>, BuildError> {
+    if text == "none" {
+        Ok(None)
+    } else {
+        digest(text).map(Some)
+    }
 }
 
 #[cfg(test)]
@@ -603,14 +762,12 @@ mod tests {
     fn named_manifest_is_canonical_and_bound_to_a_distinct_action() {
         let old = super::super::cache::tests::action();
         let mut named = old.clone();
-        named.protocol = BuildProtocol::Glibc;
-        named.output_names = vec!["dev".into(), "doc".into(), "out".into()];
+        named.program.outputs = vec!["dev".into(), "doc".into(), "out".into()];
         assert_ne!(old.digest(), named.digest());
         assert_eq!(Action::parse(&named.encode()).unwrap(), named);
         let extra = NamedOutput {
             artifact: ContentDigest::sha256(b"dev"),
             files: 1,
-            entry: "usr/include/header.h".into(),
         };
         let outputs = BTreeMap::from([
             ("dev".into(), extra.clone()),
@@ -640,60 +797,241 @@ mod tests {
         assert!(Receipt::parse(swapped.as_bytes()).is_err());
         assert!(Receipt::parse(&bytes[..bytes.len() - 1]).is_err());
         let mut invalid_action = named.clone();
-        invalid_action.output_names.swap(0, 1);
+        invalid_action.program.outputs.swap(0, 1);
         assert!(Action::parse(&invalid_action.encode()).is_err());
-        invalid_action.output_names = vec!["../escape".into()];
+        invalid_action.program.outputs = vec!["../escape".into()];
         assert!(Action::parse(&invalid_action.encode()).is_err());
     }
 
     #[test]
-    fn development_input_changes_action_without_changing_provider_result() {
+    fn selected_input_content_and_order_are_part_of_action_identity() {
         let old = super::super::cache::tests::action();
-        let mut runtime = old.clone();
-        runtime.runtime = Some(ContentDigest::sha256(b"glibc result"));
+        let runtime = old.clone();
         let mut supplied = runtime.clone();
-        supplied.development = Some((
-            runtime.runtime.unwrap(),
-            ContentDigest::sha256(b"glibc development artifact"),
-        ));
+        supplied.inputs.push(InputIdentity {
+            origin: OutputOrigin::Built {
+                receipt: ContentDigest::sha256(b"glibc result"),
+            },
+            action: ContentDigest::sha256(b"provider action"),
+            artifact: ContentDigest::sha256(b"development artifact"),
+            output: "dev".into(),
+        });
         assert_ne!(runtime.digest(), supplied.digest());
-        assert_eq!(Action::parse(&supplied.encode()).unwrap(), supplied);
+        assert_eq!(
+            Action::parse(&supplied.encode()).unwrap(),
+            supplied
+        );
         let mut other = supplied.clone();
-        other.development.as_mut().unwrap().1 = ContentDigest::sha256(b"changed dev");
+        other.inputs[0].artifact = ContentDigest::sha256(b"changed dev");
         assert_ne!(supplied.digest(), other.digest());
         assert!(Action::parse(&other.encode()).is_ok());
+        supplied.inputs.push(InputIdentity {
+            output: "out".into(),
+            ..supplied.inputs[0].clone()
+        });
+        let mut reversed = supplied.clone();
+        reversed.inputs.reverse();
+        assert_ne!(supplied.digest(), reversed.digest());
+        assert_eq!(
+            Action::parse(&reversed.encode()).unwrap(),
+            reversed
+        );
     }
 
     #[test]
-    fn provider_identity_checks_the_complete_locked_builder_description() {
+    fn build_description_matches_effective_values_independently_of_dependencies() {
         let provider = super::super::cache::tests::action();
-        let identity = ProviderIdentity {
-            lock: provider.lock.as_bytes(),
-            package: &provider.package,
+        let description = BuildDescription {
             source: provider.source,
-            worker: provider.worker,
-            toolchain: provider.toolchain,
-            protocol: provider.protocol,
+            program: &provider.program,
             directory: &provider.directory,
-            entry: &provider.entry,
-            deadline: provider.timeout,
         };
-        assert!(identity.matches(&provider));
+        assert!(description.matches(&provider));
         for changed in [
             Action {
                 source: ContentDigest::sha256(b"other source"),
                 ..provider.clone()
             },
             Action {
-                timeout: provider.timeout + 1,
-                ..provider.clone()
-            },
-            Action {
-                runtime: Some(ContentDigest::sha256(b"nested provider")),
+                directory: "another-directory".into(),
                 ..provider.clone()
             },
         ] {
-            assert!(!identity.matches(&changed));
+            assert!(!description.matches(&changed));
         }
+    }
+}
+
+#[cfg(test)]
+mod input_tests {
+    use super::*;
+    use crate::{cancellation::Cancellation, result::ResultManifest, store::Store};
+
+    fn ingest(lease: &crate::store::OperationLease, bytes: &[u8]) -> ContentDigest {
+        let pin = ContentDigest::sha256(bytes);
+        lease
+            .ingest(bytes, pin, bytes.len() as u64)
+            .unwrap();
+        pin
+    }
+    fn artifact(content: &[u8]) -> Vec<u8> {
+        let mut bytes = crate::result::artifact::HEADER.to_vec();
+        bytes.extend(1_u32.to_le_bytes());
+        bytes.extend(4_u16.to_le_bytes());
+        bytes.extend(b"data");
+        bytes.push(0);
+        bytes.extend((content.len() as u64).to_le_bytes());
+        bytes.extend(content);
+        bytes
+    }
+    fn fixture(lease: &crate::store::OperationLease) -> (Action, Receipt, ResultManifest) {
+        let first = ingest(lease, &artifact(b"selected"));
+        let second = ingest(lease, &artifact(b"sibling"));
+        let logical = ContentDigest::sha256(b"logical identity without CAS object");
+        let text = format!(
+            "syrox-result-v2\n{{\"outputs\":{{\"data\":{{\"action\":\"{logical}\",\"output\":\"out\",\"artifact\":\"{first}\",\"files\":1}},\"sibling\":{{\"action\":\"{logical}\",\"output\":\"dev\",\"artifact\":\"{second}\",\"files\":1}}}},\"commands\":{{}}}}\n"
+        );
+        let manifest = ResultManifest::parse(text.as_bytes()).unwrap();
+        let pin = ingest(lease, &manifest.encode().unwrap());
+        let mut action = super::super::cache::tests::action();
+        action.inputs.push(InputIdentity {
+            origin: OutputOrigin::Imported {
+                manifest: pin,
+            },
+            action: logical,
+            artifact: first,
+            output: "out".into(),
+        });
+        let receipt = Receipt::new(
+            &action,
+            ContentDigest::sha256(b"consumer result"),
+            1,
+        )
+        .with_inputs(&action, manifest.references().unwrap())
+        .unwrap();
+        (action, receipt, manifest)
+    }
+    #[test]
+    fn imported_inputs_verify_all_siblings_without_fabricated_build_records() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Store::initialize(temporary.path()).unwrap();
+        let lease = store.operation().unwrap();
+        let (action, receipt, manifest) = fixture(&lease);
+        assert!(
+            lease
+                .verify(action.inputs[0].action)
+                .unwrap()
+                .is_none()
+        );
+        receipt
+            .verify_inputs(&lease, &action, &Cancellation::default())
+            .unwrap();
+        assert_eq!(Action::parse(&action.encode()).unwrap(), action);
+        let sibling = manifest.outputs()["sibling"].artifact.to_string();
+        let path = temporary.path().join(format!(
+            "objects/sha256/{}/{sibling}",
+            &sibling[..2]
+        ));
+        std::fs::remove_file(&path).unwrap();
+        assert!(
+            receipt
+                .verify_inputs(&lease, &action, &Cancellation::default())
+                .is_err()
+        );
+        std::fs::write(&path, b"corrupt sibling").unwrap();
+        assert!(
+            receipt
+                .verify_inputs(&lease, &action, &Cancellation::default())
+                .is_err()
+        );
+    }
+    #[test]
+    fn imported_origin_pin_selection_and_exact_closure_are_authenticated() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Store::initialize(temporary.path()).unwrap();
+        let lease = store.operation().unwrap();
+        let (action, receipt, _) = fixture(&lease);
+        for change in 0..4 {
+            let mut changed = action.clone();
+            match change {
+                0 => {
+                    changed.inputs[0].origin = OutputOrigin::Built {
+                        receipt: origin_pin(&action.inputs[0].origin),
+                    }
+                }
+                1 => {
+                    changed.inputs[0].origin = OutputOrigin::Imported {
+                        manifest: ContentDigest::sha256(b"wrong pin"),
+                    }
+                }
+                2 => changed.inputs[0].output = "dev".into(),
+                _ => changed.inputs[0].action = ContentDigest::sha256(b"wrong logical action"),
+            }
+            assert_ne!(action.digest(), changed.digest());
+            assert!(
+                receipt
+                    .verify_inputs(&lease, &changed, &Cancellation::default())
+                    .is_err()
+            );
+        }
+        let mut extra = receipt.clone();
+        extra
+            .inputs
+            .push(ContentDigest::sha256(b"unrelated"));
+        extra.inputs.sort();
+        assert!(
+            extra
+                .verify_inputs(&lease, &action, &Cancellation::default())
+                .is_err()
+        );
+        let cancel = Cancellation::default();
+        cancel.cancel();
+        assert!(matches!(
+            receipt.verify_inputs(&lease, &action, &cancel),
+            Err(BuildError::Cancelled)
+        ));
+    }
+
+    #[test]
+    fn built_provider_keeps_its_transitive_imported_closure_authenticated() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = Store::initialize(temporary.path()).unwrap();
+        let lease = store.operation().unwrap();
+        let (mut provider, _, manifest) = fixture(&lease);
+        provider.program.profile = BuildProfile::Managed;
+        provider.toolchain = None;
+        provider.source = ingest(&lease, b"producer source");
+        let provider_artifact = ingest(&lease, &artifact(b"producer output"));
+        let receipt = Receipt::new(&provider, provider_artifact, 1)
+            .with_inputs(&provider, manifest.references().unwrap())
+            .unwrap();
+        ingest(&lease, &provider.encode());
+        let pin = ingest(&lease, &receipt.encode());
+        let mut consumer = super::super::cache::tests::action();
+        consumer.inputs.push(InputIdentity {
+            origin: OutputOrigin::Built {
+                receipt: pin,
+            },
+            action: provider.digest(),
+            artifact: provider_artifact,
+            output: "out".into(),
+        });
+        let result = Receipt::new(&consumer, ContentDigest::sha256(b"result"), 1)
+            .with_inputs(&consumer, receipt.references())
+            .unwrap();
+        result
+            .verify_inputs(&lease, &consumer, &Cancellation::default())
+            .unwrap();
+        let sibling = manifest.outputs()["sibling"].artifact.to_string();
+        std::fs::remove_file(temporary.path().join(format!(
+            "objects/sha256/{}/{sibling}",
+            &sibling[..2]
+        )))
+        .unwrap();
+        assert!(
+            result
+                .verify_inputs(&lease, &consumer, &Cancellation::default())
+                .is_err()
+        );
     }
 }

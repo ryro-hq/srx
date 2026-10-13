@@ -1,14 +1,44 @@
 use super::*;
 
+#[test]
+fn recipe_without_acquisition_or_build_projects_a_package() {
+    let project = TempProject::new();
+    project.write(
+        "main.srx",
+        r#"
+        mod factories { mod simple { pub fn recipe() -> std::Recipe { std::Recipe {
+                package = std::Package { id = "simple"; dependencies = []; };
+                acquisition = std::Option::None;
+                build = std::Option::None;
+                build_inputs = std::Option::None;
+                commands = [];
+            } } } }
+        pub publish(factories, recipe): std::Recipe;
+        "#,
+    );
+    let config = package_configuration();
+    lock_project_with(&project.0, &config).unwrap();
+    let plan = plan_project_with(&project.0, &config).unwrap();
+    assert_eq!(plan.packages().len(), 1);
+    assert_eq!(
+        plan.packages().next().unwrap().id().as_str(),
+        "simple"
+    );
+    assert_eq!(plan.acquisitions().len(), 0);
+    assert_eq!(plan.builds().len(), 0);
+}
+
 const PROVIDER: &str = r#"
-        libc: std::Recipe<std::GlibcBuild> = std::Recipe<std::GlibcBuild> {
+        mod providers { mod libc { pub fn recipe() -> std::Recipe { std::Recipe {
             package = std::Package { id = "libc"; dependencies = []; };
-            acquisition = std::Acquisition { package = "libc"; sources = [std::source_request(
+            acquisition = std::Option::Some(std::Acquisition { sources = [std::source_request(
                 "https://example.test/libc.tar.gz", "0000000000000000000000000000000000000000000000000000000000000000", 100
-            )]; };
-            build = std::GlibcBuild { package = "libc"; source_directory = "libc-1";
-                entry = "usr/lib/ld-linux-x86-64.so.2"; timeout_seconds = 120; };
-        };
+            )]; });
+            build = std::Option::Some(std::Build { profile = std::BuildProfile::HostBootstrap; source_directory = "libc-1"; timeout_seconds = 120;  source_format = std::BuildSourceFormat::Xz; produces = ["dev", "out"]; steps = [std::BuildStep::Extract(std::BuildPath::Work("source"))]; });
+            build_inputs = std::Option::None;
+            commands = [];
+        } } } }
+        pub publish(providers, recipe): std::Recipe;
 "#;
 
 #[test]
@@ -18,81 +48,100 @@ fn mixed_build_catalog_selects_each_backend_from_one_recipe_type() {
         "main.srx",
         r#"
         inputs { recipes = "modules:recipes"; }
-        type Entry = std::Recipe<std::Build>;
-        outputs {
-            default_build: std::DefaultBuild = std::DefaultBuild { package = "hello"; };
-            packages: std::Result<std::PackageSet<Entry>, std::MapKey> = std::package_set(
-                module_exports(recipes, recipe, std::MapEntry::Entry<fn() -> Entry>)
-            );
-        }
+        type Entry = std::Recipe;
+        pub publish(recipes, recipe): Entry;
     "#,
     );
     project.write("recipes/hello.srx", r#"
-        pub fn recipe() -> std::Recipe<std::Build> {
-            std::Recipe<std::Build> {
+        pub fn recipe() -> std::Recipe {
+            std::Recipe {
                 package = std::Package { id = "hello"; dependencies = []; };
-                acquisition = std::Acquisition { package = "hello"; sources = [std::source_request(
+                acquisition = std::Option::Some(std::Acquisition { sources = [std::source_request(
                     "https://example.test/hello", "0000000000000000000000000000000000000000000000000000000000000000", 100
-                )]; };
-                build = std::Build::Autotools(std::AutotoolsBuild {
-                    package = "hello"; source_directory = "hello-1";
-                    entry = "usr/bin/hello"; timeout_seconds = 30;
-                });
+                )]; });
+                build = std::Option::Some(std::autotools(std::BuildOptions {
+                    source_directory = "hello-1"; timeout_seconds = 30;
+                }));
+                build_inputs = std::Option::None;
+                commands = [];
             }
         }
     "#);
     project.write("recipes/libc.srx", r#"
-        pub fn recipe() -> std::Recipe<std::Build> {
-            std::Recipe<std::Build> {
+        pub fn recipe() -> std::Recipe {
+            std::Recipe {
                 package = std::Package { id = "libc"; dependencies = []; };
-                acquisition = std::Acquisition { package = "libc"; sources = [std::source_request(
+                acquisition = std::Option::Some(std::Acquisition { sources = [std::source_request(
                     "https://example.test/libc", "0000000000000000000000000000000000000000000000000000000000000000", 100
-                )]; };
-                build = std::Build::Glibc(std::GlibcBuild {
-                    package = "libc"; source_directory = "libc-1";
-                    entry = "usr/lib/ld-linux-x86-64.so.2"; timeout_seconds = 120;
-                });
+                )]; });
+                build = std::Option::Some(std::Build { profile = std::BuildProfile::HostBootstrap;
+                    source_directory = "libc-1"; timeout_seconds = 120;
+                 source_format = std::BuildSourceFormat::Xz; produces = ["dev", "out"]; steps = [std::BuildStep::Extract(std::BuildPath::Work("source"))]; });
+                build_inputs = std::Option::None;
+                commands = [];
             }
         }
     "#);
     let config = package_configuration();
     lock_project_with(&project.0, &config).unwrap();
     let catalog_plan = plan_project_with(&project.0, &config).unwrap();
-    assert_eq!(catalog_plan.roots().len(), 3);
+    assert_eq!(catalog_plan.roots().len(), 2);
     assert_eq!(catalog_plan.packages().len(), 2);
-    assert_eq!(catalog_plan.default_build().unwrap().as_str(), "hello");
-    let user = crate::UserConfiguration::parse("", project.0.join("store")).unwrap();
-    let default = crate::resolve_build(project.0.to_str().unwrap(), &user, &config).unwrap();
-    assert_eq!(default.export(), "hello");
-    let builds = crate::resolve_builds(project.0.to_str().unwrap(), &user, &config).unwrap();
+    let user = crate::config::UserConfiguration::parse("", project.0.join("store")).unwrap();
+    let selected = crate::realize::resolve_build(
+        &format!("{}#hello", project.0.display()),
+        &user,
+        &config,
+    )
+    .unwrap();
+    assert_eq!(selected.export(), "hello");
+    let builds =
+        crate::realize::resolve_builds(project.0.to_str().unwrap(), &user, &config).unwrap();
     assert_eq!(
         builds
             .iter()
-            .map(crate::ResolvedBuild::export)
+            .map(crate::realize::ResolvedBuild::export)
             .collect::<Vec<_>>(),
         ["hello", "libc"]
     );
     assert!(!project.0.join("store").exists());
     let locked = open_locked_project_with(&project.0, &config).unwrap();
-    for (key, protocol) in [("hello", "autotools"), ("libc", "glibc")] {
+    for (key, format) in [
+        ("hello", crate::build::BuildSourceFormat::Gzip),
+        ("libc", crate::build::BuildSourceFormat::Xz),
+    ] {
         let mut evaluation = locked.evaluation().unwrap();
         assert!(evaluation.select_package(key).unwrap());
         assert!(evaluation.select_package(key).unwrap());
         let plan = evaluation.into_selected_plan().unwrap();
         assert_eq!(plan.packages().len(), 1);
-        assert_eq!(plan.packages().next().unwrap().export(), Some(key));
-        assert_eq!(plan.builds().next().unwrap().protocol(), protocol);
+        assert_eq!(
+            plan.packages().next().unwrap().export(),
+            Some(key)
+        );
+        assert_eq!(
+            plan.builds()
+                .next()
+                .unwrap()
+                .program()
+                .source_format,
+            format
+        );
     }
     project.write(
         "recipes/unused.srx",
-        "pub fn recipe() -> std::Recipe<std::Build> { recipe() }",
+        "pub fn recipe() -> std::Recipe { recipe() }",
     );
     lock_project_with(&project.0, &config).unwrap();
     assert!(plan_project_with(&project.0, &config).is_err());
     assert_eq!(
-        crate::resolve_build(project.0.to_str().unwrap(), &user, &config)
-            .unwrap()
-            .export(),
+        crate::realize::resolve_build(
+            &format!("{}#hello", project.0.display()),
+            &user,
+            &config
+        )
+        .unwrap()
+        .export(),
         "hello"
     );
     let source_plan = plan_project_package_with(&project.0, &config, "hello").unwrap();
@@ -101,86 +150,49 @@ fn mixed_build_catalog_selects_each_backend_from_one_recipe_type() {
 }
 
 #[test]
-fn complete_set_plan_retains_declared_default_application() {
+fn explicit_command_selection_ignores_unselected_failing_recipe() {
     let project = TempProject::new();
-    project.write(
-        "main.srx",
-        r#"
-        fn recipe() -> std::CatalogRecipe {
-            std::CatalogRecipe {
+    project.write("main.srx", r#"
+        mod factories {
+            mod app { pub fn recipe() -> std::Recipe { std::Recipe {
                 package = std::Package { id = "app"; dependencies = []; };
-                acquisition = std::Acquisition { package = "app"; sources = [
-                    std::source_request("https://example.test/app.tar.gz",
-                        "0000000000000000000000000000000000000000000000000000000000000000", 100)
-                ]; };
-                build = std::Build::Autotools(std::AutotoolsBuild {
-                    package = "app"; source_directory = "app-1";
-                    entry = "usr/bin/app"; timeout_seconds = 30;
-                });
-                build_inputs = std::Option::None;
-                application = std::Option::Some(std::Application {
-                    package = "app"; loader = []; libraries = [];
-                });
-            }
+                acquisition = std::Option::Some(std::Acquisition { sources = [std::source_request("https://example.test/app.tar.gz", "0000000000000000000000000000000000000000000000000000000000000000", 100)]; });
+                build = std::Option::Some(std::autotools(std::BuildOptions { source_directory = "app-1"; timeout_seconds = 30; }));
+                commands = [std::Command { name = "main"; output = "out"; path = "usr/bin/app"; }];
+            } } }
+            mod unused { pub fn recipe() -> std::Recipe { recipe() } }
         }
-        outputs {
-            default_application: std::DefaultApplication =
-                std::DefaultApplication { package = "app"; };
-            packages: std::Result<std::PackageSet<std::CatalogRecipe>, std::MapKey> =
-                std::package_set([std::MapEntry::Entry("app", recipe)]);
-        }
-    "#,
-    );
+        pub publish(factories, recipe): std::Recipe;
+    "#);
     let config = package_configuration();
     lock_project_with(&project.0, &config).unwrap();
-    let plan = plan_project_with(&project.0, &config).unwrap();
-    assert_eq!(plan.default_application().unwrap().as_str(), "app");
-    assert_eq!(plan.applications().len(), 1);
-    let user = crate::UserConfiguration::parse("", project.0.join("store")).unwrap();
-    project.write(
-        "main.srx",
-        &fs::read_to_string(project.0.join("main.srx"))
-            .unwrap()
-            .replace(
-                "std::MapEntry::Entry(\"app\", recipe)",
-                "std::MapEntry::Entry(\"app\", recipe), std::MapEntry::Entry(\"unused\", broken)",
-            )
-            .replace(
-                "fn recipe()",
-                "fn broken() -> std::CatalogRecipe { broken() } fn recipe()",
-            ),
-    );
-    lock_project_with(&project.0, &config).unwrap();
     assert!(plan_project_with(&project.0, &config).is_err());
-    assert_eq!(
-        crate::resolve_application(project.0.to_str().unwrap(), &user, &config)
-            .unwrap()
-            .description()
-            .package()
-            .as_str(),
-        "app"
-    );
+    let user = crate::config::UserConfiguration::parse("", project.0.join("store")).unwrap();
+    let command = crate::realize::resolve_command(
+        &format!("{}#app", project.0.display()),
+        Some("main"),
+        &user,
+        &config,
+    )
+    .unwrap();
+    assert_eq!(command.description().package().as_str(), "app");
+    assert!(!project.0.join("store").exists());
 }
 
 fn recipe_source(body: &str) -> String {
     format!(
         r#"
-        pub fn recipe() -> std::ApplicationRecipe<std::AutotoolsBuild> {{
+        pub fn recipe() -> std::Recipe {{
             {body}
-            std::ApplicationRecipe<std::AutotoolsBuild> {{
+            std::Recipe {{
                 package = std::Package {{ id = "hello"; dependencies = []; }};
-                acquisition = std::Acquisition {{ package = "hello"; sources = [
+                acquisition = std::Option::Some(std::Acquisition {{ sources = [
                     std::source_request("project:assets/source",
                         "ddc9e669194254cef019a29d3619a2c16592e5d52e1a81e98b01bd52319149a3", 100)
-                ]; }};
-                build = std::AutotoolsBuild {{ package = "hello"; source_directory = "hello-1";
-                    entry = "usr/bin/hello"; timeout_seconds = 120; }};
-                build_inputs = std::BuildInputs {{ package = "hello"; selected = [
-                    std::BuildOutput {{ package = "libc"; output = "dev"; }}
-                ]; }};
-                application = std::Application {{ package = "hello"; loader = [
-                    std::RuntimeLoader {{ package = "libc"; }}
-                ]; libraries = [std::RuntimeLibrary {{ package = "libc"; }}]; }};
+                ]; }});
+                build = std::Option::Some(std::autotools(std::BuildOptions {{ source_directory = "hello-1"; timeout_seconds = 120; }}));
+                build_inputs = std::Option::None;
+                commands = [std::Command {{ name = "main"; output = "out"; path = "usr/bin/hello";  loader = []; libraries = []; }}];
             }}
         }}
     "#
@@ -188,62 +200,56 @@ fn recipe_source(body: &str) -> String {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)]
-fn direct_application_selection_expands_only_its_declared_glibc_provider() {
+fn direct_command_selection_expands_only_its_declared_runtime_provider() {
     let project = TempProject::new();
     project.write(
         "main.srx",
         r#"
         inputs { recipes = "modules:recipes"; }
-        type Entry = std::CatalogRecipe;
-        outputs {
-            packages: std::Result<std::PackageSet<Entry>, std::MapKey> = std::package_set(
-                module_exports(recipes, recipe, std::MapEntry::Entry<fn() -> Entry>)
-            );
-        }
+        type Entry = std::Recipe;
+        pub publish(recipes, recipe): Entry;
     "#,
     );
     project.write(
         "recipes/hello.srx",
         r#"
-        pub fn recipe() -> std::CatalogRecipe {
-            std::CatalogRecipe {
+        pub fn recipe() -> std::Recipe {
+            std::Recipe {
                 package = std::Package { id = "hello"; dependencies = []; };
-                acquisition = std::Acquisition { package = "hello"; sources = [std::source_request(
+                acquisition = std::Option::Some(std::Acquisition { sources = [std::source_request(
                     "https://example.test/hello.tar.gz",
                     "0000000000000000000000000000000000000000000000000000000000000000", 100
-                )]; };
-                build = std::Build::Autotools(std::AutotoolsBuild { package = "hello"; source_directory = "hello-1";
-                    entry = "usr/bin/hello"; timeout_seconds = 120; });
-                build_inputs = std::Option::Some(std::BuildInputs { package = "hello"; selected = [
-                    std::BuildOutput { package = "libc"; output = "dev"; }
+                )]; });
+                build = std::Option::Some(std::autotools(std::BuildOptions { source_directory = "hello-1"; timeout_seconds = 120; }));
+                build_inputs = std::Option::Some(std::BuildInputs { selected = [
+                    std::recipe_output(project::libc, "dev")
                 ]; });
-                application = std::Option::Some(std::Application { package = "hello";
-                    loader = [std::RuntimeLoader { package = "libc"; }];
-                    libraries = [std::RuntimeLibrary { package = "libc"; }]; });
+                commands = [std::Command { name = "main"; output = "out"; path = "usr/bin/hello";
+                    loader = [std::RuntimeFile { output = std::recipe_output(project::libc, "out"); path = "usr/lib/ld-linux-x86-64.so.2"; }];
+                    libraries = [std::recipe_output(project::libc, "out")]; }];
             }
         }
     "#,
     );
     project.write(
         "recipes/unused.srx",
-        "pub fn recipe() -> std::CatalogRecipe { recipe() }",
+        "pub fn recipe() -> std::Recipe { recipe() }",
     );
     project.write(
         "recipes/libc.srx",
         r#"
-        pub fn recipe() -> std::CatalogRecipe {
-            std::CatalogRecipe {
+        pub fn recipe() -> std::Recipe {
+            std::Recipe {
                 package = std::Package { id = "libc"; dependencies = []; };
-                acquisition = std::Acquisition { package = "libc"; sources = [std::source_request(
+                acquisition = std::Option::Some(std::Acquisition { sources = [std::source_request(
                     "https://example.test/libc.tar.gz",
                     "0000000000000000000000000000000000000000000000000000000000000000", 100
-                )]; };
-                build = std::Build::Glibc(std::GlibcBuild { package = "libc";
-                    source_directory = "libc-1"; entry = "usr/lib/ld-linux-x86-64.so.2";
-                    timeout_seconds = 120; });
+                )]; });
+                build = std::Option::Some(std::Build { profile = std::BuildProfile::HostBootstrap;
+                    source_directory = "libc-1";
+                    timeout_seconds = 120;  source_format = std::BuildSourceFormat::Xz; produces = ["dev", "out"]; steps = [std::BuildStep::Extract(std::BuildPath::Work("source"))]; });
                 build_inputs = std::Option::None;
-                application = std::Option::None;
+                commands = [];
             }
         }
     "#,
@@ -257,32 +263,38 @@ fn direct_application_selection_expands_only_its_declared_glibc_provider() {
     assert_eq!(plan.roots().len(), 2);
     assert_eq!(plan.packages().len(), 2);
     assert_eq!(plan.builds().len(), 2);
-    assert_eq!(plan.applications().len(), 1);
+    assert_eq!(plan.commands().len(), 1);
     assert_eq!(
-        plan.builds()
-            .find(|build| build.package().as_str() == "hello")
-            .unwrap()
-            .development()
-            .unwrap()
-            .as_str(),
-        "libc"
-    );
-    assert_eq!(
-        plan.applications()
+        plan.commands()
             .next()
             .unwrap()
             .loader()
             .unwrap()
+            .output
+            .package
             .as_str(),
         "libc"
     );
     assert!(plan.roots().all(|root| root.name() != "unused"));
-    let user = crate::UserConfiguration::parse("", project.0.join("store")).unwrap();
+    let user = crate::config::UserConfiguration::parse("", project.0.join("store")).unwrap();
     let reference = format!("{}#hello", project.0.display());
-    let build = crate::resolve_build(&reference, &user, &config).unwrap();
-    assert_eq!(build.description().development().unwrap().as_str(), "libc");
-    let application = crate::resolve_application(&reference, &user, &config).unwrap();
-    assert_eq!(application.description().loader().unwrap().as_str(), "libc");
+    let build = crate::realize::resolve_build(&reference, &user, &config).unwrap();
+    assert_eq!(
+        build.description().inputs()[0].package.as_str(),
+        "libc"
+    );
+    let application =
+        crate::realize::resolve_command(&reference, Some("main"), &user, &config).unwrap();
+    assert_eq!(
+        application
+            .description()
+            .loader()
+            .unwrap()
+            .output
+            .package
+            .as_str(),
+        "libc"
+    );
     assert!(!project.0.join("store").exists());
     let provider = fs::read_to_string(project.0.join("recipes/libc.srx")).unwrap();
     project.write(
@@ -293,15 +305,23 @@ fn direct_application_selection_expands_only_its_declared_glibc_provider() {
     let locked = open_locked_project_with(&project.0, &config).unwrap();
     let mut evaluation = locked.evaluation().unwrap();
     assert!(evaluation.select_package("hello").unwrap());
-    assert!(matches!(
-        evaluation.into_selected_plan(),
-        Err(ProjectOperationError::InvalidPackageSet {
-            reason: "dependency key does not match package id"
-        })
-    ));
+    assert_eq!(
+        evaluation
+            .into_selected_plan()
+            .unwrap()
+            .commands()
+            .next()
+            .unwrap()
+            .loader()
+            .unwrap()
+            .output
+            .package
+            .as_str(),
+        "different"
+    );
     project.write(
         "recipes/libc.srx",
-        "pub fn recipe() -> std::CatalogRecipe { recipe() }",
+        "pub fn recipe() -> std::Recipe { recipe() }",
     );
     lock_project_with(&project.0, &config).unwrap();
     let locked = open_locked_project_with(&project.0, &config).unwrap();
@@ -315,7 +335,7 @@ fn direct_application_selection_expands_only_its_declared_glibc_provider() {
 }
 
 #[test]
-fn imported_package_set_selects_one_composite_recipe_and_preserves_asset_origin() {
+fn imported_publication_selects_one_composite_recipe_and_preserves_asset_origin() {
     let workspace = TempProject::new();
     let child = workspace.0.join("child");
     let consumer = workspace.0.join("consumer");
@@ -323,12 +343,8 @@ fn imported_package_set_selects_one_composite_recipe_and_preserves_asset_origin(
         "child/main.srx",
         r#"
         inputs { recipes = "modules:recipes"; }
-        pub type Entry = std::ApplicationRecipe<std::AutotoolsBuild>;
-        outputs {
-            packages: std::Result<std::PackageSet<Entry>, std::MapKey> = std::package_set(
-                module_exports(recipes, recipe, std::MapEntry::Entry<fn() -> Entry>)
-            );
-        }
+        pub type Entry = std::Recipe;
+        pub publish(recipes, recipe): Entry;
     "#,
     );
     workspace.write("child/recipes/hello.srx", &recipe_source(""));
@@ -340,63 +356,30 @@ fn imported_package_set_selects_one_composite_recipe_and_preserves_asset_origin(
     workspace.write("consumer/assets/source", "consumer");
     let main = r#"
         inputs { pkgs = "path:../child"; }
-        fn selected() -> pkgs::Entry {
-            match pkgs::packages {
-                Ok(packages) => match std::package_get(packages, "hello") {
-                    Some(recipe) => recipe, None => selected(),
-                },
-                Err(_) => selected(),
-            }
-        }
-        outputs {
-            names: [std::MapKey] = match pkgs::packages {
-                Ok(packages) => std::package_names(packages), Err(_) => [],
-            };
-            hello: pkgs::Entry = selected();
-        }
+        mod factories { mod hello { pub fn recipe() -> pkgs::Entry { std::recipe_value(pkgs::hello) } } } pub publish(factories, recipe): pkgs::Entry;
     "#;
-    workspace.write(
-        "consumer/main.srx",
-        &main.replacen("outputs {", &format!("outputs {{ {PROVIDER}"), 1),
-    );
+    workspace.write("consumer/main.srx", &format!("{main} {PROVIDER}"));
     let config = package_configuration();
     lock_project_with(&child, &config).unwrap();
     lock_project_with(&consumer, &config).unwrap();
-    let plan = plan_project_with(&consumer, &config).unwrap();
+    let prepared = prepare_project_with(&consumer, &config).unwrap();
+    let plan = prepared.plan();
     assert_eq!(plan.packages().len(), 2);
     assert!(
         plan.packages()
             .any(|package| package.export() == Some("hello"))
     );
     assert_eq!(plan.builds().len(), 2);
-    assert_eq!(plan.applications().len(), 1);
+    assert_eq!(plan.commands().len(), 1);
+    let child_locked = open_locked_project_with(&child, &config).unwrap();
     assert_eq!(
-        plan.builds()
-            .find(|build| build.package().as_str() == "hello")
+        child_locked
+            .evaluation()
             .unwrap()
-            .development()
+            .catalog_names()
             .unwrap()
-            .as_str(),
-        "libc"
-    );
-    assert_eq!(
-        plan.applications()
-            .next()
-            .unwrap()
-            .loader()
-            .unwrap()
-            .as_str(),
-        "libc"
-    );
-    assert!(plan.default_build().is_none());
-    assert!(plan.default_application().is_none());
-    let names = plan.roots().find(|root| root.name() == "names").unwrap();
-    let crate::PlanValue::List { items, .. } = names.value() else {
-        panic!("expected names");
-    };
-    assert_eq!(items.len(), 2);
-    assert!(
-        matches!(&items[0], crate::PlanValue::Nominal { value, .. } if **value == crate::PlanValue::Str("hello".into()))
+            .unwrap(),
+        ["hello", "unused"]
     );
     let source = plan
         .acquisitions()
@@ -406,45 +389,13 @@ fn imported_package_set_selects_one_composite_recipe_and_preserves_asset_origin(
         .next()
         .unwrap();
     assert_eq!(
-        fs::canonicalize(plan.project_root(source.owner().unwrap()).unwrap()).unwrap(),
+        fs::canonicalize(
+            prepared
+                .project_root(source.owner().unwrap())
+                .unwrap()
+        )
+        .unwrap(),
         fs::canonicalize(&child).unwrap()
-    );
-}
-
-#[test]
-fn package_set_reports_duplicate_and_missing_keys_without_running_factories() {
-    let plan = package_plan(
-        r#"
-        value Flag(int);
-        fn dormant() -> std::Package { dormant() }
-        fn empty() -> std::PackageSet<std::Package> {
-            match std::package_set<std::Package>([]) { Ok(set) => set, Err(_) => empty(), }
-        }
-        fn names_for_reuse() -> [std::MapKey] {
-            let set = empty();
-            let absent = std::package_factory(set, "absent");
-            std::package_names(set)
-        }
-        outputs {
-            duplicate: std::MapKey = match std::package_set([
-                std::MapEntry::Entry("same", dormant), std::MapEntry::Entry("same", dormant)
-            ]) { Ok(_) => "wrong", Err(key) => key, };
-            missing: Flag = match std::package_get(empty(), "absent") { Some(_) => 0, None => 1, };
-            reusable: [std::MapKey] = names_for_reuse();
-        }
-    "#,
-    )
-    .unwrap();
-    let duplicate = plan
-        .roots()
-        .find(|root| root.name() == "duplicate")
-        .unwrap();
-    assert!(
-        matches!(duplicate.value(), crate::PlanValue::Nominal { value, .. } if **value == crate::PlanValue::Str("same".into()))
-    );
-    let missing = plan.roots().find(|root| root.name() == "missing").unwrap();
-    assert!(
-        matches!(missing.value(), crate::PlanValue::Nominal { value, .. } if **value == crate::PlanValue::Int(1))
     );
 }
 
@@ -458,7 +409,10 @@ fn composite_recipe_is_evaluated_once_before_projecting_all_components() {
     }
     let policy = CheckPolicy::new("recipe-observation")
         .unwrap()
-        .with_predicate("host::observed", syrox_lang::PrimitiveType::Int)
+        .with_predicate(
+            "host::observed",
+            syrox_lang::checker::PrimitiveType::Int,
+        )
         .unwrap();
     let config = CheckConfiguration {
         environment: EvaluationEnvironment::new(&policy)
@@ -472,11 +426,16 @@ fn composite_recipe_is_evaluated_once_before_projecting_all_components() {
         "value Observed(int) where host::observed(self); {}",
         recipe_source("let observation = Observed(1);")
     );
-    project.write("main.srx", &format!("{factory} outputs {{ hello: std::ApplicationRecipe<std::AutotoolsBuild> = recipe(); {PROVIDER} }}"));
+    project.write(
+        "main.srx",
+        &format!("{factory} mod factories {{ mod hello {{ pub fn recipe() -> std::Recipe {{ project::recipe() }} }} }} pub publish(factories, recipe): std::Recipe; {PROVIDER} outputs {{ selected: std::Recipe = std::recipe_value(hello); provider: std::Recipe = std::recipe_value(libc); }}"),
+    );
     project.write("assets/source", "child");
     CALLS.store(0, Ordering::Relaxed);
+    // Pure evaluation with an observation predicate; custom policies cannot be
+    // authenticated as project locks. This tests projection, not a destination.
     let validated = validate_project_with(&project.0, &config).unwrap();
-    let plan = crate::Plan::from_realized(
+    let plan = crate::plan::Plan::from_realized(
         validated.realized(),
         [0; 32],
         config.policy.identity(),
@@ -487,27 +446,44 @@ fn composite_recipe_is_evaluated_once_before_projecting_all_components() {
     assert_eq!(plan.packages().len(), 2);
     assert_eq!(plan.acquisitions().len(), 2);
     assert_eq!(plan.builds().len(), 2);
-    assert_eq!(plan.applications().len(), 1);
+    assert_eq!(plan.commands().len(), 1);
 }
 
 #[test]
-fn composite_recipe_rejects_components_with_different_package_owners() {
-    for component in ["acquisition", "build", "build_inputs", "application"] {
+fn recipe_components_reject_redundant_owner_fields() {
+    for component in [
+        "acquisition",
+        "build",
+        "build_inputs",
+        "commands",
+    ] {
         let project = TempProject::new();
-        let source = recipe_source("");
+        let source = if component == "build_inputs" {
+            recipe_source("").replace(
+                "build_inputs = std::Option::None;",
+                "build_inputs = std::Option::Some(std::BuildInputs { selected = []; });",
+            )
+        } else {
+            recipe_source("")
+        };
         let marker = match component {
-            "acquisition" => "acquisition = std::Acquisition",
-            "build" => "build = std::AutotoolsBuild",
-            "build_inputs" => "build_inputs = std::BuildInputs",
-            _ => "application = std::Application",
+            "acquisition" => "acquisition = std::Option::Some(std::Acquisition",
+            "build" => "build = std::Option::Some(std::autotools(std::BuildOptions",
+            "build_inputs" => "build_inputs = std::Option::Some(std::BuildInputs",
+            _ => "commands = [std::Command",
         };
         let (before, after) = source.split_once(marker).unwrap();
-        project.write("main.srx", &format!("{before}{marker}{} outputs {{ hello: std::ApplicationRecipe<std::AutotoolsBuild> = recipe(); }}", after.replacen("package = \"hello\"", "package = \"other\"", 1)));
+        project.write(
+            "main.srx",
+            &format!(
+                "{before}{marker}{} outputs {{ hello: std::Recipe = recipe(); }}",
+                after.replacen('{', "{ package = \"other\";", 1)
+            ),
+        );
         project.write("assets/source", "child");
         let config = package_configuration();
-        lock_project_with(&project.0, &config).unwrap();
         assert!(
-            matches!(plan_project_with(&project.0, &config), Err(ProjectOperationError::Plan(crate::PlanError::InvalidRecipe { reason, .. })) if reason.contains("same package")),
+            matches!(lock_project_with(&project.0, &config), Err(ProjectOperationError::Check(CheckFailure::Diagnostics { errors, .. })) if errors.iter().any(|error| error.message.contains("unknown field `package`"))),
             "{component}"
         );
     }

@@ -1,4 +1,20 @@
+# Keep formatting compatible with the pinned stable Rust toolchain.
 edition = "2024"
+style_edition = "2024"
 max_width = 100
+newline_style = "Unix"
+
+# Give calls, collections and fluent chains room to be scanned vertically.
+fn_params_layout = "Tall"
+fn_call_width = 50
+chain_width = 50
+array_width = 40
+struct_lit_width = 0
+struct_variant_width = 0
+
+# Keep each branch visible as a block, even when its expression is short.
+single_line_if_else_max_width = 0
+single_line_let_else_max_width = 0
+
 use_field_init_shorthand = true
 use_try_shorthand = true

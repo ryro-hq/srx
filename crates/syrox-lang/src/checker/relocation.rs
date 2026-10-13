@@ -3,7 +3,7 @@
 use super::{
     CheckedExpression, CheckedLocal, CheckedPattern, Elaboration, OwnershipUse, ParameterHint, Ty,
 };
-use crate::{Diagnostic, ItemId, LocalId, Span};
+use crate::{diagnostic::Diagnostic, resolver::ItemId, resolver::LocalId, source::Span};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,31 +65,39 @@ pub(crate) trait FactMapper {
     fn elaboration(&mut self, elaboration: &Elaboration) -> Option<Elaboration> {
         self.reserve(0)?;
         Some(match elaboration {
-            Elaboration::ModuleExports { key, function } => Elaboration::ModuleExports {
+            Elaboration::ModuleExports {
+                key,
+                function,
+            } => Elaboration::ModuleExports {
                 key: self.item(*key)?,
                 function: self.ty(function)?,
             },
-            Elaboration::VariantConstructor { index } => {
-                Elaboration::VariantConstructor { index: *index }
-            }
-            Elaboration::ContextualVariant { enumeration, index } => {
-                Elaboration::ContextualVariant {
-                    enumeration: self.item(*enumeration)?,
-                    index: *index,
-                }
-            }
+            Elaboration::VariantConstructor {
+                index,
+            } => Elaboration::VariantConstructor {
+                index: *index,
+            },
+            Elaboration::ContextualVariant {
+                enumeration,
+                index,
+            } => Elaboration::ContextualVariant {
+                enumeration: self.item(*enumeration)?,
+                index: *index,
+            },
             Elaboration::ValueLiteral(id) => Elaboration::ValueLiteral(self.item(*id)?),
-            Elaboration::Erasure { source } => Elaboration::Erasure {
+            Elaboration::Erasure {
+                source,
+            } => Elaboration::Erasure {
                 source: self.ty(source)?,
             },
-            Elaboration::FunctionSpecialization { substitutions } => {
-                Elaboration::FunctionSpecialization {
-                    substitutions: substitutions
-                        .iter()
-                        .map(|(id, ty)| Some((self.local(*id)?, self.ty(ty)?)))
-                        .collect::<Option<_>>()?,
-                }
-            }
+            Elaboration::FunctionSpecialization {
+                substitutions,
+            } => Elaboration::FunctionSpecialization {
+                substitutions: substitutions
+                    .iter()
+                    .map(|(id, ty)| Some((self.local(*id)?, self.ty(ty)?)))
+                    .collect::<Option<_>>()?,
+            },
         })
     }
 
@@ -97,7 +105,9 @@ pub(crate) trait FactMapper {
         Some(CheckedExpression {
             span: self.span(value.span)?,
             ty: self.ty(&value.ty)?,
-            elaboration: optional(value.elaboration.as_ref(), |e| self.elaboration(e))?,
+            elaboration: optional(value.elaboration.as_ref(), |e| {
+                self.elaboration(e)
+            })?,
             expected: optional(value.expected.as_ref(), |ty| self.ty(ty))?,
             status: value.status,
         })
@@ -149,7 +159,7 @@ pub(crate) trait FactMapper {
                 .iter()
                 .map(|related| {
                     self.reserve(related.message.len())?;
-                    Some(crate::RelatedDiagnostic {
+                    Some(crate::diagnostic::RelatedDiagnostic {
                         span: self.span(related.span)?,
                         message: related.message.clone(),
                     })

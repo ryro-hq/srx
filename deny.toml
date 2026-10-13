@@ -4,6 +4,11 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [advisories]
 yanked = "deny"
+# Microsandbox =0.7.3 is a development-only dependency and requires bincode 2.
+# This informational maintenance advisory has no patched release. Track it
+# explicitly until the pinned SDK replaces its codec; security advisories remain
+# checked. https://rustsec.org/advisories/RUSTSEC-2025-0141.html
+ignore = [{ id = "RUSTSEC-2025-0141", reason = "Required by the pinned local VM test SDK; unmaintained codec is tracked in docs/PLANO.md and is not a Syrox release dependency." }]
 
 [bans]
 multiple-versions = "warn"
@@ -19,7 +24,12 @@ allow = [
     "BSD-3-Clause",
     "MIT-0",
     "CDLA-Permissive-2.0",
+    "Zlib",
+    "CC0-1.0",
 ]
+# The local Microsandbox development SDK uses dirs -> option-ext. Keep the
+# file-level copyleft exception confined to the exact locked helper release.
+exceptions = [{ name = "option-ext", version = "=0.2.0", allow = ["MPL-2.0"] }]
 
 [sources]
 unknown-registry = "deny"

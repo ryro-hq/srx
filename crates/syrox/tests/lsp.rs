@@ -16,8 +16,14 @@ mod completion;
 mod construction;
 #[path = "lsp/contextual.rs"]
 mod contextual;
+#[path = "lsp/formatting.rs"]
+mod formatting;
+#[path = "support/github.rs"]
+mod github_fixture;
 #[path = "lsp/presentation.rs"]
 mod presentation;
+#[path = "lsp/status.rs"]
+mod status;
 #[path = "lsp/watch.rs"]
 mod watch;
 
@@ -83,7 +89,10 @@ impl Client {
                 if reader.read_exact(&mut body).is_err() {
                     return;
                 }
-                if sender.send(serde_json::from_slice(&body).unwrap()).is_err() {
+                if sender
+                    .send(serde_json::from_slice(&body).unwrap())
+                    .is_err()
+                {
                     return;
                 }
             }
@@ -96,15 +105,31 @@ impl Client {
         };
         let response = client.request("initialize", json!({"rootUri":uri(root),"capabilities":{"textDocument":{"inlayHint":{"resolveSupport":{"properties":if resolve_hints {vec!["tooltip"]} else {vec![]}}},"codeAction":{"codeActionLiteralSupport":{"codeActionKind":{"valueSet":["quickfix"]}}}},"general":{"positionEncodings":[encoding]},"workspace":{"workspaceEdit":{"documentChanges":true},"didChangeWatchedFiles":{"dynamicRegistration":watching}}}}));
         assert_eq!(
+            response["result"]["capabilities"]["documentFormattingProvider"],
+            true
+        );
+        assert_eq!(
             response["result"]["capabilities"]["positionEncoding"],
             encoding
+        );
+        assert_eq!(
+            response["result"]["capabilities"]["experimental"],
+            serde_json::from_str::<Value>(include_str!(
+                "../../../tests/fixtures/lsp-contract.json"
+            ))
+            .unwrap()["descriptors"]
         );
         client.notify("initialized", json!({}));
         client
     }
     fn send(&mut self, value: &Value) {
         let bytes = serde_json::to_vec(value).unwrap();
-        write!(self.input, "Content-Length: {}\r\n\r\n", bytes.len()).unwrap();
+        write!(
+            self.input,
+            "Content-Length: {}\r\n\r\n",
+            bytes.len()
+        )
+        .unwrap();
         self.input.write_all(&bytes).unwrap();
         self.input.flush().unwrap();
     }
@@ -147,7 +172,10 @@ impl Client {
         );
     }
     fn stop(&mut self) {
-        assert_eq!(self.request("shutdown", Value::Null)["result"], Value::Null);
+        assert_eq!(
+            self.request("shutdown", Value::Null)["result"],
+            Value::Null
+        );
         self.notify("exit", Value::Null);
         assert!(self.child.wait().unwrap().success());
     }
@@ -318,8 +346,10 @@ fn stdio_lsp_negotiates_utf8_and_keeps_unsaved_documents_useful() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|diagnostic| diagnostic["range"]["start"]["character"]
-                == text.find(" }").unwrap() + 1)
+            .any(
+                |diagnostic| diagnostic["range"]["start"]["character"]
+                    == text.find(" }").unwrap() + 1
+            )
     );
     let symbols = client.request(
         "textDocument/documentSymbol",

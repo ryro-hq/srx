@@ -1,4 +1,3 @@
-//! Opt-in phase measurements: monotonic wall time, total process CPU, peak RSS and kernel I/O.
 use std::time::Instant;
 
 #[derive(Clone, Copy)]
@@ -70,8 +69,12 @@ impl PhaseProfiler {
                 now.duration_since(since).as_micros(),
                 current.cpu_us.saturating_sub(previous.cpu_us),
                 current.peak_rss_kb,
-                current.read_bytes.saturating_sub(previous.read_bytes),
-                current.write_bytes.saturating_sub(previous.write_bytes),
+                current
+                    .read_bytes
+                    .saturating_sub(previous.read_bytes),
+                current
+                    .write_bytes
+                    .saturating_sub(previous.write_bytes),
             );
             self.previous = Some((now, current));
         } else {

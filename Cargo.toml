@@ -38,7 +38,33 @@ unused_qualifications = "warn"
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
+# Cohesive operations retain their resource owners through preparation, execution
+# and settlement. Length alone does not identify a separate responsibility.
+too_many_lines = "allow"
+# Domain-qualified public type names stay readable when imported without the module.
 module_name_repetitions = "allow"
+# Public API return values have different ownership/effect contracts; annotate those
+# that require consumption locally rather than marking every accessor must_use.
 must_use_candidate = "allow"
+# Fallible domain APIs document invariants and error variants at their owners;
+# require substantive contracts instead of repeating mechanical Errors sections.
 missing_errors_doc = "allow"
+# Internal invariant assertions are documented with their owning domain contract.
 missing_panics_doc = "allow"
+
+# Authentication repeatedly hashes retained inputs under fixed startup budgets.
+# Keep the crypto implementation optimized in development as in release builds.
+[profile.dev.package."sha2:0.10.9"]
+opt-level = 3
+
+[profile.test.package."sha2:0.10.9"]
+opt-level = 3
+
+# Keep local preparation within the minimum product environment.
+[profile.dev]
+debug = 0
+incremental = false
+
+[profile.test]
+debug = 0
+incremental = false

@@ -75,11 +75,16 @@ fn constructors_complete_missing_specialized_fields_and_defaults_without_duplica
                     "S (required)"
                 }
             );
-            assert!(item["sortText"].as_str().unwrap().starts_with(if default {
-                "1:"
-            } else {
-                "0:"
-            }));
+            assert!(
+                item["sortText"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with(if default {
+                        "1:"
+                    } else {
+                        "0:"
+                    })
+            );
         }
         if index == 1 {
             let start = text.find(" se }").unwrap() + 1;
@@ -145,5 +150,98 @@ fn constructors_use_innermost_literal_and_lexical_or_delegated_authority() {
             assert!(items.is_empty(), "{response}");
         }
     }
+    client.stop();
+}
+
+#[test]
+fn secret_authoring_uses_typed_fields_variants_and_diagnostics_without_local_grants() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("main.srx");
+    // These are public logical names only. No operational configuration or
+    // source file exists; editor type checking must not resolve a local grant.
+    let text = "fn service() -> std::Service { std::Service { id = \"auth\"; secrets = [\"token\"]; } } fn name() -> std::SecretName { \"token\" } fn reference() -> std::CommandArgument { std::CommandArgument::SecretFile(\"token\") }";
+    std::fs::write(&path, text).unwrap();
+    let document = uri(&path);
+    let mut client = Client::with_options(temp.path(), "utf-16", false, "bundled");
+    client.open(&document, text);
+    client.diagnostics(&document, 1);
+    let checked = client.diagnostics(&document, 1);
+    assert_eq!(
+        checked["params"]["diagnostics"],
+        json!([]),
+        "{checked}"
+    );
+    let position = text.find("std::SecretName").unwrap() + "std::".len();
+    let hover = client.request(
+        "textDocument/hover",
+        json!({"textDocument":{"uri":document},"position":{"line":0,"character":position}}),
+    );
+    assert!(
+        hover["result"].to_string().contains("SecretName"),
+        "{hover}"
+    );
+
+    let incomplete = text.replace("secrets = [\"token\"];", "se");
+    client.notify(
+        "textDocument/didChange",
+        json!({"textDocument":{"uri":document,"version":2},"contentChanges":[{"text":incomplete}]}),
+    );
+    let fields = complete(
+        &mut client,
+        &document,
+        &incomplete,
+        "\"auth\"; se",
+    );
+    let field = fields["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["label"] == "secrets")
+        .expect("typed service secrets field");
+    assert_eq!(field["kind"], 5);
+    assert_eq!(
+        field["detail"],
+        "[std::deployment::SecretName] (default)"
+    );
+
+    let incomplete = text.replace("SecretFile(\"token\")", "SecretF");
+    client.notify(
+        "textDocument/didChange",
+        json!({"textDocument":{"uri":document,"version":3},"contentChanges":[{"text":incomplete}]}),
+    );
+    let variants = complete(
+        &mut client,
+        &document,
+        &incomplete,
+        "std::CommandArgument::SecretF",
+    );
+    assert!(
+        variants["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["label"] == "SecretFile"),
+        "{variants}"
+    );
+
+    let invalid = text.replace("SecretFile(\"token\")", "SecretFile(42)");
+    client.notify(
+        "textDocument/didChange",
+        json!({"textDocument":{"uri":document,"version":4},"contentChanges":[{"text":invalid}]}),
+    );
+    client.diagnostics(&document, 4);
+    let checked = client.diagnostics(&document, 4);
+    assert!(
+        checked["params"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("SecretName"))),
+        "{checked}"
+    );
+    assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 1);
+    assert_eq!(std::fs::read_to_string(path).unwrap(), text);
     client.stop();
 }

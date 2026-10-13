@@ -1,5 +1,5 @@
 use super::*;
-use crate::{SourceSet, parse_sources, resolve};
+use crate::{resolver::resolve, source::SourceSet, syntax::parse_sources};
 
 fn resolved(text: &str) -> ResolvedProgram {
     let mut sources = SourceSet::new();
@@ -210,7 +210,9 @@ fn local_generic_inference_rejects_ambiguity_conflicts_and_double_moves() {
     ] {
         let diagnostics = messages(source);
         assert!(
-            diagnostics.iter().any(|message| message.contains(expected)),
+            diagnostics
+                .iter()
+                .any(|message| message.contains(expected)),
             "{source}: {diagnostics:?}"
         );
     }
@@ -247,7 +249,9 @@ fn comparisons_join_affine_moves_and_require_ordered_matching_operands() {
     ] {
         let diagnostics = messages(source);
         assert!(
-            diagnostics.iter().any(|message| message.contains(expected)),
+            diagnostics
+                .iter()
+                .any(|message| message.contains(expected)),
             "{source}: {diagnostics:?}"
         );
     }
@@ -282,7 +286,9 @@ fn module_exports_require_concrete_public_function_signatures_and_reusable_mappe
         );
         let errors = messages(&source);
         assert!(
-            errors.iter().any(|message| message.contains(expected)),
+            errors
+                .iter()
+                .any(|message| message.contains(expected)),
             "{errors:?}"
         );
     }
@@ -293,7 +299,11 @@ fn module_export_entries_count_toward_the_metadata_budget() {
     use std::fmt::Write as _;
     let mut modules = String::new();
     for index in 0..40 {
-        write!(modules, "mod m{index} {{ pub use implementation::make; }}").unwrap();
+        write!(
+            modules,
+            "mod m{index} {{ pub use implementation::make; }}"
+        )
+        .unwrap();
     }
     let source = format!(
         r"
@@ -479,7 +489,9 @@ fn imported_projects_resolve_their_own_input_aliases() {
         pub type X = recipes::X; pub fn get() -> X { recipes::make() }"#,
         )
         .unwrap();
-    let child_recipes = sources.create_child_input_domain(child, "recipes").unwrap();
+    let child_recipes = sources
+        .create_child_input_domain(child, "recipes")
+        .unwrap();
     sources
         .add_to_input_domain(
             child_recipes,
@@ -501,10 +513,10 @@ fn imported_projects_resolve_their_own_input_aliases() {
     )
     .unwrap();
     let policy = CheckPolicy::default();
-    let result = crate::evaluate(
+    let result = crate::evaluator::evaluate(
         &checked,
         &policy,
-        &crate::EvaluationEnvironment::new(&policy),
+        &crate::evaluator::EvaluationEnvironment::new(&policy),
     )
     .unwrap();
     assert_eq!(result.roots().count(), 2);
@@ -529,7 +541,11 @@ fn imported_projects_resolve_their_own_input_aliases() {
         .unwrap();
     let local = isolated.create_input_domain("recipes").unwrap();
     isolated
-        .add_to_input_domain(local, "consumer/local/item.srx", "pub struct X {}")
+        .add_to_input_domain(
+            local,
+            "consumer/local/item.srx",
+            "pub struct X {}",
+        )
         .unwrap();
     assert!(
         resolve(parse_sources(&isolated).unwrap())
@@ -553,11 +569,15 @@ fn imported_project_value_outputs_are_checked_and_realized_on_reference() {
         .unwrap();
     sources.add_to_project_domain(child, "child/main.srx", "pub struct X {} fn forever() -> X { forever() } outputs { selected: X = X {}; disconnected: X = forever(); }").unwrap();
     let policy = CheckPolicy::default();
-    let checked = check(resolve(parse_sources(&sources).unwrap()).unwrap(), &policy).unwrap();
-    let result = crate::evaluate(
+    let checked = check(
+        resolve(parse_sources(&sources).unwrap()).unwrap(),
+        &policy,
+    )
+    .unwrap();
+    let result = crate::evaluator::evaluate(
         &checked,
         &policy,
-        &crate::EvaluationEnvironment::new(&policy),
+        &crate::evaluator::EvaluationEnvironment::new(&policy),
     )
     .unwrap();
     assert_eq!(result.roots().count(), 1);
@@ -580,18 +600,22 @@ fn imported_project_value_outputs_are_checked_and_realized_on_reference() {
             "pub struct X {} outputs { a: X = b; b: X = a; }",
         )
         .unwrap();
-    let checked = check(resolve(parse_sources(&cyclic).unwrap()).unwrap(), &policy).unwrap();
-    let result = crate::evaluate(
-        &checked,
+    let checked = check(
+        resolve(parse_sources(&cyclic).unwrap()).unwrap(),
         &policy,
-        &crate::EvaluationEnvironment::new(&policy),
     )
     .unwrap();
-    assert!(
-        result
-            .diagnostics()
-            .any(|error| error.message.contains("cycle in imported value outputs"))
-    );
+    let result = crate::evaluator::evaluate(
+        &checked,
+        &policy,
+        &crate::evaluator::EvaluationEnvironment::new(&policy),
+    )
+    .unwrap();
+    assert!(result.diagnostics().any(|error| {
+        error
+            .message
+            .contains("cycle in imported value outputs")
+    }));
     let mut affine = SourceSet::new();
     affine
         .add(
@@ -610,12 +634,15 @@ fn imported_project_value_outputs_are_checked_and_realized_on_reference() {
         )
         .unwrap();
     assert!(
-        check(resolve(parse_sources(&affine).unwrap()).unwrap(), &policy)
-            .unwrap_err()
-            .iter()
-            .any(|error| error
-                .message
-                .contains("imported value output cannot carry an affine resource"))
+        check(
+            resolve(parse_sources(&affine).unwrap()).unwrap(),
+            &policy
+        )
+        .unwrap_err()
+        .iter()
+        .any(|error| error
+            .message
+            .contains("imported value output cannot carry an affine resource"))
     );
 }
 
@@ -687,12 +714,10 @@ fn contextual_variants_literals_and_empty_lists_are_elaborated() {
     let program = checked(
         "value Name(str); enum Mode { Fast, Slow } struct C { name: Name; modes: [Mode]; } outputs { c: C = C { name = \"x\"; modes = [Fast, Slow]; }; }",
     );
-    assert!(
-        program.expressions().any(|expression| matches!(
-            expression.elaboration(),
-            Some(Elaboration::ValueLiteral(_))
-        ))
-    );
+    assert!(program.expressions().any(|expression| matches!(
+        expression.elaboration(),
+        Some(Elaboration::ValueLiteral(_))
+    )));
     assert_eq!(
         program
             .expressions()
@@ -800,7 +825,13 @@ fn shared_non_affine_type_graph_does_not_exhaust_checker_work() {
     use std::fmt::Write as _;
     let mut source = String::from("struct N0 {} ");
     for n in 1..23 {
-        write!(source, "struct N{n} {{ a: N{}; b: N{}; }} ", n - 1, n - 1).unwrap();
+        write!(
+            source,
+            "struct N{n} {{ a: N{}; b: N{}; }} ",
+            n - 1,
+            n - 1
+        )
+        .unwrap();
     }
     source.push_str("fn f(x: N22) { x; x; }");
     let program = resolved(&source);
@@ -825,18 +856,21 @@ fn opaque_construction_rejects_a_different_authenticated_domain() {
         )
         .unwrap();
     sources
-        .add("main.srx", "outputs { bad: std::Secret = std::Secret {}; }")
+        .add(
+            "main.srx",
+            "outputs { bad: std::Secret = std::Secret {}; }",
+        )
         .unwrap();
     let errors = check(
         resolve(parse_sources(&sources).unwrap()).unwrap(),
         &CheckPolicy::default(),
     )
     .unwrap_err();
-    assert!(
-        errors
-            .iter()
-            .any(|diagnostic| diagnostic.message.contains("opaque struct constructor"))
-    );
+    assert!(errors.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("opaque struct constructor")
+    }));
 }
 
 #[test]
@@ -1035,7 +1069,10 @@ fn checker_work_limit_fails_closed() {
         },
     )
     .unwrap_err();
-    assert_eq!(errors[0].message, "type checking work limit reached");
+    assert_eq!(
+        errors[0].message,
+        "type checking work limit reached"
+    );
 }
 
 #[test]
@@ -1113,8 +1150,14 @@ fn policy_is_canonical_bounded_and_rejects_conflicts() {
 
 #[test]
 fn policy_matching_is_exact_and_erasure_authority_includes_domain() {
-    let first = CheckPolicy::new("same").unwrap().with_scope("a").unwrap();
-    let second = CheckPolicy::new("same").unwrap().with_scope("b").unwrap();
+    let first = CheckPolicy::new("same")
+        .unwrap()
+        .with_scope("a")
+        .unwrap();
+    let second = CheckPolicy::new("same")
+        .unwrap()
+        .with_scope("b")
+        .unwrap();
     let checked = check(resolved("struct S {}"), &first).unwrap();
     assert!(checked.require_policy(&second).is_err());
 
@@ -1135,11 +1178,18 @@ fn policy_matching_is_exact_and_erasure_authority_includes_domain() {
         .unwrap()
         .with_erasure(
             CanonicalItemIdentity::new(SourceDomainId::standard_library(), ["std", "Box"]).unwrap(),
-            CanonicalItemIdentity::new(SourceDomainId::standard_library(), ["std", "Public"])
-                .unwrap(),
+            CanonicalItemIdentity::new(
+                SourceDomainId::standard_library(),
+                ["std", "Public"],
+            )
+            .unwrap(),
         )
         .unwrap();
-    let errors = check(resolve(parse_sources(&sources).unwrap()).unwrap(), &policy).unwrap_err();
+    let errors = check(
+        resolve(parse_sources(&sources).unwrap()).unwrap(),
+        &policy,
+    )
+    .unwrap_err();
     assert!(
         errors
             .iter()
@@ -1254,8 +1304,14 @@ fn checked_metadata_builds_complete_span_indexes_once() {
     }
     source.push('}');
     let program = checked(&source);
-    assert_eq!(program.expression_index.len(), program.expressions.len());
-    assert_eq!(program.pattern_index.len(), program.patterns.len());
+    assert_eq!(
+        program.expression_index.len(),
+        program.expressions.len()
+    );
+    assert_eq!(
+        program.pattern_index.len(),
+        program.patterns.len()
+    );
     assert!(
         program
             .expressions()
@@ -1274,11 +1330,15 @@ fn editor_retention_does_not_exhaust_language_metadata_or_change_diagnostics() {
     };
     let mut strict = Checker::new(&program, &policy, limits);
     strict.run();
-    let cancellation = crate::AnalysisCancellation::default();
+    let cancellation = crate::analysis::AnalysisCancellation::default();
     let mut editor = Checker::new(&program, &policy, limits);
     editor.cancellation = Some(&cancellation);
     editor.run();
-    assert!(strict.diagnostics.is_empty(), "{:?}", strict.diagnostics);
+    assert!(
+        strict.diagnostics.is_empty(),
+        "{:?}",
+        strict.diagnostics
+    );
     assert_eq!(strict.diagnostics, editor.diagnostics);
     assert_eq!(strict.work, editor.work);
     assert!(editor.editor.truncated);

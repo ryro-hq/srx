@@ -1,41 +1,45 @@
-//! Pure, bounded analysis of Syrox source text.
+//! Leitura, checagem e avaliação dos arquivos `.srx`.
+//!
+//! O fluxo começa em [`syntax`], resolve os nomes em [`resolver`], checa tipos e
+//! uso de valores em [`checker`] e avalia o programa em [`evaluator`]. Os efeitos
+//! no host ficam na engine. [`source`] guarda o texto e as coordenadas usadas
+//! pelos diagnósticos de todas essas etapas.
+//!
+//! Para o editor, [`analysis`] trabalha com snapshots e texto ainda incompleto.
+//! Esses resultados ajudam a editar; a avaliação recebe um programa checado.
+//!
+//! ```rust
+//! use syrox_lang::{checker, resolver, source::SourceSet, syntax};
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let mut sources = SourceSet::new();
+//! sources.add("main.srx", "value Numero(int); outputs { resposta: Numero = Numero(42); }")?;
+//!
+//! let parsed = syntax::parse_sources(&sources).map_err(|errors| format!("{errors:?}"))?;
+//! let resolved = resolver::resolve(parsed).map_err(|errors| format!("{errors:?}"))?;
+//! let _checked = checker::check(resolved, &checker::CheckPolicy::default())
+//!     .map_err(|errors| format!("{errors:?}"))?;
+//! # Ok(())
+//! # }
+//! ```
 
-mod analysis;
-mod ast;
-mod checker;
-mod diagnostic;
-mod evaluator;
-mod lexer;
-mod line_index;
-mod parser;
-mod resolver;
-mod source;
+pub mod analysis;
+pub mod checker;
+pub mod diagnostic;
+pub mod evaluator;
+pub mod formatter;
+pub mod line_index;
+pub mod resolver;
+pub mod source;
+pub mod syntax;
 
-pub use analysis::{
-    AnalysisCancellation, AnalysisCancelled, AnalysisHost, AnalysisLimits, AnalysisRevision,
-    AnalysisSnapshot, AnalysisUpdateError, DocumentSnapshot, InterfaceNamespaceDependency,
-    OwnerTypeDependencies, SemanticAnalysis, SemanticAnalysisError, SemanticOccurrence,
-    SemanticSymbol, SemanticSymbolKind, SyntaxFix, TypeInterface,
-};
-pub use ast::*;
-pub use checker::*;
-pub use diagnostic::{Diagnostic, DiagnosticCode, RelatedDiagnostic, Severity, SyntaxExpectation};
-pub use evaluator::*;
-pub use line_index::{LineIndex, PositionEncoding, TextPosition};
-pub use parser::{
-    FunctionSignature, ParsedFile, SyntaxElement, SyntaxKeyword, SyntaxKind, SyntaxNode,
-    SyntaxToken, SyntaxTokenKind, SyntaxTree, analyze, parse_file, parse_sources,
-};
-pub use resolver::*;
-pub use source::{Source, SourceDomainId, SourceError, SourceId, SourceSet, Span};
-
-/// Maximum accepted bytes in one source file.
+/// Limite de bytes por arquivo de fonte.
 pub const MAX_SOURCE_BYTES: usize = 1024 * 1024;
-/// Maximum number of source files in one source set.
+/// Limite de arquivos num conjunto de fontes.
 pub const MAX_SOURCES: usize = 65_536;
-/// Maximum lexical tokens, including trivia, scanned in one source file.
+/// Limite de tokens por arquivo, incluindo comentários e espaços.
 pub const MAX_TOKENS: usize = 262_144;
-/// Maximum nested delimiter and module depth.
+/// Limite de aninhamento de delimitadores e módulos.
 pub const MAX_DEPTH: usize = 128;
-/// Maximum diagnostics emitted by one analysis phase.
+/// Limite de diagnósticos por etapa da análise.
 pub const MAX_DIAGNOSTICS: usize = 256;

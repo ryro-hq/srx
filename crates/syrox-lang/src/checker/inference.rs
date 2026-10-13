@@ -4,6 +4,7 @@ use super::{BTreeMap, Checker, Context, Expression, ItemId, LocalId, Span, Ty};
 impl Checker<'_> {
     // Inference is local and directed: result context first, then arguments in
     // source order. Expressions are checked exactly once, including affine moves.
+    // Context, substitutions and argument positions are distinct inference inputs.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn infer_call(
         &mut self,
@@ -32,11 +33,20 @@ impl Checker<'_> {
         for (index, argument) in arguments.iter().enumerate() {
             let parameter = parameters.get(index);
             let contextual = parameter.and_then(|ty| {
-                self.concretize(raw_from_ty(ty.clone()), &substitutions, argument.span)
+                self.concretize(
+                    raw_from_ty(ty.clone()),
+                    &substitutions,
+                    argument.span,
+                )
             });
             let actual = self.check_expr(argument, contextual.as_ref(), context, true);
             if let Some(parameter) = parameter {
-                self.infer_type(parameter, &actual, &mut substitutions, argument.span);
+                self.infer_type(
+                    parameter,
+                    &actual,
+                    &mut substitutions,
+                    argument.span,
+                );
             }
         }
         self.finish_inference(item, &substitutions, span);
@@ -55,7 +65,12 @@ impl Checker<'_> {
         span: Span,
         elaboration: &mut Option<super::Elaboration>,
     ) -> Ty {
-        let Some(expected @ Ty::Function { .. }) = expected else {
+        let Some(
+            expected @ Ty::Function {
+                ..
+            },
+        ) = expected
+        else {
             self.error(
                 "generic function requires explicit type arguments or a contextual function type",
                 span,
@@ -76,7 +91,9 @@ impl Checker<'_> {
             .unwrap_or(Ty::Error);
         self.validate_concrete_type(&ty, span);
         self.track_generic_instances(&ty, span);
-        *elaboration = Some(super::Elaboration::FunctionSpecialization { substitutions });
+        *elaboration = Some(super::Elaboration::FunctionSpecialization {
+            substitutions,
+        });
         ty
     }
 
@@ -132,7 +149,12 @@ impl Checker<'_> {
                 (_, Ty::Error) | (Ty::Error, _) => {}
                 (Ty::Parameter(id), actual) => {
                     if let Some(previous) = substitutions.get(id) {
-                        self.expect_same(previous, actual, span, "inferred generic argument");
+                        self.expect_same(
+                            previous,
+                            actual,
+                            span,
+                            "inferred generic argument",
+                        );
                     } else {
                         substitutions.insert(*id, actual.clone());
                     }

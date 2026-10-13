@@ -1,5 +1,3 @@
-//! Canonical content and retained-root identities.
-
 use super::MAX_ROOT_NAME_BYTES;
 use sha2::{Digest as _, Sha256};
 use std::fmt;
@@ -39,7 +37,10 @@ impl std::str::FromStr for ContentDigest {
             return Err(DigestParseError);
         }
         let mut digest = [0_u8; 32];
-        for (destination, pair) in digest.iter_mut().zip(value.as_bytes().as_chunks::<2>().0) {
+        for (destination, pair) in digest
+            .iter_mut()
+            .zip(value.as_bytes().as_chunks::<2>().0)
+        {
             *destination = (nibble(pair[0])? << 4) | nibble(pair[1])?;
         }
         Ok(Self(digest))

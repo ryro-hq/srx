@@ -1,4 +1,4 @@
-use crate::Source;
+use crate::source::Source;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PositionEncoding {
@@ -53,7 +53,11 @@ impl LineIndex {
                 line.end = offset;
                 lines.push(line);
                 let mut start = offset + bytes;
-                if character == '\r' && chars.peek().is_some_and(|(_, next)| *next == '\n') {
+                if character == '\r'
+                    && chars
+                        .peek()
+                        .is_some_and(|(_, next)| *next == '\n')
+                {
                     chars.next();
                     start += 1;
                 }
@@ -79,7 +83,9 @@ impl LineIndex {
         }
         line.end = u32::try_from(source.text().len()).expect("source size is bounded");
         lines.push(line);
-        Self { lines }
+        Self {
+            lines,
+        }
     }
 
     pub fn line_count(&self) -> usize {
@@ -96,7 +102,9 @@ impl LineIndex {
             return None;
         }
         let byte = offset - line.start;
-        let previous = line.wide.partition_point(|character| character.byte < byte);
+        let previous = line
+            .wide
+            .partition_point(|character| character.byte < byte);
         let mut utf16 = byte;
         if previous > 0 {
             let character = &line.wide[previous - 1];
@@ -168,7 +176,10 @@ mod tests {
     fn read_ranges_clamp_past_eol_and_eof_but_reject_split_characters() {
         let source = Source::new("buffer.srx", "é😀\r\nx").unwrap();
         let index = LineIndex::new(&source);
-        for encoding in [PositionEncoding::Utf8, PositionEncoding::Utf16] {
+        for encoding in [
+            PositionEncoding::Utf8,
+            PositionEncoding::Utf16,
+        ] {
             assert_eq!(
                 index.offset_clamped(
                     TextPosition {
@@ -217,7 +228,10 @@ mod tests {
         let source = Source::new("unicode.srx", "aé😀z\r\nβ\rx\n").unwrap();
         let index = LineIndex::new(&source);
         assert_eq!(index.line_count(), 4);
-        for encoding in [PositionEncoding::Utf8, PositionEncoding::Utf16] {
+        for encoding in [
+            PositionEncoding::Utf8,
+            PositionEncoding::Utf16,
+        ] {
             for offset in 0..=u32::try_from(source.text().len()).unwrap() {
                 if let Some(position) = index.position(offset, encoding) {
                     assert!(source.text().is_char_boundary(offset as usize));
@@ -278,13 +292,26 @@ mod tests {
 
     #[test]
     fn empty_lines_and_line_endings_have_exact_boundaries() {
-        for text in ["", "\n", "\r", "\r\n", "\r\n\n\r", "abc"] {
+        for text in [
+            "", "\n", "\r", "\r\n", "\r\n\n\r", "abc",
+        ] {
             let source = Source::new("lines.srx", text).unwrap();
             let index = LineIndex::new(&source);
             let end = u32::try_from(text.len()).unwrap();
-            assert!(index.position(end, PositionEncoding::Utf16).is_some());
-            assert!(index.position(end + 1, PositionEncoding::Utf16).is_none());
-            for encoding in [PositionEncoding::Utf8, PositionEncoding::Utf16] {
+            assert!(
+                index
+                    .position(end, PositionEncoding::Utf16)
+                    .is_some()
+            );
+            assert!(
+                index
+                    .position(end + 1, PositionEncoding::Utf16)
+                    .is_none()
+            );
+            for encoding in [
+                PositionEncoding::Utf8,
+                PositionEncoding::Utf16,
+            ] {
                 for offset in 0..=end {
                     if let Some(position) = index.position(offset, encoding) {
                         assert_eq!(index.offset(position, encoding), Some(offset));

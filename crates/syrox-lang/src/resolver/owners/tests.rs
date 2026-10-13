@@ -1,5 +1,5 @@
 use super::*;
-use crate::{ParsedSource, ParsedSources, SourceSet};
+use crate::{source::SourceSet, syntax::ParsedSource, syntax::ParsedSources};
 
 fn parsed(files: &[(&str, &str)]) -> ParsedSources {
     let mut sources = SourceSet::new();
@@ -13,7 +13,7 @@ fn parsed(files: &[(&str, &str)]) -> ParsedSources {
                 source_id: id,
                 domain: SourceDomainId::project(),
                 module: Vec::new(),
-                program: crate::parser::parse_file_in(id, source)
+                program: crate::syntax::parser::parse_file_in(id, source)
                     .recovered_program()
                     .clone(),
             })
@@ -24,8 +24,10 @@ fn parsed(files: &[(&str, &str)]) -> ParsedSources {
 }
 
 fn resolved(files: &[(&str, &str)]) -> ResolvedProgram {
-    let (program, _, exhausted) =
-        crate::resolver::resolve_partial(parsed(files), Some(&AnalysisCancellation::default()));
+    let (program, _, exhausted) = crate::resolver::resolve_partial(
+        parsed(files),
+        Some(&AnalysisCancellation::default()),
+    );
     assert!(!exhausted);
     program
 }
@@ -50,8 +52,14 @@ fn assert_same_facts(before: &OwnerResolution, after: &OwnerResolution) {
     assert_eq!(before.locals, after.locals);
     assert_eq!(before.references, after.references);
     assert_eq!(before.diagnostics, after.diagnostics);
-    assert_eq!(before.diagnostics_truncated, after.diagnostics_truncated);
-    assert_eq!(before.namespace_dependencies, after.namespace_dependencies);
+    assert_eq!(
+        before.diagnostics_truncated,
+        after.diagnostics_truncated
+    );
+    assert_eq!(
+        before.namespace_dependencies,
+        after.namespace_dependencies
+    );
     assert_eq!(
         before.namespace_dependencies_complete,
         after.namespace_dependencies_complete
@@ -74,11 +82,24 @@ fn earlier_edits_relocate_owner_spans_and_global_ids_without_changing_local_keys
     assert_ne!(old.source_map.span(), new.source_map.span());
     assert_ne!(old.source_map.local(0), new.source_map.local(0));
     for reference in &new.references {
-        let span = new.source_map.absolute_span(reference.span).unwrap();
-        assert_eq!(new.source_map.relative_span(span), Some(reference.span));
-        let original = old.source_map.absolute_span(reference.span).unwrap();
+        let span = new
+            .source_map
+            .absolute_span(reference.span)
+            .unwrap();
+        assert_eq!(
+            new.source_map.relative_span(span),
+            Some(reference.span)
+        );
+        let original = old
+            .source_map
+            .absolute_span(reference.span)
+            .unwrap();
         assert_eq!(&after[span.range()], &before[original.range()]);
-        if let OwnerReferenceTarget::Local { owner, ordinal } = &reference.target {
+        if let OwnerReferenceTarget::Local {
+            owner,
+            ordinal,
+        } = &reference.target
+        {
             assert_eq!(owner.as_ref(), &key);
             let target = new_program
                 .references()
@@ -92,7 +113,10 @@ fn earlier_edits_relocate_owner_spans_and_global_ids_without_changing_local_keys
     }
     assert!(
         new.source_map
-            .absolute_span(OwnerRelativeSpan { start: 1, end: 0 })
+            .absolute_span(OwnerRelativeSpan {
+                start: 1,
+                end: 0
+            })
             .is_none()
     );
     assert!(
@@ -112,7 +136,10 @@ fn earlier_edits_relocate_owner_spans_and_global_ids_without_changing_local_keys
 
 #[test]
 fn file_order_and_source_ids_do_not_enter_owner_or_target_keys() {
-    let a = ("a.srx", "value I(int); fn helper(x: I) -> I { x }");
+    let a = (
+        "a.srx",
+        "value I(int); fn helper(x: I) -> I { x }",
+    );
     let b = ("b.srx", "fn inspect(x: I) -> I { helper(x) }");
     let key = key("inspect", ResolutionOwnerPart::Declaration);
     let old = query(&resolved(&[a, b]), &key);
@@ -179,7 +206,10 @@ fn namespace_observations_keep_negative_lookups_and_ignore_unrelated_body_edits(
         format!("fn aaa() {{}} {text}"),
     ] {
         let after = query(&resolved(&[("main.srx", &changed)]), &inspect);
-        assert_eq!(before.namespace_dependencies, after.namespace_dependencies);
+        assert_eq!(
+            before.namespace_dependencies,
+            after.namespace_dependencies
+        );
     }
     let missing = key("missing", ResolutionOwnerPart::Declaration);
     let before = query(&baseline, &missing);
@@ -192,7 +222,10 @@ fn namespace_observations_keep_negative_lookups_and_ignore_unrelated_body_edits(
     );
     let changed = format!("fn later() {{}} {text}");
     let after = query(&resolved(&[("main.srx", &changed)]), &missing);
-    assert_ne!(before.namespace_dependencies, after.namespace_dependencies);
+    assert_ne!(
+        before.namespace_dependencies,
+        after.namespace_dependencies
+    );
 }
 
 #[test]
@@ -242,7 +275,10 @@ fn namespace_observations_detect_variant_and_discovery_inventory_changes() {
             .iter()
             .any(|dependency| dependency.query == NamespaceQuery::Variant)
     );
-    assert_ne!(old.namespace_dependencies, new.namespace_dependencies);
+    assert_ne!(
+        old.namespace_dependencies,
+        new.namespace_dependencies
+    );
     let original = "mod recipes { mod a { pub fn recipe() {} } } fn mapper() {} fn inspect() { module_exports(recipes, recipe, mapper); }";
     let changed = original.replace(
         "mod recipes {",
@@ -254,7 +290,12 @@ fn namespace_observations_detect_variant_and_discovery_inventory_changes() {
         resolution
             .namespace_dependencies
             .iter()
-            .find(|dependency| matches!(dependency.query, NamespaceQuery::ModuleExports { .. }))
+            .find(|dependency| {
+                matches!(
+                    dependency.query,
+                    NamespaceQuery::ModuleExports { .. }
+                )
+            })
             .unwrap()
             .outcome
             .clone()
@@ -290,9 +331,24 @@ fn namespace_equality_does_not_claim_signature_or_type_interface_equality() {
     let new_program = resolved(&[("main.srx", &changed)]);
     let old = query(&old_program, &key);
     let new = query(&new_program, &key);
-    assert_eq!(old.namespace_dependencies, new.namespace_dependencies);
-    assert!(crate::check(old_program, &crate::CheckPolicy::default()).is_ok());
-    assert!(crate::check(new_program, &crate::CheckPolicy::default()).is_err());
+    assert_eq!(
+        old.namespace_dependencies,
+        new.namespace_dependencies
+    );
+    assert!(
+        crate::checker::check(
+            old_program,
+            &crate::checker::CheckPolicy::default()
+        )
+        .is_ok()
+    );
+    assert!(
+        crate::checker::check(
+            new_program,
+            &crate::checker::CheckPolicy::default()
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -304,22 +360,31 @@ fn canonical_targets_keep_domains_distinct_and_outputs_have_owners() {
         .add_to_input_domain(domain, "dep.srx", "pub fn g() {}")
         .unwrap();
     let (program, errors, exhausted) = crate::resolver::resolve_partial(
-        crate::parse_sources(&sources).unwrap(),
+        crate::syntax::parse_sources(&sources).unwrap(),
         Some(&AnalysisCancellation::default()),
     );
     assert!(errors.is_empty(), "{errors:?}");
     assert!(!exhausted);
-    let f = query(&program, &key("f", ResolutionOwnerPart::Declaration));
+    let f = query(
+        &program,
+        &key("f", ResolutionOwnerPart::Declaration),
+    );
     let targets = f
         .references
         .iter()
         .filter_map(|reference| match &reference.target {
-            OwnerReferenceTarget::Item { domain, path } if path == &["g"] => Some(*domain),
+            OwnerReferenceTarget::Item {
+                domain,
+                path,
+            } if path == &["g"] => Some(*domain),
             _ => None,
         })
         .collect::<Vec<_>>();
     assert_eq!(targets, vec![SourceDomainId::project(), domain]);
-    let output = query(&program, &key("factory", ResolutionOwnerPart::Declaration));
+    let output = query(
+        &program,
+        &key("factory", ResolutionOwnerPart::Declaration),
+    );
     assert!(!output.references.is_empty());
     assert!(
         program
@@ -336,7 +401,10 @@ fn duplicate_owner_keys_and_their_defaults_are_unavailable() {
     )]);
     for key in [
         key("S", ResolutionOwnerPart::Declaration),
-        key("S", ResolutionOwnerPart::FieldDefault("callback".into())),
+        key(
+            "S",
+            ResolutionOwnerPart::FieldDefault("callback".into()),
+        ),
         key("f", ResolutionOwnerPart::Declaration),
     ] {
         assert!(
@@ -356,7 +424,10 @@ fn saturated_diagnostics_do_not_make_a_later_owner_appear_error_free() {
         "unknown();".repeat(crate::MAX_DIAGNOSTICS)
     );
     let program = resolved(&[("main.srx", &text)]);
-    let later = query(&program, &key("later", ResolutionOwnerPart::Declaration));
+    let later = query(
+        &program,
+        &key("later", ResolutionOwnerPart::Declaration),
+    );
     assert!(later.diagnostics.is_empty());
     assert!(later.diagnostics_truncated);
     assert!(!later.namespace_dependencies_complete);
@@ -369,8 +440,9 @@ fn exhausted_owner_without_namespace_lookups_is_incomplete() {
     let mut resolver = Resolver::new(&parsed);
     resolver.cancellation = Some(&cancel);
     resolver.collect();
-    resolver.bind_interfaces_and_imports();
-    resolver.work = crate::MAX_RESOLUTION_WORK - 1;
+    resolver.bind_interfaces();
+    resolver.bind_imports();
+    resolver.work = crate::resolver::MAX_RESOLUTION_WORK - 1;
     resolver.resolve_contents();
     assert!(resolver.exhausted);
     let owner = resolver.owners.owners.first().unwrap();
@@ -387,12 +459,14 @@ fn owner_metadata_limits_do_not_change_resolution_work_or_diagnostics() {
     let cancel = AnalysisCancellation::default();
     let mut strict = Resolver::new(&parsed);
     strict.collect();
-    strict.bind_interfaces_and_imports();
+    strict.bind_interfaces();
+    strict.bind_imports();
     strict.resolve_contents();
     let mut tracked = Resolver::new(&parsed);
     tracked.cancellation = Some(&cancel);
     tracked.collect();
-    tracked.bind_interfaces_and_imports();
+    tracked.bind_interfaces();
+    tracked.bind_imports();
     tracked.resolve_contents();
     assert!(!tracked.owners.truncated);
     assert!(
@@ -415,7 +489,8 @@ fn owner_metadata_limits_do_not_change_resolution_work_or_diagnostics() {
     bounded.cancellation = Some(&cancel);
     bounded.owners.units = MAX_UNITS;
     bounded.collect();
-    bounded.bind_interfaces_and_imports();
+    bounded.bind_interfaces();
+    bounded.bind_imports();
     bounded.resolve_contents();
     assert!(bounded.owners.truncated);
     assert!(bounded.owners.owners.is_empty());
@@ -431,7 +506,10 @@ fn owner_metadata_limits_do_not_change_resolution_work_or_diagnostics() {
     cancel.cancel();
     assert!(
         program
-            .owner_resolution(&key("f", ResolutionOwnerPart::Declaration), &cancel)
+            .owner_resolution(
+                &key("f", ResolutionOwnerPart::Declaration),
+                &cancel
+            )
             .is_err()
     );
 }

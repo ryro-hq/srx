@@ -2,9 +2,13 @@ mod std {
     pub use option::Option;
     pub use result::Result;
 
-    pub use catalog::{PackageSet, package_set, package_set_refs, package_names, package_ref, package_factory, package_get};
+    // Pure deployment plans; activation and process supervision are separate consumers.
+    pub use deployment::{Os, Shell, Service, ServiceState, SecretName, ServiceId, ConfigFile, ConfigPath, ConfigText, PackageSelection, ServiceCommand, ServiceProcess, ProcessRestart, RestartLimits, RestartDelay, RestartWindow, RestartBurst, CommandArgument, CommandEnvironment, CommandLiteral, CommandEnvironmentName, select_package, select_output, select_command};
+
     pub use recipe::{
-        RecipeRef, OutputRef, recipe_ref, recipe_factory, recipe_value,
+        RecipeRef, OutputRef, CommandRef, recipe_ref, recipe_factory, recipe_value,
+        recipe_command, command_recipe, command_name,
+        bind_recipe, bind_output,
         recipe_output, output_recipe, output_name,
     };
 
@@ -24,9 +28,13 @@ mod std {
 
     // Recipes, builders, selected outputs and runtime.
     pub use pkg::{
-        Recipe, ApplicationRecipe, CatalogRecipe,
+        Recipe, ImportedResult, ImportedOutput, ResultRoot, ResultDigest, ResultOutputKey,
         SourceDirectory, InstalledEntry, BuildTimeout, OutputName,
-        AutotoolsBuild, GlibcBuild, Build, BuildOutput, BuildInputs, DefaultBuild,
-        RuntimeLoader, RuntimeLibrary, Application, DefaultApplication,
+        BuildOptions, Build, BuildInputs,
+        BuildLiteral, BuildRelativePath, BuildHostPath, BuildEnvName, BuildInputIndex,
+        BuildResources, BuildProfile, BuildSourceFormat, BuildFileMode, BuildPath, BuildPart,
+        BuildText, BuildEnv, BuildProcess, BuildFile, BuildStep,
+        build_text, build_path, build_join, autotools, autotools_with_libc,
+        CommandName, Command, RuntimeFile,
     };
 }

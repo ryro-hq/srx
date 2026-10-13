@@ -24,7 +24,8 @@ impl Checker<'_> {
                 .result
                 .as_ref()
                 .map_or(Ty::Unit, |ty| self.resolve_type(ty, &types, 0));
-            self.function_types.insert(id, (parameters, result));
+            self.function_types
+                .insert(id, (parameters, result));
         }
     }
 
@@ -45,10 +46,12 @@ impl Checker<'_> {
         depth: usize,
     ) -> Ty {
         let raw = self.resolve_raw_type(ty, &BTreeMap::new(), depth);
-        let resolved = self.concretize(raw, params, ty.span).unwrap_or_else(|| {
-            self.error("unbound generic type parameter", ty.span);
-            Ty::Error
-        });
+        let resolved = self
+            .concretize(raw, params, ty.span)
+            .unwrap_or_else(|| {
+                self.error("unbound generic type parameter", ty.span);
+                Ty::Error
+            });
         self.validate_concrete_type(&resolved, ty.span);
         self.track_generic_instances(&resolved, ty.span);
         resolved
@@ -105,9 +108,10 @@ impl Checker<'_> {
                     RawTy::List(Box::new(element))
                 }
             }
-            TypeKind::Named { path, arguments } => {
-                self.resolve_named(path, arguments, params, depth, aliases)
-            }
+            TypeKind::Named {
+                path,
+                arguments,
+            } => self.resolve_named(path, arguments, params, depth, aliases),
         }
     }
 
@@ -120,7 +124,10 @@ impl Checker<'_> {
         aliases: &mut BTreeSet<ItemId>,
     ) -> RawTy {
         if depth > self.limits.max_specialization_depth {
-            self.error("generic specialization depth limit reached", path.span);
+            self.error(
+                "generic specialization depth limit reached",
+                path.span,
+            );
             return RawTy::Concrete(Ty::Error);
         }
         let Some(target) = self.target(path.span).cloned() else {
@@ -130,7 +137,10 @@ impl Checker<'_> {
         match target {
             ResolvedTarget::Local(local) => {
                 if !arguments.is_empty() {
-                    self.error("a type parameter cannot take type arguments", path.span);
+                    self.error(
+                        "a type parameter cannot take type arguments",
+                        path.span,
+                    );
                 }
                 params
                     .get(&local)
@@ -140,7 +150,9 @@ impl Checker<'_> {
             ResolvedTarget::Item(item) => self
                 .expand_item_type_with_aliases(item, arguments, params, depth, path.span, aliases),
             ResolvedTarget::Module(_)
-            | ResolvedTarget::EnumVariant { .. }
+            | ResolvedTarget::EnumVariant {
+                ..
+            }
             | ResolvedTarget::ContextualEnumVariant => {
                 self.error("resolved target is not a type", path.span);
                 RawTy::Concrete(Ty::Error)
@@ -210,7 +222,9 @@ impl Checker<'_> {
                     return self.expand_generic_alias(&alias, arguments, params, depth, aliases);
                 }
                 match &alias.declaration.ty.kind {
-                    TypeKind::Function { .. } => {
+                    TypeKind::Function {
+                        ..
+                    } => {
                         return self.resolve_raw_type_with_aliases(
                             &alias.declaration.ty,
                             params,
@@ -273,9 +287,15 @@ impl Checker<'_> {
         let Some(kind) = self.item_kind(item) else {
             return RawTy::Concrete(Ty::Error);
         };
-        if !matches!(kind, ResolvedItemKind::Struct | ResolvedItemKind::Enum) {
+        if !matches!(
+            kind,
+            ResolvedItemKind::Struct | ResolvedItemKind::Enum
+        ) {
             if !arguments.is_empty() {
-                self.error("only structs and enums can take type arguments", span);
+                self.error(
+                    "only structs and enums can take type arguments",
+                    span,
+                );
                 return RawTy::Concrete(Ty::Error);
             }
             return RawTy::Concrete(Ty::Nominal(item));
@@ -328,7 +348,7 @@ impl Checker<'_> {
     }
 
     pub(super) fn project(&mut self, ty: &Ty, field: &str, context: Context, span: Span) -> Ty {
-        if let Some(info) = nominal_head(ty).and_then(|item| self.structs.get(&item))
+        if let Some(info) = Ty::nominal_head(ty).and_then(|item| self.structs.get(&item))
             && !self.has_representation_authority(ty, info, context)
         {
             self.error(
@@ -337,7 +357,7 @@ impl Checker<'_> {
             );
             return Ty::Error;
         }
-        let declaration = nominal_head(ty)
+        let declaration = Ty::nominal_head(ty)
             .and_then(|id| self.structs.get(&id))
             .and_then(|info| {
                 info.declaration
@@ -364,7 +384,7 @@ impl Checker<'_> {
     }
 
     pub(super) fn fields_of(&mut self, ty: &Ty) -> Vec<(String, Ty)> {
-        let Some(item) = nominal_head(ty) else {
+        let Some(item) = Ty::nominal_head(ty) else {
             return Vec::new();
         };
         let Some(info) = self.structs.get(&item) else {
@@ -390,7 +410,10 @@ impl Checker<'_> {
         ty: &Ty,
     ) -> BTreeMap<LocalId, Ty> {
         let arguments = match ty {
-            Ty::Specialization { arguments, .. } => arguments.as_slice(),
+            Ty::Specialization {
+                arguments,
+                ..
+            } => arguments.as_slice(),
             _ => &[],
         };
         self.nominal_parameters(item)
@@ -457,7 +480,9 @@ impl Checker<'_> {
                 self.validate_concrete_type(element, span);
             }
             Ty::Function {
-                parameters, result, ..
+                parameters,
+                result,
+                ..
             } => {
                 for parameter in parameters {
                     self.validate_concrete_type(parameter, span);
@@ -513,12 +538,17 @@ impl Checker<'_> {
                 Node::Raw(RawTy::Concrete(ty)) => match ty {
                     Ty::List(inner) => pending.push(Node::Concrete(inner)),
                     Ty::Function {
-                        parameters, result, ..
+                        parameters,
+                        result,
+                        ..
                     } => {
                         pending.push(Node::Concrete(result));
                         pending.extend(parameters.iter().map(Node::Concrete));
                     }
-                    Ty::Specialization { arguments, .. } => {
+                    Ty::Specialization {
+                        arguments,
+                        ..
+                    } => {
                         pending.extend(arguments.iter().map(Node::Concrete));
                     }
                     _ => {}
@@ -526,24 +556,34 @@ impl Checker<'_> {
                 Node::Raw(RawTy::Parameter(id)) => {
                     pending.push(Node::Concrete(params.get(id)?));
                 }
-                Node::Raw(RawTy::Specialization { arguments, .. }) => {
+                Node::Raw(RawTy::Specialization {
+                    arguments,
+                    ..
+                }) => {
                     pending.extend(arguments.iter().map(Node::Raw));
                 }
                 Node::Raw(RawTy::List(inner)) => pending.push(Node::Raw(inner)),
                 Node::Raw(RawTy::Function {
-                    parameters, result, ..
+                    parameters,
+                    result,
+                    ..
                 }) => {
                     pending.push(Node::Raw(result));
                     pending.extend(parameters.iter().map(Node::Raw));
                 }
                 Node::Concrete(Ty::List(inner)) => pending.push(Node::Concrete(inner)),
                 Node::Concrete(Ty::Function {
-                    parameters, result, ..
+                    parameters,
+                    result,
+                    ..
                 }) => {
                     pending.push(Node::Concrete(result));
                     pending.extend(parameters.iter().map(Node::Concrete));
                 }
-                Node::Concrete(Ty::Specialization { arguments, .. }) => {
+                Node::Concrete(Ty::Specialization {
+                    arguments,
+                    ..
+                }) => {
                     pending.extend(arguments.iter().map(Node::Concrete));
                 }
                 Node::Concrete(_) => {}
@@ -558,7 +598,10 @@ impl Checker<'_> {
             return;
         }
         match ty {
-            Ty::Specialization { arguments, .. } => {
+            Ty::Specialization {
+                arguments,
+                ..
+            } => {
                 if !ty_contains_parameter(ty) {
                     self.observe_instance(span, ty);
                 }
@@ -581,7 +624,9 @@ impl Checker<'_> {
             }
             Ty::List(element) => self.track_generic_instances(element, span),
             Ty::Function {
-                parameters, result, ..
+                parameters,
+                result,
+                ..
             } => {
                 for parameter in parameters {
                     self.track_generic_instances(parameter, span);
@@ -701,29 +746,131 @@ pub(super) fn raw_from_ty(ty: Ty) -> RawTy {
 pub(super) fn ty_contains_parameter(ty: &Ty) -> bool {
     match ty {
         Ty::Parameter(_) => true,
-        Ty::Specialization { arguments, .. } => arguments.iter().any(ty_contains_parameter),
+        Ty::Specialization {
+            arguments,
+            ..
+        } => arguments.iter().any(ty_contains_parameter),
         Ty::List(element) => ty_contains_parameter(element),
         Ty::Function {
-            parameters, result, ..
+            parameters,
+            result,
+            ..
         } => parameters.iter().any(ty_contains_parameter) || ty_contains_parameter(result),
         Ty::Unit | Ty::Int | Ty::Str | Ty::Nominal(_) | Ty::Error => false,
     }
 }
 
-pub(super) fn nominal_head(ty: &Ty) -> Option<ItemId> {
-    match ty {
-        Ty::Nominal(item) => Some(*item),
-        Ty::Specialization { template, .. } => Some(*template),
-        Ty::Unit
-        | Ty::Int
-        | Ty::Str
-        | Ty::Parameter(_)
-        | Ty::List(_)
-        | Ty::Function { .. }
-        | Ty::Error => None,
-    }
-}
+use crate::resolver::ResolvedProgram;
 
-pub(super) fn nominal_enum(ty: &Ty) -> Option<ItemId> {
-    nominal_head(ty)
+impl ResolvedProgram {
+    /// Bounded, human-readable type presentation shared by diagnostics and IDEs.
+    /// This is a label, not necessarily an accessible type expression at a use site.
+    pub fn display_type(&self, ty: &Ty) -> String {
+        fn write(
+            program: &ResolvedProgram,
+            ty: &Ty,
+            out: &mut String,
+            nodes: &mut usize,
+            depth: usize,
+        ) {
+            if *nodes == 0 || depth >= 32 || out.len() >= 2048 {
+                if !out.ends_with('…') {
+                    out.push('…');
+                }
+                return;
+            }
+            *nodes -= 1;
+            match ty {
+                Ty::Unit => out.push_str("unit"),
+                Ty::Int => out.push_str("int"),
+                Ty::Str => out.push_str("str"),
+                Ty::Error => out.push_str("unknown"),
+                Ty::Parameter(id) => {
+                    let name = program
+                        .locals()
+                        .nth(id.index())
+                        .map_or("?", |local| local.name());
+                    out.extend(name.chars().take(256));
+                    if name.len() > 256 {
+                        out.push('…');
+                    }
+                }
+                Ty::Nominal(id)
+                | Ty::Specialization {
+                    template: id,
+                    ..
+                } => {
+                    if let Some(item) = program.items().nth(id.index()) {
+                        for (i, part) in item.path().segments().iter().enumerate() {
+                            if out.len() >= 2048 {
+                                out.push('…');
+                                break;
+                            }
+                            if i > 0 {
+                                out.push_str("::");
+                            }
+                            out.extend(part.chars().take(256));
+                            if part.len() > 256 {
+                                out.push('…');
+                            }
+                        }
+                        if program.ambiguous_type_name(*id) {
+                            use std::fmt::Write as _;
+                            let _ = write!(out, " [domain {}]", item.domain().as_u32());
+                        }
+                    } else {
+                        out.push('?');
+                    }
+                    if let Ty::Specialization {
+                        arguments,
+                        ..
+                    } = ty
+                    {
+                        out.push('<');
+                        list(program, arguments, out, nodes, depth);
+                        out.push('>');
+                    }
+                }
+                Ty::List(inner) => {
+                    out.push('[');
+                    write(program, inner, out, nodes, depth + 1);
+                    out.push(']');
+                }
+                Ty::Function {
+                    parameters,
+                    result,
+                    once,
+                } => {
+                    out.push_str(if *once {
+                        "once fn("
+                    } else {
+                        "fn("
+                    });
+                    list(program, parameters, out, nodes, depth);
+                    out.push_str(") -> ");
+                    write(program, result, out, nodes, depth + 1);
+                }
+            }
+        }
+        fn list(
+            program: &ResolvedProgram,
+            types: &[Ty],
+            out: &mut String,
+            nodes: &mut usize,
+            depth: usize,
+        ) {
+            for (i, ty) in types.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                write(program, ty, out, nodes, depth + 1);
+                if *nodes == 0 || out.len() >= 2048 {
+                    break;
+                }
+            }
+        }
+        let mut text = String::new();
+        write(self, ty, &mut text, &mut 128, 0);
+        text
+    }
 }

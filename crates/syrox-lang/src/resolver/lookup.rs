@@ -4,6 +4,15 @@ use super::{
 };
 
 impl Resolver<'_> {
+    pub(super) fn project_owner(&self, module: ModuleId) -> Option<SourceDomainId> {
+        let domain = self.modules[module.index()].domain;
+        if self.parsed.is_project_root(domain) {
+            Some(domain)
+        } else {
+            self.project_owners.get(&domain).copied()
+        }
+    }
+
     pub(super) fn lookup(
         &mut self,
         module: ModuleId,
@@ -25,7 +34,7 @@ impl Resolver<'_> {
         result
     }
 
-    #[allow(clippy::too_many_lines)]
+    // One decision procedure preserves lookup precedence and visibility checks.
     fn lookup_inner(
         &mut self,
         module: ModuleId,
@@ -37,7 +46,11 @@ impl Resolver<'_> {
                 return None;
             }
         }
-        let written: Vec<_> = path.segments.iter().map(|part| part.text.clone()).collect();
+        let written: Vec<_> = path
+            .segments
+            .iter()
+            .map(|part| part.text.clone())
+            .collect();
         if written.is_empty() {
             return None;
         }
@@ -51,7 +64,10 @@ impl Resolver<'_> {
                 if let Some(&item) = self.module_info[scope.index()].imports.get(name) {
                     return self.check_kind(item, expected, path.span);
                 }
-                if let Some(&item) = self.module_info[scope.index()].declarations.get(name) {
+                if let Some(&item) = self.module_info[scope.index()]
+                    .declarations
+                    .get(name)
+                {
                     return self.check_kind(item, expected, path.span);
                 }
                 if let Some(&child) = self.module_info[scope.index()].children.get(name) {
@@ -68,7 +84,18 @@ impl Resolver<'_> {
 
         let mut bases = Vec::new();
         let mut consumed = 0;
-        if written.first().is_some_and(|segment| segment == "std") {
+        if written
+            .first()
+            .is_some_and(|segment| segment == "project")
+        {
+            if let Some(owner) = self.project_owner(module) {
+                bases.push((owner, Vec::new()));
+                consumed = 1;
+            }
+        } else if written
+            .first()
+            .is_some_and(|segment| segment == "std")
+        {
             // Only sources explicitly assigned the authenticated standard
             // library origin participate in this reserved mapping.
             bases.push((SourceDomainId::STANDARD_LIBRARY, Vec::new()));
@@ -89,7 +116,11 @@ impl Resolver<'_> {
                 if let Some(&item) = self.module_info[scope.index()]
                     .imports
                     .get(first)
-                    .or_else(|| self.module_info[scope.index()].declarations.get(first))
+                    .or_else(|| {
+                        self.module_info[scope.index()]
+                            .declarations
+                            .get(first)
+                    })
                 {
                     self.error(
                         format!(
@@ -102,7 +133,10 @@ impl Resolver<'_> {
                 }
                 let resolved = &self.modules[scope.index()];
                 bases.push((resolved.domain, resolved.path.segments.clone()));
-                if self.module_info[scope.index()].children.contains_key(first) {
+                if self.module_info[scope.index()]
+                    .children
+                    .contains_key(first)
+                {
                     break;
                 }
                 current = self.parent(scope);
@@ -121,7 +155,9 @@ impl Resolver<'_> {
                 return None;
             }
             if let Some((name, owner_path)) = candidate.split_last()
-                && let Some(&owner) = self.module_ids.get(&(domain, owner_path.to_vec()))
+                && let Some(&owner) = self
+                    .module_ids
+                    .get(&(domain, owner_path.to_vec()))
                 && !self.is_descendant(module, owner)
                 && let Some(&item) = self.module_info[owner.index()].exports.get(name)
             {
@@ -145,7 +181,10 @@ impl Resolver<'_> {
                 if !self.charge(path.span) {
                     return None;
                 }
-                if let Some(&item) = self.item_ids.get(&(domain, candidate[..end].to_vec())) {
+                if let Some(&item) = self
+                    .item_ids
+                    .get(&(domain, candidate[..end].to_vec()))
+                {
                     self.error(
                         format!(
                             "{} used as a module in a qualified path",
@@ -193,11 +232,13 @@ impl Resolver<'_> {
                 let boundary_path = &boundary_module.path.segments;
                 if candidate.len() != boundary_path.len() + 1 {
                     if candidate.len() > boundary_path.len() + 1
-                        && candidate.get(boundary_path.len()).is_some_and(|name| {
-                            self.module_info[module.index()]
-                                .public_children
-                                .contains(name)
-                        })
+                        && candidate
+                            .get(boundary_path.len())
+                            .is_some_and(|name| {
+                                self.module_info[module.index()]
+                                    .public_children
+                                    .contains(name)
+                            })
                     {
                         boundary = self.parent(module);
                         continue;
@@ -230,12 +271,14 @@ impl Resolver<'_> {
                     | ResolvedItemKind::Resource
                     | ResolvedItemKind::Value
                     | ResolvedItemKind::OutputValue
+                    | ResolvedItemKind::PublishedMember
             ),
             Expected::Value => matches!(
                 actual,
                 ResolvedItemKind::Value
                     | ResolvedItemKind::Resource
                     | ResolvedItemKind::OutputValue
+                    | ResolvedItemKind::PublishedMember
                     | ResolvedItemKind::Function
             ),
             Expected::Struct => matches!(actual, ResolvedItemKind::Struct),
@@ -262,8 +305,12 @@ impl Resolver<'_> {
     ) -> Option<(ItemId, u32)> {
         let diagnostics = self.diagnostics.len();
         let result = self.lookup_variant_inner(module, path);
-        let target =
-            result.map(|(enumeration, index)| ResolvedTarget::EnumVariant { enumeration, index });
+        let target = result.map(
+            |(enumeration, index)| ResolvedTarget::EnumVariant {
+                enumeration,
+                index,
+            },
+        );
         self.observe_namespace(
             module,
             path,
@@ -295,7 +342,10 @@ impl Resolver<'_> {
                 if let Some(&item) = self.module_info[scope.index()].imports.get(name)
                     && self.items[item.index()].kind == ResolvedItemKind::Enum
                 {
-                    return Some((item, self.enum_variant_index(item, &variant.text)?));
+                    return Some((
+                        item,
+                        self.enum_variant_index(item, &variant.text)?,
+                    ));
                 }
                 current = self.parent(scope);
             }
@@ -344,13 +394,18 @@ impl Resolver<'_> {
                 return Some((item, index));
             }
             if let Some((name, owner_path)) = candidate.split_last()
-                && let Some(&owner) = self.module_ids.get(&(domain, owner_path.to_vec()))
+                && let Some(&owner) = self
+                    .module_ids
+                    .get(&(domain, owner_path.to_vec()))
                 && let Some(&item) = self.module_info[owner.index()].exports.get(name)
                 && self.items[item.index()].kind == ResolvedItemKind::Enum
             {
                 let visible =
                     self.visible_from_module(module, owner, item, &candidate, path.span)?;
-                return Some((visible, self.enum_variant_index(visible, &variant.text)?));
+                return Some((
+                    visible,
+                    self.enum_variant_index(visible, &variant.text)?,
+                ));
             }
         }
         None
@@ -362,7 +417,7 @@ impl Resolver<'_> {
 
     pub(super) fn unknown(&mut self, expected: &str, path: &Path) {
         self.error(
-            format!("unknown {expected} `{}`", display_path(path)),
+            format!("unknown {expected} `{}`", path.display()),
             path.span,
         );
     }
@@ -378,7 +433,10 @@ impl Resolver<'_> {
         let module = &self.modules[module.index()];
         let ancestor = &self.modules[ancestor.index()];
         module.domain == ancestor.domain
-            && module.path.segments.starts_with(&ancestor.path.segments)
+            && module
+                .path
+                .segments
+                .starts_with(&ancestor.path.segments)
     }
 }
 
@@ -392,12 +450,4 @@ impl Expected {
             Self::Struct => "struct",
         }
     }
-}
-
-fn display_path(path: &Path) -> String {
-    path.segments
-        .iter()
-        .map(|segment| segment.text.as_str())
-        .collect::<Vec<_>>()
-        .join("::")
 }

@@ -3,9 +3,11 @@ use std::{collections::BTreeMap, mem::size_of, sync::Arc};
 use super::types::type_allocation_bytes;
 use super::{CanonicalType, EvaluationLimits, EvaluationSetupError, SpanKey, span_key};
 use crate::{
-    CanonicalItemIdentity, CheckPolicy, CheckedProgram, Elaboration, Function, Item, ItemId,
-    ItemKind, LocalId, PrimitiveDeclaration, RefinementKind, ResolvedItemKind, ResolvedTarget,
-    Span, Struct, Ty,
+    checker::CanonicalItemIdentity, checker::CheckPolicy, checker::CheckedProgram,
+    checker::Elaboration, checker::Ty, resolver::ItemId, resolver::LocalId,
+    resolver::ResolvedItemKind, resolver::ResolvedTarget, source::Span, syntax::Function,
+    syntax::Item, syntax::ItemKind, syntax::PrimitiveDeclaration, syntax::RefinementKind,
+    syntax::Struct,
 };
 
 pub(super) struct PrimitiveInfo<'a> {
@@ -14,14 +16,15 @@ pub(super) struct PrimitiveInfo<'a> {
 }
 
 pub(super) struct ProgramIndex<'a> {
-    items: BTreeMap<ItemId, &'a crate::ResolvedItem>,
+    items: BTreeMap<ItemId, &'a crate::resolver::ResolvedItem>,
     item_at: BTreeMap<SpanKey, ItemId>,
     identities: BTreeMap<ItemId, Arc<CanonicalItemIdentity>>,
     canonical_types: BTreeMap<Ty, Arc<CanonicalType>>,
     targets: BTreeMap<SpanKey, ResolvedTarget>,
     locals: BTreeMap<SpanKey, LocalId>,
+    local_uses: BTreeMap<LocalId, usize>,
     pub(super) functions: BTreeMap<ItemId, &'a Function>,
-    pub(super) output_values: BTreeMap<ItemId, &'a crate::Expression>,
+    pub(super) output_values: BTreeMap<ItemId, &'a crate::syntax::Expression>,
     pub(super) structures: BTreeMap<ItemId, &'a Struct>,
     pub(super) primitives: BTreeMap<ItemId, PrimitiveInfo<'a>>,
     pub(super) predicate_names: BTreeMap<SpanKey, Arc<str>>,
@@ -42,6 +45,7 @@ impl<'a> ProgramIndex<'a> {
             canonical_types: BTreeMap::new(),
             targets: BTreeMap::new(),
             locals: BTreeMap::new(),
+            local_uses: BTreeMap::new(),
             functions: BTreeMap::new(),
             output_values: BTreeMap::new(),
             structures: BTreeMap::new(),
@@ -61,13 +65,17 @@ impl<'a> ProgramIndex<'a> {
         }
         for item in resolved.items() {
             budget.charge(
-                size_of::<(ItemId, &crate::ResolvedItem)>()
+                size_of::<(ItemId, &crate::resolver::ResolvedItem)>()
                     .saturating_add(size_of::<(SpanKey, ItemId)>())
                     .saturating_add(size_of::<(ItemId, Arc<CanonicalItemIdentity>)>()),
             )?;
             budget.allocate(identity_allocation_bytes(item))?;
             let identity = Arc::new(CanonicalItemIdentity::from_resolved(item));
-            index.item_at.insert(span_key(item.span()), item.id());
+            if resolved.published_member(item.id()).is_none() {
+                index
+                    .item_at
+                    .insert(span_key(item.span()), item.id());
+            }
             index.identities.insert(item.id(), identity);
             index.items.insert(item.id(), item);
         }
@@ -79,10 +87,13 @@ impl<'a> ProgramIndex<'a> {
                     ItemKind::Module(module) => pending.extend(&module.items),
                     ItemKind::Outputs(outputs) => {
                         for output in &outputs.entries {
-                            if let crate::OutputKind::Value { value, .. } = &output.kind
+                            if let crate::syntax::OutputKind::Value {
+                                value,
+                                ..
+                            } = &output.kind
                                 && let Some(&id) = index.item_at.get(&span_key(output.span))
                             {
-                                budget.charge(size_of::<(ItemId, &crate::Expression)>())?;
+                                budget.charge(size_of::<(ItemId, &crate::syntax::Expression)>())?;
                                 index.output_values.insert(id, value);
                             }
                         }
@@ -93,29 +104,37 @@ impl<'a> ProgramIndex<'a> {
         }
         for reference in resolved
             .references()
-            .filter(|reference| reference.kind() != crate::ReferenceKind::Import)
+            .filter(|reference| reference.kind() != crate::resolver::ReferenceKind::Import)
         {
             budget.charge(size_of::<(SpanKey, ResolvedTarget)>())?;
-            index
-                .targets
-                .insert(span_key(reference.span()), reference.target().clone());
+            index.targets.insert(
+                span_key(reference.span()),
+                reference.target().clone(),
+            );
         }
         for local in resolved.locals() {
             budget.charge(size_of::<(SpanKey, LocalId)>())?;
-            index.locals.insert(span_key(local.span()), local.id());
+            index
+                .locals
+                .insert(span_key(local.span()), local.id());
         }
+        index.index_local_uses(budget)?;
         for source in resolved.parsed().iter() {
             index.walk_items(&source.program().items, budget)?;
         }
         for expression in program.expressions() {
             budget.charge(0)?;
             index.intern_checked_type(expression.ty(), budget)?;
-            index.intern_module_collection(program, expression, budget)?;
-            if let Some(Elaboration::Erasure { source }) = expression.elaboration() {
+            index.intern_module_collection(expression, budget)?;
+            if let Some(Elaboration::Erasure {
+                source,
+            }) = expression.elaboration()
+            {
                 index.intern_checked_type(source, budget)?;
             }
-            if let Some(Elaboration::FunctionSpecialization { substitutions }) =
-                expression.elaboration()
+            if let Some(Elaboration::FunctionSpecialization {
+                substitutions,
+            }) = expression.elaboration()
             {
                 for ty in substitutions.values() {
                     budget.charge(0)?;
@@ -123,27 +142,36 @@ impl<'a> ProgramIndex<'a> {
                 }
             }
         }
+        for item in resolved.items() {
+            if let Some(ty) = program.published_type(item.id()) {
+                index.intern_checked_type(ty, budget)?;
+            }
+        }
         Ok(index)
+    }
+
+    fn index_local_uses(&mut self, budget: &mut SetupBudget) -> Result<(), EvaluationSetupError> {
+        for target in self.targets.values() {
+            budget.charge(0)?;
+            if let ResolvedTarget::Local(local) = target {
+                budget.allocate(size_of::<(LocalId, usize)>())?;
+                *self.local_uses.entry(*local).or_default() += 1;
+            }
+        }
+        Ok(())
     }
 
     fn intern_module_collection(
         &mut self,
-        program: &CheckedProgram,
-        expression: &crate::CheckedExpression,
+        expression: &crate::checker::CheckedExpression,
         budget: &mut SetupBudget,
     ) -> Result<(), EvaluationSetupError> {
-        if let Some(Elaboration::ModuleExports { function, .. }) = expression.elaboration() {
+        if let Some(Elaboration::ModuleExports {
+            function,
+            ..
+        }) = expression.elaboration()
+        {
             self.intern_checked_type(function, budget)?;
-            if let Some(entries) = program.resolved().module_exports(expression.span()) {
-                for entry in entries {
-                    budget.charge(
-                        entry
-                            .key()
-                            .len()
-                            .saturating_add(size_of::<crate::ResolvedModuleExport>()),
-                    )?;
-                }
-            }
         }
         Ok(())
     }
@@ -211,7 +239,8 @@ impl<'a> ProgramIndex<'a> {
                         }
                     }
                 }
-                ItemKind::Use(_)
+                ItemKind::Publication(_)
+                | ItemKind::Use(_)
                 | ItemKind::Inputs(_)
                 | ItemKind::Outputs(_)
                 | ItemKind::TypeAlias(_)
@@ -227,6 +256,10 @@ impl<'a> ProgramIndex<'a> {
 
     pub(super) fn target(&self, span: Span) -> Option<&ResolvedTarget> {
         self.targets.get(&span_key(span))
+    }
+
+    pub(super) fn single_use(&self, local: LocalId) -> bool {
+        self.local_uses.get(&local) == Some(&1)
     }
 
     pub(super) fn locals_referenced_in(&self, span: Span) -> impl Iterator<Item = LocalId> + '_ {
@@ -250,7 +283,8 @@ impl<'a> ProgramIndex<'a> {
     }
 
     pub(super) fn identity_at(&self, span: Span) -> Option<Arc<CanonicalItemIdentity>> {
-        self.item_at(span).and_then(|item| self.identity(item))
+        self.item_at(span)
+            .and_then(|item| self.identity(item))
     }
 
     pub(super) fn scope_name(&self, name: &str) -> Option<Arc<str>> {
@@ -344,7 +378,8 @@ impl<'a> ProgramIndex<'a> {
                 .saturating_add(type_allocation_bytes(ty)),
         )?;
         let canonical = Arc::new(canonical);
-        self.canonical_types.insert(ty.clone(), canonical.clone());
+        self.canonical_types
+            .insert(ty.clone(), canonical.clone());
         Ok(Some(canonical))
     }
 }
@@ -381,7 +416,7 @@ impl SetupBudget {
     }
 }
 
-fn identity_allocation_bytes(item: &crate::ResolvedItem) -> usize {
+fn identity_allocation_bytes(item: &crate::resolver::ResolvedItem) -> usize {
     size_of::<CanonicalItemIdentity>()
         .saturating_add(
             item.path()

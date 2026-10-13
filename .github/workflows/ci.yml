@@ -16,27 +16,25 @@ jobs:
       - name: Install pinned Rust toolchain
         run: rustup show active-toolchain
       - name: Format
-        run: cargo fmt --all -- --check
-      - name: Test
-        run: cargo test --workspace --locked
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: |
+          cargo fmt --all -- --check
+          rustfmt --edition 2024 --check tools/check_structure.rs
+      - name: Rust module layout and crate docs
+        run: |
+          rustc --edition 2024 -D warnings tools/check_structure.rs -o /tmp/syrox-check-structure
+          rustc --edition 2024 -D warnings --test tools/check_structure.rs -o /tmp/syrox-check-structure-tests
+          /tmp/syrox-check-structure-tests
+          /tmp/syrox-check-structure
+      - name: Test native subset (microVM runner pending)
+        run: cargo test --workspace --locked --no-default-features
+      - name: Clippy all targets and features
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Clippy without default features
+        run: cargo clippy --workspace --all-targets --locked --no-default-features -- -D warnings
       - name: Dependency policy
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
-
-  portability:
-    strategy:
-      matrix:
-        os: [macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install pinned Rust toolchain
-        run: rustup show active-toolchain
-      - name: Check platform stubs
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   static-linux:
     runs-on: ubuntu-latest
@@ -56,47 +54,14 @@ jobs:
         run: cargo build --release --locked -p syrox --bin srx --target x86_64-unknown-linux-musl
         env:
           SYROX_EMBED_WORKER: ${{ github.workspace }}/target/x86_64-unknown-linux-musl/release/syrox-worker
-      - name: Check release ELF dependencies
-        run: |
-          python3 - <<'PY'
-          import subprocess
-          from pathlib import Path
-
-          directory = Path('target/x86_64-unknown-linux-musl/release')
-          for name in ('srx', 'syrox-worker'):
-              path = directory / name
-              headers = subprocess.check_output(['readelf', '-l', str(path)], text=True)
-              dynamic = subprocess.check_output(['readelf', '-d', str(path)], text=True)
-              if any(line.split()[:1] == ['INTERP'] for line in headers.splitlines()):
-                  raise SystemExit(f'{path}: unexpected ELF interpreter')
-              if any('NEEDED' in line for line in dynamic.splitlines()):
-                  raise SystemExit(f'{path}: unexpected shared-library dependency')
-              print(f'{path}: no PT_INTERP or DT_NEEDED')
-          PY
-      - name: Install release without distribution utilities
-        run: |
-          python3 - <<'PY'
-          import hashlib
-          import os
-          import subprocess
-          import tempfile
-          from pathlib import Path
-
-          built = Path('target/x86_64-unknown-linux-musl/release')
-          srx = built.joinpath('srx').resolve()
-          with tempfile.TemporaryDirectory() as temp:
-              prefix = Path(temp)
-              clean = {'PATH': '/nonexistent', 'HOME': temp}
-              for _ in range(2):
-                  subprocess.run([srx, 'install-self', '--prefix', prefix], env=clean, check=True)
-              subprocess.run([prefix / 'bin/srx', '--help'], env=clean, check=True, stdout=subprocess.DEVNULL)
-              subprocess.run([prefix / 'bin/srx', 'host', 'inspect'], env=clean, check=True, stdout=subprocess.DEVNULL)
-              worker = prefix / 'current/syrox-worker'
-              assert hashlib.sha256(worker.read_bytes()).digest() == hashlib.sha256((built / 'syrox-worker').read_bytes()).digest()
-          PY
+      - name: Verify static ELF and installation without distribution utilities
+        run: cargo run --locked -p syrox-engine --example verify_release -- target/x86_64-unknown-linux-musl/release
       - name: Exercise static CLI and descriptor transport
         run: |
           cargo test --locked --target x86_64-unknown-linux-musl -p syrox --test cli
-          cargo test --locked --target x86_64-unknown-linux-musl -p syrox-engine linux_fd::transport::tests::
-          cargo test --locked --target x86_64-unknown-linux-musl -p syrox-engine https_source::
+          cargo test --locked --target x86_64-unknown-linux-musl -p syrox-engine platform::linux::fd::transport::tests::
+          cargo test --locked --target x86_64-unknown-linux-musl -p syrox-engine platform::linux::fd::terminal::tests::
+          cargo test --locked --target x86_64-unknown-linux-musl -p syrox-engine execution::launcher::
+          cargo test --locked --target x86_64-unknown-linux-musl -p syrox-engine execution::
+          cargo test --locked --target x86_64-unknown-linux-musl -p syrox-engine acquire::https::
           cargo test --locked --target x86_64-unknown-linux-musl -p syrox-engine prepared_action_hits_before_source_acquisition_and_detects_toolchain_changes

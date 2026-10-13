@@ -1,0 +1,24 @@
+use std::{ConfigFile, Os, Service, Shell};
+
+// Pure configuration: no package or background process is required.
+// Paths are logical names within this service, not destinations on the host.
+fn editor_settings() -> Service {
+    Service {
+        id = "editor";
+        files = [ConfigFile {
+            path = "settings.ini";
+            text = "[editor]\nindent = 4\n";
+        }];
+    }
+}
+
+outputs {
+    os: Os = Os {
+        pkgs = [];
+        services = [editor_settings()];
+    };
+    shell: Shell = Shell {
+        pkgs = [];
+        services = [editor_settings()];
+    };
+}

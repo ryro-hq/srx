@@ -1,5 +1,5 @@
-//! Reconstructible hints, never receipt or retention authority. Index locks cover
-//! metadata verification/publication only; they do not deduplicate producers.
+use crate::build::cancellation::BuildControl;
+use crate::result::artifact;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::io::Read as _;
@@ -7,13 +7,11 @@ use std::ops::Deref;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use super::records::{Action, MAX_RECORD_BYTES, ProviderIdentity, Receipt, invalid};
-use super::{
-    BuildCancellation, BuildError, BuildExecution, BuildIndexReport, BuildResult,
-    MAX_AUTOTOOLS_OUTPUT_BYTES, MAX_OUTPUT_BYTES, artifact,
-};
-use crate::linux_fd::{self as fd, FlockMode, OpenedPath};
-use crate::{ContentDigest, OperationLease, RootName, Store};
+use super::records::{Action, BuildDescription, MAX_RECORD_BYTES, Receipt, invalid};
+
+use super::{BuildError, BuildExecution, BuildIndexReport, BuildResult, Cancellation};
+use crate::platform::linux::fd::{self as fd, FlockMode, OpenedPath};
+use crate::{store::ContentDigest, store::OperationLease, store::RootName, store::Store};
 
 const MAX_INDEX_BYTES: usize = 1024;
 const MAX_SHARD_ENTRIES: usize = 4096;
@@ -46,7 +44,7 @@ impl Drop for ShardGuard {
         }
     }
 }
-pub(super) const MAX_INVENTORY_BYTES: u64 = 32 * 1024 * 1024;
+pub(crate) const MAX_INVENTORY_BYTES: u64 = 32 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Candidate {
@@ -59,11 +57,11 @@ struct Verified {
     receipt: Receipt,
 }
 
-pub(super) fn lookup(
+pub(crate) fn lookup(
     lease: &OperationLease,
     action: &Action,
     root: Option<&RootName>,
-    cancellation: &BuildCancellation,
+    cancellation: &dyn BuildControl,
 ) -> Result<Option<BuildResult>, BuildError> {
     let shard = shard(lease, action.digest(), cancellation)?;
     let entries = read_index(&shard, action.digest())?;
@@ -74,12 +72,21 @@ pub(super) fn lookup(
     let Some(found) = verified.pop() else {
         return Ok(None);
     };
-    let root = root.cloned().unwrap_or_else(|| found.receipt.root());
+    let root = root
+        .cloned()
+        .unwrap_or_else(|| found.receipt.root());
     cancellation.check()?;
     // Also reconciles visibility versus durability, and grants this caller its
     // own requested retention. No signal after this boundary relabels success.
     lease.publish_root(&root, &found.receipt.references())?;
+    let retention = lease
+        .retain_objects(&found.receipt.references(), &[])
+        .map_err(|source| BuildError::PublishedAndRetention {
+            root: root.clone(),
+            source,
+        })?;
     Ok(Some(BuildResult {
+        retention,
         execution: BuildExecution::Cached,
         action: found.receipt.action,
         artifact: found
@@ -101,58 +108,43 @@ pub(super) fn lookup(
 /// A retained application can be admitted with one fresh host inventory,
 /// regardless of whether the provider has an independent root. Both results
 /// still require their current action-index admission where that root exists.
-pub(super) struct RetainedQuery<'a> {
-    pub lock: &'a [u8; 32],
-    pub package: &'a str,
-    pub provider: &'a str,
-    pub provider_source: ContentDigest,
-    pub source: ContentDigest,
+pub(crate) struct RetainedQuery<'a> {
+    pub application: BuildDescription<'a>,
+    pub provider: BuildDescription<'a>,
     pub worker: ContentDigest,
-    pub toolchain: ContentDigest,
-    pub entry: &'a str,
-    pub directory: &'a str,
-    pub deadline: u32,
-    pub needs_development: bool,
-    pub provider_protocol: super::BuildProtocol,
-    pub provider_directory: &'a str,
-    pub provider_entry: &'a str,
-    pub provider_deadline: u32,
+    pub toolchain: Option<ContentDigest>,
+    pub input_outputs: Vec<&'a str>,
 }
 
 impl RetainedQuery<'_> {
     fn matches_application(&self, action: &Action) -> bool {
-        action.package == self.package
-            && action.lock.as_bytes() == self.lock
-            && action.source == self.source
+        self.application.matches(action)
             && action.worker == self.worker
             && action.toolchain == self.toolchain
-            && action.entry == self.entry
-            && action.directory == self.directory
-            && action.timeout == self.deadline
-            && action.protocol == super::BuildProtocol::Autotools
-            && action.development.is_some() == self.needs_development
+            && action.inputs.len() == self.input_outputs.len()
+            && action
+                .inputs
+                .iter()
+                .zip(&self.input_outputs)
+                .all(|(input, name)| {
+                    input.output == *name
+                        && matches!(
+                            input.origin,
+                            crate::result::OutputOrigin::Built { .. }
+                        )
+                        && Some(&input.origin) == action.inputs.first().map(|first| &first.origin)
+                })
     }
 
     fn matches_provider(&self, action: &Action) -> bool {
-        ProviderIdentity {
-            lock: self.lock,
-            package: self.provider,
-            source: self.provider_source,
-            worker: self.worker,
-            toolchain: self.toolchain,
-            protocol: self.provider_protocol,
-            directory: self.provider_directory,
-            entry: self.provider_entry,
-            deadline: self.provider_deadline,
-        }
-        .matches(action)
+        self.provider.matches(action) && action.inputs.is_empty()
     }
 }
 
-pub(super) fn retained_application(
+pub(crate) fn retained_build_with_inputs(
     lease: &OperationLease,
     query: &RetainedQuery<'_>,
-    cancellation: &BuildCancellation,
+    cancellation: &dyn BuildControl,
 ) -> Result<Option<(BuildResult, ContentDigest)>, BuildError> {
     let mut found = None;
     for root in lease.managed_build_roots()? {
@@ -172,24 +164,22 @@ pub(super) fn retained_application(
         if !query.matches_application(&action) {
             continue;
         }
-        let Some(provider_digest) = action.runtime else {
+        let Some(crate::result::OutputOrigin::Built {
+            receipt: provider_digest,
+        }) = action
+            .inputs
+            .first()
+            .map(|input| input.origin.clone())
+        else {
             continue;
         };
         let provider_root =
             RootName::new(format!("build_{provider_digest}")).expect("digest-derived root");
-        let provider_bytes = lease
-            .read_verified(provider_digest, MAX_RECORD_BYTES)?
-            .ok_or_else(|| invalid("retained provider receipt is missing"))?;
-        let provider_receipt = Receipt::parse(provider_bytes.as_bytes())?;
-        let provider_bytes = lease
-            .read_verified(provider_receipt.action, MAX_RECORD_BYTES)?
-            .ok_or_else(|| invalid("retained provider action is missing"))?;
-        let provider_action = Action::parse(provider_bytes.as_bytes())?;
-        if !query.matches_provider(&provider_action) {
-            return Err(invalid(
-                "retained provider disagrees with the application plan",
-            ));
-        }
+        let Some(provider_action) =
+            verified_selected_provider(lease, provider_digest, query, cancellation)?
+        else {
+            continue;
+        };
         let (index, provider_index) = index_shards(
             lease,
             action.digest(),
@@ -236,9 +226,19 @@ pub(super) fn retained_application(
         }
         cancellation.check()?;
         lease.publish_root(&root, &verified.receipt.references())?;
-        let out = verified.receipt.output("out").expect("verified output");
+        let out = verified
+            .receipt
+            .output("out")
+            .expect("verified output");
+        let retention = lease
+            .retain_objects(&verified.receipt.references(), &[])
+            .map_err(|source| BuildError::PublishedAndRetention {
+                root: root.clone(),
+                source,
+            })?;
         found = Some((
             BuildResult {
+                retention,
                 execution: BuildExecution::Cached,
                 action: verified.receipt.action,
                 artifact: out.artifact,
@@ -253,13 +253,43 @@ pub(super) fn retained_application(
     Ok(found)
 }
 
+fn verified_selected_provider(
+    lease: &OperationLease,
+    provider_digest: ContentDigest,
+    query: &RetainedQuery<'_>,
+    cancellation: &dyn BuildControl,
+) -> Result<Option<Action>, BuildError> {
+    let provider_bytes = lease
+        .read_verified(provider_digest, MAX_RECORD_BYTES)?
+        .ok_or_else(|| invalid("retained provider receipt is missing"))?;
+    let provider_receipt = Receipt::parse(provider_bytes.as_bytes())?;
+    let provider_bytes = lease
+        .read_verified(provider_receipt.action, MAX_RECORD_BYTES)?
+        .ok_or_else(|| invalid("retained provider action is missing"))?;
+    let provider_action = Action::parse(provider_bytes.as_bytes())?;
+    if !query.matches_provider(&provider_action) {
+        // Equal application programs may legitimately select different
+        // runtime providers in other projects retained by this Store.
+        return Ok(None);
+    }
+    // Producer provenance is its own authenticated Action, not the
+    // consumer's worker or inventory. Even an orphaned producer must retain
+    // its declared source/inventory within the consumer's complete closure.
+    if !provider_receipt.matches_action(&provider_action) {
+        return Err(invalid("provider receipt and action disagree"));
+    }
+    provider_receipt.verify_inputs(lease, &provider_action, cancellation)?;
+    provider_receipt.verify_retained_inputs(lease, &provider_action, || cancellation.check())?;
+    Ok(Some(provider_action))
+}
+
 /// Hold both witnesses in a stable order; one lock covers coincident shards.
 /// The first returned descriptor always belongs to the application.
 fn index_shards(
     lease: &OperationLease,
     application: ContentDigest,
     provider: ContentDigest,
-    cancellation: &BuildCancellation,
+    cancellation: &dyn BuildControl,
 ) -> Result<(ShardGuard, Option<ShardGuard>), BuildError> {
     let application_prefix = &application.to_string()[..2];
     let provider_prefix = &provider.to_string()[..2];
@@ -285,7 +315,7 @@ fn indexed_provider(
     root: &RootName,
     receipt: ContentDigest,
     action: &Action,
-    cancellation: &BuildCancellation,
+    cancellation: &dyn BuildControl,
 ) -> Result<bool, BuildError> {
     let candidates = read_index(index, action.digest())?;
     if candidates.len() == 2 {
@@ -310,11 +340,10 @@ fn indexed_provider(
     Ok(true)
 }
 
-pub(super) fn has_retained_application(
+pub(crate) fn has_retained_build_with_inputs(
     lease: &OperationLease,
-    lock: &[u8; 32],
-    package: &str,
-    cancellation: &BuildCancellation,
+    description: &BuildDescription<'_>,
+    cancellation: &dyn BuildControl,
 ) -> Result<bool, BuildError> {
     for root in lease.managed_build_roots()? {
         cancellation.check()?;
@@ -330,7 +359,7 @@ pub(super) fn has_retained_application(
             .read_verified(receipt.action, MAX_RECORD_BYTES)?
             .ok_or_else(|| invalid("managed action is missing"))?;
         let action = Action::parse(bytes.as_bytes())?;
-        if action.package == package && action.lock.as_bytes() == lock && action.runtime.is_some() {
+        if description.matches(&action) && !action.inputs.is_empty() {
             return Ok(true);
         }
     }
@@ -338,7 +367,7 @@ pub(super) fn has_retained_application(
 }
 
 /// Called only after root publication and operation finalization succeeded.
-pub(super) fn record(
+pub(crate) fn record(
     lease: &OperationLease,
     action: &Action,
     result: &BuildResult,
@@ -360,7 +389,7 @@ fn record_candidate(
 ) -> Result<(), BuildError> {
     // Root publication is already committed. Index bookkeeping reports its own
     // actual outcome, independently of cancellation arriving after that commit.
-    let cancellation = BuildCancellation::default();
+    let cancellation = Cancellation::default();
     let shard = shard(lease, action.digest(), &cancellation)?;
     let existing = read_index(&shard, action.digest())?;
     // A two-receipt record is a durable ambiguity marker. Evicting a witness
@@ -398,7 +427,7 @@ fn discover_conflicts(
     lease: &OperationLease,
     action: &Action,
     verified: &mut Vec<Verified>,
-    cancellation: &BuildCancellation,
+    cancellation: &dyn BuildControl,
 ) -> Result<(), BuildError> {
     for root in lease.managed_build_roots()? {
         if verified.len() == 2 {
@@ -466,7 +495,10 @@ fn save_index(
     candidates: &[Candidate],
 ) -> Result<(), BuildError> {
     let entries = clean_temporaries(directory)?;
-    if entries.len() >= MAX_SHARD_ENTRIES && !entries.iter().any(|name| name == &action.to_string())
+    if entries.len() >= MAX_SHARD_ENTRIES
+        && !entries
+            .iter()
+            .any(|name| name == &action.to_string())
     {
         return Err(invalid("action index shard entry limit reached"));
     }
@@ -483,7 +515,7 @@ fn verify_candidates(
     lease: &OperationLease,
     action: &Action,
     candidates: Vec<Candidate>,
-    cancellation: &BuildCancellation,
+    cancellation: &dyn BuildControl,
 ) -> Result<Vec<Verified>, BuildError> {
     candidates
         .into_iter()
@@ -497,7 +529,7 @@ fn verify_candidate(
     lease: &OperationLease,
     action: &Action,
     candidate: Candidate,
-    cancellation: &BuildCancellation,
+    cancellation: &dyn BuildControl,
 ) -> Result<Option<Verified>, BuildError> {
     cancellation.check()?;
     // Missing retention is an ordinary stale hint. Broken objects underneath a
@@ -510,9 +542,11 @@ fn verify_candidate(
         .ok_or_else(|| invalid("retained receipt is missing"))?;
     let receipt = Receipt::parse(receipt_bytes.as_bytes())?;
     if !receipt.matches_action(action) || references != receipt.references() {
-        return Err(invalid("receipt, action or root references disagree"));
+        return Err(invalid(
+            "receipt, action or root references disagree",
+        ));
     }
-    receipt.verify_inputs(lease, action)?;
+    receipt.verify_inputs(lease, action, cancellation)?;
     let action_bytes = lease
         .read_verified(receipt.action, MAX_RECORD_BYTES)?
         .ok_or_else(|| invalid("retained action is missing"))?;
@@ -521,29 +555,17 @@ fn verify_candidate(
     }
     receipt.verify_retained_inputs(lease, action, || cancellation.check())?;
     cancellation.check()?;
-    let artifact_limit = if action.protocol == super::BuildProtocol::Glibc {
-        MAX_OUTPUT_BYTES
-    } else {
-        MAX_AUTOTOOLS_OUTPUT_BYTES
-    };
-    for (name, output) in &receipt.outputs {
+    let artifact_limit = action.program.resources.envelope().output_bytes;
+    for output in receipt.outputs.values() {
         cancellation.check()?;
         let artifact = lease
-            .open_verified_checked(
-                output.artifact,
-                if name == "out" {
-                    artifact_limit
+            .open_verified_checked(output.artifact, artifact_limit, || {
+                if cancellation.is_cancelled() {
+                    Err(crate::cancellation::cancellation_io())
                 } else {
-                    MAX_OUTPUT_BYTES
-                },
-                || {
-                    if cancellation.is_cancelled() {
-                        Err(super::cancellation_io())
-                    } else {
-                        Ok(())
-                    }
-                },
-            )
+                    Ok(())
+                }
+            })
             .map_err(|error| {
                 if cancellation.is_cancelled() {
                     BuildError::Cancelled
@@ -552,32 +574,29 @@ fn verify_candidate(
                 }
             })?
             .ok_or_else(|| invalid("retained named artifact is missing"))?;
-        if artifact::validate_stream_checked(artifact, &output.entry, cancellation)? != output.files
-        {
-            return Err(invalid("named output file count disagrees with artifact"));
+        if artifact::validate_stream_checked(artifact, "", cancellation)? != output.files {
+            return Err(invalid(
+                "named output file count disagrees with artifact",
+            ));
         }
     }
-    Ok(Some(Verified { candidate, receipt }))
+    Ok(Some(Verified {
+        candidate,
+        receipt,
+    }))
 }
 
 /// Validate an explicitly retained provider without constructing a filesystem
 /// view. A consumer Action can therefore be looked up before preparing any
 /// build-only mounts, while preserving the same complete result checks as a hit.
-pub(super) fn retained_result(
+#[cfg(test)]
+pub(crate) fn retained_result(
     lease: &OperationLease,
     root: &RootName,
     digest: ContentDigest,
-    cancellation: &BuildCancellation,
+    cancellation: &dyn BuildControl,
 ) -> Result<(Action, Receipt), BuildError> {
-    cancellation.check()?;
-    let bytes = lease
-        .read_verified(digest, MAX_RECORD_BYTES)?
-        .ok_or_else(|| invalid("retained provider receipt is missing"))?;
-    let receipt = Receipt::parse(bytes.as_bytes())?;
-    let bytes = lease
-        .read_verified(receipt.action, MAX_RECORD_BYTES)?
-        .ok_or_else(|| invalid("retained provider action is missing"))?;
-    let action = Action::parse(bytes.as_bytes())?;
+    let (action, _) = read_result(lease, digest, cancellation)?;
     let verified = verify_candidate(
         lease,
         &action,
@@ -591,7 +610,30 @@ pub(super) fn retained_result(
     Ok((action, verified.receipt))
 }
 
-pub(super) fn rebuild(store: &Store) -> Result<BuildIndexReport, BuildError> {
+/// Verify a receipt/Action binding inside an already retained closure. This
+/// alone grants neither root retention nor action-index admission.
+pub(crate) fn read_result(
+    lease: &OperationLease,
+    digest: ContentDigest,
+    cancellation: &dyn BuildControl,
+) -> Result<(Action, Receipt), BuildError> {
+    cancellation.check()?;
+    let bytes = lease
+        .read_verified(digest, MAX_RECORD_BYTES)?
+        .ok_or_else(|| invalid("retained provider receipt is missing"))?;
+    let receipt = Receipt::parse(bytes.as_bytes())?;
+    let bytes = lease
+        .read_verified(receipt.action, MAX_RECORD_BYTES)?
+        .ok_or_else(|| invalid("retained provider action is missing"))?;
+    let action = Action::parse(bytes.as_bytes())?;
+    if !receipt.matches_action(&action) {
+        return Err(invalid("retained receipt and action disagree"));
+    }
+    receipt.verify_inputs(lease, &action, cancellation)?;
+    Ok((action, receipt))
+}
+
+pub(crate) fn rebuild(store: &Store) -> Result<BuildIndexReport, BuildError> {
     let lease = store.operation()?;
     let mut report = BuildIndexReport::default();
     let mut actions: BTreeMap<ContentDigest, (Action, Vec<Candidate>)> = BTreeMap::new();
@@ -617,7 +659,7 @@ pub(super) fn rebuild(store: &Store) -> Result<BuildIndexReport, BuildError> {
             &lease,
             &action,
             candidate.clone(),
-            &BuildCancellation::default(),
+            &Cancellation::default(),
         )?
         .ok_or_else(|| invalid("managed root disappeared"))?;
         // Explicit reconstruction can confirm a previously uncertain root's
@@ -633,7 +675,7 @@ pub(super) fn rebuild(store: &Store) -> Result<BuildIndexReport, BuildError> {
     // merge valid current hints while holding the same publication lock.
     let rebuilt: BTreeSet<_> = actions.keys().copied().collect();
     for (digest, (action, mut candidates)) in actions {
-        let cancellation = BuildCancellation::default();
+        let cancellation = Cancellation::default();
         let shard = shard(&lease, digest, &cancellation)?;
         if let Some(bytes) = read_index_bytes(&shard, digest)?
             && let Ok(existing) = parse_index(digest, &bytes)
@@ -655,7 +697,7 @@ pub(super) fn rebuild(store: &Store) -> Result<BuildIndexReport, BuildError> {
 }
 
 fn current_receipt(bytes: &[u8]) -> bool {
-    bytes.starts_with(b"syrox-build-result\n")
+    bytes.starts_with(b"syrox-build-result-v4\n")
 }
 
 fn prune_stale(
@@ -666,7 +708,11 @@ fn prune_stale(
     let mut count = 0;
     let shards = fd::read_directory(&parent, |_| {
         count += 1;
-        if count > 256 { Err(()) } else { Ok(()) }
+        if count > 256 {
+            Err(())
+        } else {
+            Ok(())
+        }
     })
     .map_err(problem)?;
     let mut removed = 0;
@@ -684,7 +730,7 @@ fn prune_stale(
         let sample: ContentDigest = format!("{name}{}", "0".repeat(62))
             .parse()
             .expect("validated shard prefix");
-        let directory = shard(lease, sample, &BuildCancellation::default())?;
+        let directory = shard(lease, sample, &Cancellation::default())?;
         for entry in clean_temporaries(&directory)? {
             let action: ContentDigest = entry.parse().map_err(problem)?;
             if !entry.starts_with(name) {
@@ -727,7 +773,7 @@ fn admit_candidate(candidates: &mut Vec<Candidate>, candidate: Candidate) {
 fn shard(
     lease: &OperationLease,
     action: ContentDigest,
-    cancellation: &BuildCancellation,
+    cancellation: &dyn BuildControl,
 ) -> Result<ShardGuard, BuildError> {
     cancellation.check()?;
     let started = Instant::now();
@@ -752,15 +798,21 @@ fn shard(
 }
 
 fn read_index(directory: &OpenedPath, action: ContentDigest) -> Result<Vec<Candidate>, BuildError> {
-    read_index_bytes(directory, action)?
-        .map_or_else(|| Ok(Vec::new()), |bytes| parse_index(action, &bytes))
+    read_index_bytes(directory, action)?.map_or_else(
+        || Ok(Vec::new()),
+        |bytes| parse_index(action, &bytes),
+    )
 }
 
 fn read_index_bytes(
     directory: &OpenedPath,
     action: ContentDigest,
 ) -> Result<Option<Vec<u8>>, BuildError> {
-    let file = match fd::open_beneath(directory.fd(), Path::new(&action.to_string()), false) {
+    let file = match fd::open_beneath(
+        directory.fd(),
+        Path::new(&action.to_string()),
+        false,
+    ) {
         Ok(file) => file,
         Err(fd::OpenError::Other(error)) if error.kind() == std::io::ErrorKind::NotFound => {
             return Ok(None);
@@ -813,7 +865,10 @@ fn parse_index(action: ContentDigest, bytes: &[u8]) -> Result<Vec<Candidate>, Bu
             .parse()
             .map_err(|_| invalid("invalid indexed receipt"))?;
         let root = RootName::new(root).map_err(problem)?;
-        entries.push(Candidate { receipt, root });
+        entries.push(Candidate {
+            receipt,
+            root,
+        });
     }
     if entries.is_empty()
         || entries
@@ -848,12 +903,15 @@ fn clean_temporaries(directory: &OpenedPath) -> Result<Vec<String>, BuildError> 
             entries.push(text.to_owned());
             continue;
         }
-        if !text.strip_prefix(TEMP_PREFIX).is_some_and(|suffix| {
-            suffix.len() == 32
-                && suffix
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        }) {
+        if !text
+            .strip_prefix(TEMP_PREFIX)
+            .is_some_and(|suffix| {
+                suffix.len() == 32
+                    && suffix
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            })
+        {
             return Err(invalid("unexpected index shard entry"));
         }
         let file = fd::open_existing_regular(directory.fd(), Path::new(&name))?;
@@ -863,7 +921,11 @@ fn clean_temporaries(directory: &OpenedPath) -> Result<Vec<String>, BuildError> 
         temporary.push((name, file));
     }
     for (name, file) in temporary {
-        fd::unlink_opened(directory.fd(), Path::new(&name), file.metadata().identity())?;
+        fd::unlink_opened(
+            directory.fd(),
+            Path::new(&name),
+            file.metadata().identity(),
+        )?;
     }
     fd::sync_directory(directory.fd())?;
     Ok(entries)
@@ -874,4 +936,5 @@ fn problem(error: impl std::fmt::Debug) -> BuildError {
 }
 
 #[cfg(test)]
+#[path = "tests/cache.rs"]
 pub(crate) mod tests;

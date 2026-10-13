@@ -5,7 +5,7 @@ mod std::pkg {
     value SourceLimit(int);
 
     struct Dependency {
-        package: PackageId;
+        recipe: RecipeRef<Recipe>;
     }
 
     struct Package {
@@ -32,7 +32,6 @@ mod std::pkg {
     }
 
     struct Acquisition {
-        package: PackageId;
         sources: [SourceRequest];
     }
 }

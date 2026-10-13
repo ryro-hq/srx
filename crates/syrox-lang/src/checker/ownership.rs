@@ -1,4 +1,3 @@
-use super::types::nominal_head;
 use super::{
     BTreeMap, BTreeSet, Checker, Diagnostic, ItemId, LocalId, RawTy, ResolvedItemKind, Span, Ty,
     VecDeque,
@@ -124,16 +123,32 @@ impl Checker<'_> {
                             if self.ty_directly_claims(ty) {
                                 seeded = true;
                             }
-                            if let Some(dependency) = nominal_head(ty) {
-                                reverse.entry(dependency).or_default().push(container);
+                            if let Some(dependency) = Ty::nominal_head(ty) {
+                                reverse
+                                    .entry(dependency)
+                                    .or_default()
+                                    .push(container);
                             }
                         }
                         RawTy::List(element) => pending.push(element),
-                        RawTy::Specialization { template, .. } => {
-                            reverse.entry(*template).or_default().push(container);
+                        RawTy::Specialization {
+                            template,
+                            ..
+                        } => {
+                            reverse
+                                .entry(*template)
+                                .or_default()
+                                .push(container);
                         }
-                        RawTy::Function { once: true, .. } => seeded = true,
-                        RawTy::Parameter(_) | RawTy::Function { once: false, .. } => {}
+                        RawTy::Function {
+                            once: true,
+                            ..
+                        } => seeded = true,
+                        RawTy::Parameter(_)
+                        | RawTy::Function {
+                            once: false,
+                            ..
+                        } => {}
                     }
                 }
             }
@@ -164,7 +179,12 @@ impl Checker<'_> {
     }
 
     fn check_local_use(&mut self, local: LocalId, span: Span, consuming: bool, record: bool) -> Ty {
-        match self.body.bindings.get(&local).map(|binding| binding.status) {
+        match self
+            .body
+            .bindings
+            .get(&local)
+            .map(|binding| binding.status)
+        {
             Some(super::TypeStatus::Unknown) => {
                 self.body.fact_unknowns = self.body.fact_unknowns.saturating_add(1);
             }
@@ -199,7 +219,7 @@ impl Checker<'_> {
             let conditional = binding.conditional;
             self.push_diagnostic(
                 Diagnostic::error("use of moved affine value", span)
-                    .with_code(crate::DiagnosticCode::MovedValue)
+                    .with_code(crate::diagnostic::DiagnosticCode::MovedValue)
                     .with_related(moved, "first moved here")
                     .with_related(declaration, "declared here")
                     .with_note(if conditional {
@@ -209,7 +229,11 @@ impl Checker<'_> {
                     }),
             );
         }
-        let binding = self.body.bindings.get_mut(&local).expect("binding exists");
+        let binding = self
+            .body
+            .bindings
+            .get_mut(&local)
+            .expect("binding exists");
         if consuming && binding.affine && (binding.moved.is_none() || binding.ownership_unknown) {
             binding.moved = Some(span);
             binding.ownership_unknown = false;
@@ -220,7 +244,7 @@ impl Checker<'_> {
 
     pub(super) fn recover_bindings(
         &mut self,
-        binding: Option<&crate::RecoveredBinding>,
+        binding: Option<&crate::syntax::RecoveredBinding>,
         span: Span,
     ) {
         self.body.fact_unknowns = self.body.fact_unknowns.saturating_add(1);
@@ -256,12 +280,21 @@ impl Checker<'_> {
             }
         }
         if self.cancellation.is_none() {
-            self.error("recovered statement cannot be checked for execution", span);
+            self.error(
+                "recovered statement cannot be checked for execution",
+                span,
+            );
         }
     }
 
     pub(super) fn affine(&mut self, ty: &Ty, span: Span) -> bool {
-        self.affine_inner(ty, span, &mut BTreeSet::new(), &mut BTreeMap::new(), 0)
+        self.affine_inner(
+            ty,
+            span,
+            &mut BTreeSet::new(),
+            &mut BTreeMap::new(),
+            0,
+        )
     }
 
     pub(super) fn affine_inner(
@@ -292,7 +325,11 @@ impl Checker<'_> {
                 {
                     true
                 } else {
-                    let fields = self.struct_fields.get(item).cloned().unwrap_or_default();
+                    let fields = self
+                        .struct_fields
+                        .get(item)
+                        .cloned()
+                        .unwrap_or_default();
                     fields.iter().any(|(_, field, _)| {
                         self.concretize(field.clone(), &BTreeMap::new(), span)
                             .is_some_and(|field| {
@@ -328,7 +365,10 @@ impl Checker<'_> {
             }
             Ty::List(element) => self.affine_inner(element, span, visiting, memo, depth + 1),
             Ty::Parameter(_) => true,
-            Ty::Function { once, .. } => *once,
+            Ty::Function {
+                once,
+                ..
+            } => *once,
             Ty::Unit | Ty::Int | Ty::Str | Ty::Error => false,
         };
         visiting.remove(ty);
@@ -340,18 +380,25 @@ impl Checker<'_> {
         match ty {
             Ty::Nominal(item) => self.item_kind(*item) == Some(ResolvedItemKind::Resource),
             Ty::List(element) => self.ty_directly_claims(element),
-            Ty::Function { once: true, .. } => true,
+            Ty::Function {
+                once: true,
+                ..
+            } => true,
             Ty::Unit
             | Ty::Int
             | Ty::Str
             | Ty::Parameter(_)
-            | Ty::Specialization { .. }
-            | Ty::Function { .. }
+            | Ty::Specialization {
+                ..
+            }
+            | Ty::Function {
+                ..
+            }
             | Ty::Error => false,
         }
     }
 
     pub(super) fn is_nominal_struct(&self, ty: &Ty) -> bool {
-        nominal_head(ty).is_some_and(|item| self.structs.contains_key(&item))
+        Ty::nominal_head(ty).is_some_and(|item| self.structs.contains_key(&item))
     }
 }
