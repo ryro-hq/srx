@@ -21,3 +21,4 @@ runs:
         shared-key: syrox-${{ inputs.cache-key }}
         cache-workspace-crates: 'true'
         cache-on-failure: 'true'
+        env-vars: CARGO CC CFLAGS CXX CMAKE RUST LZMA

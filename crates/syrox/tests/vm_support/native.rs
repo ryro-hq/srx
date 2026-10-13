@@ -39,6 +39,25 @@ pub fn run(
     evidence: &Path,
     control: &Control,
 ) -> Result<Vec<Value>> {
+    // Some CLI tests make an isolated installation beside CARGO_BIN_EXE_srx.
+    // Keep those writable fixture directories and same-filesystem hard links
+    // independent of the retained, immutable release candidates.
+    let installation = Path::new("/target/x86_64-unknown-linux-gnu/debug");
+    let mut installation_pins = BTreeMap::new();
+    for name in ["srx", "syrox-worker"] {
+        let path = installation.join(name);
+        std::fs::remove_file(&path)?;
+        let pin = super::snapshot::copy_candidate(
+            &Path::new(common::GUEST_CANDIDATES).join(name),
+            &path,
+            128 * 1024 * 1024,
+        )?;
+        installation_pins.insert(name, pin);
+    }
+    common::save(
+        &evidence.join("native-installation.json"),
+        &installation_pins,
+    )?;
     let mut results = Vec::new();
     for (name, binary) in artifacts
         .iter()

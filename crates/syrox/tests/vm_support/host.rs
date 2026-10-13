@@ -618,6 +618,7 @@ test "$(stat -f -c %T /work)" = tmpfs
 chown syrox:syrox /cache /work
 for profile in release debug; do
     mkdir -p /target/x86_64-unknown-linux-gnu/$profile
+    chown syrox:syrox /target/x86_64-unknown-linux-gnu/$profile
     ln -s /work/candidates/srx /target/x86_64-unknown-linux-gnu/$profile/srx
     ln -s /work/candidates/syrox-worker /target/x86_64-unknown-linux-gnu/$profile/syrox-worker
 done
