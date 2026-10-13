@@ -1,12 +1,17 @@
-//! Realiza os outputs de um plano já preparado.
+//! Realizing outputs from an already prepared plan.
 //!
-//! Resolver a referência escolhe a receita sem abrir a Store ou adquirir fontes.
-//! Na realização, [`RealizeOptions`] traz configuração, worker e modo offline;
-//! cancelamento e progresso pertencem ao pedido em andamento.
+//! # Selecting an output
 //!
-//! A operação abre sua Store depois do preflight do backend e a compartilha com
-//! as dependências. Leases globais terminam antes de executar outra dependência;
-//! os interesses nos objetos e views continuam vivos durante o build.
+//! Resolving a reference selects a recipe without opening the Store or acquiring
+//! sources. [`RealizeOptions`] supplies configuration, the worker and offline mode;
+//! cancellation and progress belong to the active request.
+//!
+//! # Retaining dependencies through a build
+//!
+//! The operation opens its Store after backend preflight and shares it with
+//! dependencies. Global leases end before another dependency is executed; interests
+//! in objects and views remain alive during the build. See [`crate::build`] for
+//! execution and publication, and [`retention`](../../src/syrox_engine/store/retention/mod.rs.html) for those interests.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};

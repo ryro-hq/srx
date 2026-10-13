@@ -1,8 +1,8 @@
-//! Admissão de uma sessão antes de liberar os gates de execução.
+//! Admitting a session before releasing execution gates.
 //!
-//! Uma admissão bem-sucedida precisa estar persistida antes de liberar o payload.
-//! Bindings guardam dados para comparação; não provam sozinhos quem controla
-//! o manager ou se um processo encerrou. Recuperar o journal não reinicia a sessão.
+//! Successful admission must be persisted before the payload is released. Bindings
+//! retain comparison data; they do not alone prove who controls the manager or
+//! whether a process has settled. Recovering the journal does not restart a session.
 
 use std::collections::BTreeMap;
 use std::path::Path;

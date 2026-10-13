@@ -1,8 +1,29 @@
-//! Entrada do worker usado para builds, runtimes e serviços.
+//! The internal worker entry point for builds, runtimes and services.
 //!
-//! Este binário fica separado da CLI e da std empacotada: mudar um comando
-//! público não deve mudar o hash do worker. Cada modo entra no protocolo da
-//! engine que confere seus descritores e a autorização antes de liberar o payload.
+//! # Worker identity
+//!
+//! This binary is separate from the CLI and bundled standard library: changing a
+//! public command should not change the worker hash. The worker dispatches into
+//! [`syrox_engine::worker`]; the engine protocols check descriptors and authorization
+//! before releasing a payload.
+//!
+//! # Modes and admission
+//!
+//! `__build-worker` and `__build-managed-worker` execute build instructions within
+//! an already prepared sandbox. `__build-gate` checks persistent launch authorization;
+//! `__managed-build` coordinates Managed build entry.
+//!
+//! `__runtime`, `__runtime-managed` and `__runtime-managed-commands` enter native
+//! runtime supervision. `__shell-command` forwards a Shell alias through the command
+//! broker and propagates its outcome after owned cleanup.
+//!
+//! `__session-owner` coordinates a session. `__service` and `__os-service` enter
+//! session or persistent-generation service admission; denied admission exits with
+//! status 78. A mode name alone grants no authority to start a payload.
+//!
+//! Helpers that change process state require a dedicated process before threads
+//! start. Their call sites retain the safety contracts for inherited descriptors,
+//! namespace changes and cleanup.
 
 use std::path::PathBuf;
 use std::process::ExitCode;

@@ -1,8 +1,8 @@
-//! Guardian que adota e recolhe os descendentes do monitor.
+//! A guardian that adopts and reaps the monitor's descendants.
 //!
-//! A saída do monitor não prova que os descendentes acabaram. O guardian mantém
-//! essa responsabilidade em outro processo. A retenção durável da Store continua
-//! com o chamador e só pode acabar depois da confirmação de settlement.
+//! Monitor exit does not prove its descendants have ended. The guardian retains
+//! that responsibility in a separate process. Durable Store retention remains
+//! with the caller and can end only after settlement is confirmed.
 
 use crate::execution::journal::ExecutionId;
 use std::fs::File;

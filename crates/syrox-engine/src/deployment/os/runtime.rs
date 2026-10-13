@@ -1,8 +1,8 @@
-//! Prepara o runtime de um processo da geração Os.
+//! Preparing the runtime of an Os generation's process.
 //!
-//! O chamador cuida da publicação da configuração e da separação entre
-//! instalação e cwd. Um descritor de diretório não impede seu dono de remover
-//! arquivos; a configuração precisa permanecer imutável até a execução encerrar.
+//! The caller owns configuration publication and separation of installation from
+//! cwd. A directory descriptor cannot stop its owner from removing files;
+//! configuration must remain immutable until execution settles.
 
 use super::{
     installation::RetainedGeneration,

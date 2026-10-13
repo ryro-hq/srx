@@ -1,8 +1,8 @@
-//! Coordenação dos pedidos que compartilham um produtor de build.
+//! Coordinating requests that share one build producer.
 //!
-//! O primeiro chamador continua coordenando mesmo se retirar seu próprio
-//! interesse. Para devolver um cache hit, o resultado precisa passar pela
-//! verificação da Store; PID, journal ou lock não substituem essa conferência.
+//! The first caller keeps coordinating even if it withdraws its own interest.
+//! Before a cache hit is returned, the result must pass Store verification; a PID,
+//! journal or lock cannot replace that check.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};

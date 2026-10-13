@@ -1,8 +1,8 @@
-//! Cancelamento dos pedidos que compartilham o mesmo produtor de build.
+//! Cancelling requests that share one build producer.
 //!
-//! Cancelar um consumidor retira o interesse dele. O produtor só recebe o
-//! cancelamento quando acaba o último interesse, para que outro pedido ainda
-//! ativo possa receber o resultado.
+//! Cancelling a consumer withdraws its interest. The producer receives cancellation
+//! only when the last interest ends, so another active request can still receive
+//! the result.
 
 pub(super) mod managed;
 pub(super) use managed::with_managed_cancellation;

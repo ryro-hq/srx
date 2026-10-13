@@ -1,9 +1,9 @@
-//! Análise semântica de um snapshot, inclusive com fontes incompletas.
+//! Semantic analysis of a snapshot, including incomplete sources.
 //!
-//! Preparação das fontes, resolução e checking contribuem para o mesmo limite
-//! de diagnósticos, nessa ordem. A publicação conserva as fontes e os fatos que
-//! ficaram disponíveis. Uma revisão nova não torna texto antigo atual: para
-//! revalidar um resultado, o texto efetivo de cada binding precisa coincidir.
+//! Source preparation, resolution and checking contribute to the same diagnostic
+//! limit, in that order. Publication keeps the sources and the facts that became
+//! available. A new revision does not make old text current: revalidating a result
+//! requires the effective text of every binding to match.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;

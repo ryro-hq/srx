@@ -1,8 +1,8 @@
-//! Guarda uma geração e permite reabri-la sem o projeto original.
+//! Storing a generation so it can reopen without the original project.
 //!
-//! `Preparing` e `Prepared` dizem quais objetos precisam continuar retidos. A
-//! seleção de uma geração desejada e a autorização para agir no manager ficam
-//! no apply e no journal de ativação.
+//! `Preparing` and `Prepared` identify the objects that must remain retained.
+//! Selecting a desired generation and authorizing manager actions belong to
+//! [`super::apply`] and the [`super::activation`] journal.
 
 use std::collections::BTreeMap;
 use std::io::{self, Read};

@@ -1,8 +1,9 @@
-//! Descrição dos recursos com slots de descritores.
+//! Resource descriptions with descriptor slots.
 //!
-//! Os slots indicam o papel de cada recurso, não os números de FD do remetente.
-//! Receber a descrição é só o handoff. O launcher ainda confere sessão, tentativa,
-//! comando, owner e invocação do manager antes de admitir a execução.
+//! Slots describe each resource's role, rather than the sender's FD numbers.
+//! Receiving a description is only a handoff. The launcher still checks the
+//! session, attempt, command, owner and manager invocation before admitting
+//! execution.
 
 use crate::execution::configuration::WorkerRequest;
 use crate::{runtime::RuntimeError, store::ContentDigest};

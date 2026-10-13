@@ -1,7 +1,7 @@
-//! Plano e fontes guardados pela mesma preparação do projeto.
+//! A plan and source origins retained from the same project preparation.
 //!
-//! As origens dos inputs ficam com o plano. A realização usa essas origens para
-//! adquirir uma fonte local sem reabrir ou reavaliar outro texto do projeto.
+//! Input origins stay with the plan. Realization uses them to acquire a local
+//! source without reopening or reevaluating different project text.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

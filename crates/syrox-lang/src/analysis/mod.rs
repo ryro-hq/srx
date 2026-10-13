@@ -1,12 +1,18 @@
-//! Snapshots dos documentos e consultas usadas pelo editor.
+//! Document snapshots and editor queries.
 //!
-//! O host recebe texto de disco e overlays. Um snapshot conserva a revisão que
-//! deu origem aos spans, mesmo depois de outra edição. O documento imutável
-//! guarda seu parsing; a análise do projeto reúne as fontes e passa por resolução
-//! e checking antes de publicar os fatos.
+//! # From documents to semantic facts
 //!
-//! Cancelamento encerra a consulta sem virar diagnóstico. Guarde o snapshot
-//! junto do resultado e confira a revisão antes de publicar uma resposta.
+//! The host accepts disk text and overlays. A snapshot keeps the revision behind
+//! its spans even after another edit. Each immutable document owns its parsing
+//! cache; project analysis gathers the sources and runs resolution and checking
+//! before publishing facts. See [`semantic`](../../src/syrox_lang/analysis/semantic.rs.html) for diagnostic ordering and the
+//! conditions for revalidating an earlier result.
+//!
+//! # Publishing a response
+//!
+//! Cancellation ends a query without becoming a diagnostic. Keep the snapshot
+//! with its result and check the revision before publishing a response. The caller
+//! must release obsolete snapshots; their text remains alive while they are owned.
 
 use std::collections::BTreeMap;
 use std::sync::{

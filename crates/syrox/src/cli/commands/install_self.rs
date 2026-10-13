@@ -1,7 +1,7 @@
-//! Instala a release formada por `srx` e seu worker.
+//! Installing the release containing `srx` and its worker.
 //!
-//! A cópia e a troca da seleção usam chamadas de filesystem. A instalação
-//! funciona com PATH vazio e conserva as duas imagens na mesma release.
+//! Copying and switching the selection use filesystem calls. Installation works
+//! with an empty PATH and retains both images in the same release.
 
 use std::ffi::CString;
 use std::fmt::Write as _;

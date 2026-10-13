@@ -1,8 +1,8 @@
-//! Abre uma view dos arquivos de um output já admitido.
+//! Opening a file view of an already admitted output.
 //!
-//! A view pode ser reconstruída a partir do artifact. Os adapters de build e
-//! importação conferem quem autorizou o output antes de chegar aqui. O handle
-//! retém os objetos e o diretório enquanto o consumidor usa seus arquivos.
+//! The view can be reconstructed from the artifact. Build and import adapters check
+//! who authorized the output before entering this module. The handle retains
+//! objects and the directory while the consumer uses their files.
 
 use crate::cancellation::OperationControl;
 #[cfg(test)]

@@ -1,8 +1,8 @@
-//! Prepara a descrição e os descritores de uma invocação.
+//! Preparing an invocation's description and descriptors.
 //!
-//! A sessão conserva a configuração enquanto algum consumidor ainda pode usá-la.
-//! Esta preparação reúne os recursos; iniciar o processo e publicar a autorização
-//! são etapas do launcher.
+//! The session keeps configuration alive while any consumer can still use it.
+//! This preparation gathers resources; starting the process and publishing
+//! authorization belong to the launcher.
 
 use std::ffi::OsString;
 use std::fs::File;

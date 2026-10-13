@@ -1,8 +1,9 @@
-//! Admite serviços depois de conferir autorização, retenção e namespace.
+//! Admitting services after checking authorization, retention and namespace.
 //!
-//! O gate do payload só é liberado quando essas etapas estão concluídas. Para
-//! admitir serviços dependentes, `READY` precisa acompanhar a confirmação de
-//! exec; uma mensagem isolada não indica que o serviço está pronto.
+//! The payload gate is released only when these stages are complete. To admit
+//! dependent services, `READY` must accompany exec confirmation; a message alone
+//! does not establish readiness. [`pump`] coordinates admission while the
+//! foreground command runs and closes services before releasing retained outputs.
 
 use std::os::fd::OwnedFd;
 use std::path::PathBuf;

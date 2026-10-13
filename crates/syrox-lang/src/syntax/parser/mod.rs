@@ -1,8 +1,8 @@
-//! Parsing completo para a linguagem e parsing com recuperação para o editor.
+//! Complete parsing for the language and recovery parsing for the editor.
 //!
-//! O parser limita profundidade, tokens e diagnósticos. Ao encontrar um erro,
-//! guarda o trecho incompleto e procura o próximo ponto onde possa continuar
-//! sem perder os spans das declarações que ainda consegue ler.
+//! The parser bounds depth, token count and diagnostics. On an error, it retains
+//! the incomplete region and finds a point where parsing can resume without
+//! losing the spans of declarations it can still read.
 
 use crate::syntax::lexer::{Keyword, Token, TokenKind, is_keyword, lex};
 use crate::syntax::{

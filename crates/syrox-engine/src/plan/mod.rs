@@ -1,8 +1,9 @@
-//! Transforma os valores checados em descrições de aquisição, build e consumo.
+//! Turning checked values into descriptions of acquisition, builds and consumers.
 //!
-//! Esta etapa percorre o grafo e confere seus limites antes de qualquer efeito.
-//! A identidade compartilhada das receitas é mantida no plano; nomes iguais
-//! em projetos diferentes não tornam os pacotes iguais.
+//! This stage walks the graph and checks its limits before any effects. Shared
+//! recipe identity is preserved in the plan; equal names in different projects
+//! do not make packages equal. [`crate::realize`] uses the resulting descriptions
+//! to acquire sources and execute selected builds.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;

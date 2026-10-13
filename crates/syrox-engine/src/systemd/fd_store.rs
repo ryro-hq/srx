@@ -1,10 +1,10 @@
-//! Comparação dos descritores que o manager guardou no FD store.
+//! Comparing descriptors retained by the manager in its FD store.
 //!
-//! O dump permite conferir inode e flags. Ele não identifica a open file
-//! description nem prova quem mantém o flock. Essa parte da retenção precisa
-//! da conferência do descritor e do interesse que foi transferido.
+//! The dump allows inode and flag checks. It identifies neither the open file
+//! description nor who holds the flock. Retention still requires checking the
+//! descriptor and the interest that was transferred.
 //!
-//! Referência: <https://raw.githubusercontent.com/systemd/systemd/v254/src/core/dbus-service.c>.
+//! Reference: <https://raw.githubusercontent.com/systemd/systemd/v254/src/core/dbus-service.c>.
 
 use super::bus::Reply;
 use super::{Budget, SERVICE_INTERFACE, SystemdError, SystemdManager, SystemdUnitName};

@@ -1,9 +1,9 @@
-//! Fechamento dos serviços antes de liberar os outputs retidos.
+//! Settling services before releasing retained outputs.
 //!
-//! Primeiro encerra a admissão e registra `Closing`. Depois reconecta ao manager
-//! e confere o epoch original antes de emitir Stop ou observar settlement.
-//! A reconexão não repete mutações; saídas e retenção continuam sendo conferidas
-//! independentemente.
+//! First end admission and record `Closing`. Then reconnect to the manager and
+//! check the original epoch before issuing Stop or observing settlement.
+//! Reconnection does not repeat mutations; exits and retention are still checked
+//! independently.
 
 use super::{Pump, Role};
 use crate::execution::launcher::service_coordinator::{

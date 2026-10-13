@@ -1,8 +1,9 @@
-//! Restauração do terminal pelo monitor que guarda sua custody.
+//! Terminal restoration by the monitor holding custody.
 //!
-//! Conferir o foreground e escrever termios são operações separadas. Outro
-//! processo pode tomar o terminal entre elas. A garantia de restauração depende
-//! de o monitor continuar vivo e de não haver uma tomada concorrente por terceiros.
+//! Checking the foreground and writing termios are separate operations. Another
+//! process can take the terminal between them. The restoration guarantee depends
+//! on the monitor staying alive and on the absence of concurrent takeover by
+//! third parties.
 
 use super::*;
 use crate::platform::linux::fd::terminal::TerminalAttributes;

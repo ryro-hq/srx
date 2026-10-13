@@ -1,8 +1,8 @@
-//! Observa o cgroup fixado e os descritores que o manager ainda retém.
+//! Observing the pinned cgroup and descriptors still retained by the manager.
 //!
-//! Cgroup vazio e FD store vazio não provam a saída de um namespace nem o fim de
-//! descendentes que escaparam. Uma falha nessas consultas também não deve impedir
-//! um Stop que já esteja autorizado por outra prova.
+//! An empty cgroup and FD store do not prove namespace exit or the end of escaped
+//! descendants. A failed query must not prevent a Stop already authorized by
+//! other evidence.
 
 use std::io;
 use std::path::{Path, PathBuf};

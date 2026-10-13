@@ -1,8 +1,8 @@
-//! O lock liga inputs e std aos bytes que foram conferidos.
+//! Binding inputs and the standard library to verified bytes.
 //!
-//! A leitura valida identidades e limites. A escrita usa uma ordem estável para
-//! que o pin do lock não dependa da ordem em que os inputs foram encontrados.
-//! Atualizar o lock é uma operação explícita do projeto.
+//! Reading validates identities and limits. Writing uses stable ordering so the
+//! lock pin does not depend on the order in which inputs were discovered.
+//! Updating the lock is an explicit project operation.
 
 use std::fmt::Write as _;
 use std::mem::size_of;

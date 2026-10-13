@@ -1,7 +1,7 @@
-//! Formatação do overlay aberto, em um worker próprio.
+//! Formatting the open overlay in a dedicated worker.
 //!
-//! A fila e o cancelamento não dependem da análise do projeto. Antes de devolver
-//! a edição, a sessão confere se a versão do documento ainda é a mesma.
+//! Its queue and cancellation are independent of project analysis. Before returning
+//! the edit, the session checks that the document version still matches.
 
 use super::{
     Event, Server, document_uri,

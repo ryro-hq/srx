@@ -1,8 +1,7 @@
-//! Bytes que entram no digest da action e nos receipts.
+//! Bytes included in the action digest and receipts.
 //!
-//! A ordem dos campos e o formato persistido fazem parte da identidade do build.
-//! Mudar o modo de escrever esses registros exige considerar os objetos e
-//! receipts que já estão na Store.
+//! Field ordering and the persisted format are part of build identity. Changes to
+//! record encoding must account for objects and receipts already in the Store.
 
 use super::{
     BuildError, BuildProfile, BuildProgram, BuildResources, BuildSpecification, PROFILE,

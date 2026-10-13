@@ -1,7 +1,7 @@
-//! Configuração local usada para acessar a Store, a rede e os workers.
+//! Local configuration for Store, network and worker access.
 //!
-//! O usuário escolhe esses paths e permissões antes da operação. As receitas
-//! não leem este arquivo nem conseguem mudar essas escolhas durante a avaliação.
+//! The user chooses these paths and permissions before the operation. Recipes
+//! cannot read this file or change those choices during evaluation.
 
 use std::path::{Component, Path, PathBuf};
 

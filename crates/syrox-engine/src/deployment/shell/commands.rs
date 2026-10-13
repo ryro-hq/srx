@@ -1,8 +1,9 @@
-//! Diretório público dos aliases disponíveis na sessão Shell.
+//! A public directory of aliases available in the Shell session.
 //!
-//! O broker confere o contexto e o índice inteiro contra o consumer preparado
-//! antes de executar um alias. Configuração, state, grants e descritores de secrets
-//! ficam com a sessão. O diretório só descreve os comandos que podem ser pedidos.
+//! The broker checks the context and entire index against the prepared consumer
+//! before executing an alias. Configuration, state, grants and secret descriptors
+//! remain with the session. The directory only describes commands that may be
+//! requested.
 
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};

@@ -1,12 +1,16 @@
-//! Checa tipos, regras da política e consumo de valores.
+//! Checking types, policy rules and value consumption.
 //!
-//! [`check`] recebe o programa resolvido e entrega um [`CheckedProgram`] quando
-//! a checagem passa. A análise do editor também conserva fatos parciais, com a
-//! incerteza necessária para consultar código incompleto.
+//! [`check`] accepts a resolved program and returns a [`CheckedProgram`] on success.
+//! Editor analysis also keeps partial facts, with uncertainty preserved for queries
+//! on incomplete code. [`crate::evaluator`] requires successful checking and the
+//! same policy.
 //!
-//! Os bodies são checados separadamente, mas trabalho, diagnósticos e instâncias
-//! genéricas contam para a mesma execução. A política usada aqui acompanha o
-//! programa até a avaliação.
+//! # Checking bodies within one budget
+//!
+//! Bodies are checked separately, but work, diagnostics and generic instances
+//! count toward the same run. [`bodies`](../../src/syrox_lang/checker/bodies/mod.rs.html) owns each body's facts and observed cost;
+//! its effect records compare decisions without installing facts or skipping
+//! checking. Publishing those facts does not create a cache across revisions.
 
 mod bodies;
 mod declarations;

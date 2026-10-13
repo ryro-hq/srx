@@ -1,9 +1,9 @@
-//! Journal dos efeitos planejados e observados ao aplicar uma geração.
+//! A journal of planned and observed effects when applying a generation.
 //!
-//! Um `Intent` registra que o efeito foi planejado. Se a resposta se perder,
-//! a recuperação confere o que aconteceu antes de continuar; ler o registro
-//! não manda repetir a chamada. Este journal guarda estado, sem chamar o manager
-//! ou liberar as raízes da geração por conta própria.
+//! An `Intent` records that an effect was planned. If its reply is lost, recovery
+//! checks what happened before continuing; reading the record does not instruct
+//! the caller to repeat the call. This journal stores state without calling the
+//! manager or releasing generation roots on its own.
 
 use std::collections::BTreeMap;
 use std::io;

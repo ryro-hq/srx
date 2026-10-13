@@ -1,7 +1,7 @@
-//! Inspeção limitada do tar comprimido que chegou como fonte.
+//! Bounded inspection of a compressed tar received as a source.
 //!
-//! Os paths, tipos de entrada e tamanho expandido são conferidos antes de usar
-//! o archive. A inspeção não extrai arquivos nem libera a execução de seu conteúdo.
+//! Paths, entry types and expanded size are checked before the archive is used.
+//! Inspection neither extracts files nor authorizes execution of their contents.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::BufReader;

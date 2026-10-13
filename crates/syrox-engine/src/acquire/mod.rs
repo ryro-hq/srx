@@ -1,8 +1,9 @@
-//! Aquisição das fontes escolhidas pelo projeto.
+//! Acquiring sources selected by the project.
 //!
-//! O pedido fixa os bytes esperados e seu tamanho máximo. HTTPS confere também
-//! a identidade do servidor; uma fonte local exige acesso explícito ao diretório.
-//! A inspeção de um archive confere seu conteúdo antes de usá-lo no build.
+//! The request pins the expected bytes and their maximum size. [`https`] also
+//! checks server identity; [`local`] requires explicit access to a directory.
+//! [`archive`] inspects archive contents before they are used in a build.
+//! [`github`] resolves revisions during explicit lock updates.
 
 pub mod archive;
 pub mod github;

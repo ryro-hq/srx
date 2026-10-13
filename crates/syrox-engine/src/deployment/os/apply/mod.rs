@@ -1,8 +1,9 @@
-//! Aplica uma geração registrando o efeito de cada recurso.
+//! Applying a generation while recording each resource's effects.
 //!
-//! O resultado pode ser parcial. Um recurso aplicado não torna a geração inteira
-//! aplicada nem libera a coleta de uma geração antiga. Cada execução precisa
-//! chegar ao seu fechamento antes de soltar os recursos que ainda usa.
+//! The result can be partial. One applied resource neither makes the whole
+//! generation applied nor allows collection of an older generation. Each execution
+//! must settle before releasing resources it still uses. [`recovery`] reconciles
+//! interrupted effects with the installation and observed execution.
 
 use super::{
     activation::{ActivationJournal, ActivationSnapshot, ExecutionEpoch},

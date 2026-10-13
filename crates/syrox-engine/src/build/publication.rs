@@ -1,7 +1,7 @@
-//! Admissão dos outputs depois de encerrar a execução do build.
+//! Admitting outputs after build execution has settled.
 //!
-//! O chamador precisa ter conferido o settlement antes de chegar aqui. Este
-//! helper valida e publica os arquivos; a prova de fechamento fica com o backend.
+//! The caller must have checked settlement before entering this helper. It validates
+//! and publishes files; evidence of settlement remains the backend's responsibility.
 
 use std::collections::BTreeMap;
 use std::fs::File;

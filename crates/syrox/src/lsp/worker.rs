@@ -1,9 +1,9 @@
-//! Carrega o projeto e analisa o snapshot pedido pelo editor.
+//! Loading a project and analyzing the snapshot requested by the editor.
 //!
-//! O worker passa por carregar, sincronizar overlays, analisar e publicar.
-//! `Ready` guarda o projeto e as versões ativas; `Failed` guarda o erro até o
-//! próximo reload. Cancelamento e geração decidem se o resultado ainda pode
-//! chegar ao editor.
+//! The worker loads, synchronizes overlays, analyzes and publishes. `Ready` keeps
+//! the project and active versions; `Failed` keeps the error until the next reload.
+//! Cancellation and generation determine whether a result may still reach the
+//! editor.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;

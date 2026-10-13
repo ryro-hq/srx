@@ -1,7 +1,7 @@
-//! Resolve um input GitHub e confere o snapshot recebido.
+//! Resolving a GitHub input and verifying the received snapshot.
 //!
-//! A resolução de uma revisão pela rede pertence à atualização explícita do
-//! lock. Depois disso, o projeto usa o commit e os bytes fixados no lock.
+//! Resolving a revision over the network belongs to an explicit lock update.
+//! Afterward, the project uses the commit and bytes pinned in the lock.
 
 use std::path::PathBuf;
 

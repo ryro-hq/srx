@@ -1,12 +1,17 @@
-//! Confere a aplicação, o loader e as bibliotecas antes de executar.
+//! Checking the application, loader and libraries before execution.
 //!
-//! A verificação lê o ELF dos artifacts e resolve as dependências só pelos
-//! providers declarados. Não chama `ldd` nem executa um arquivo para descobrir
-//! suas bibliotecas.
+//! # Verifying the executable closure
 //!
-//! [`RuntimeClosure`] guarda os `RuntimeFile` completos e os handles de todos os
-//! outputs. O launcher mantém essa closure até o namespace encerrar, antes de
-//! propagar o status ou liberar a retenção.
+//! Verification reads artifact ELF metadata and resolves dependencies only through
+//! declared providers. It neither calls `ldd` nor executes a file to discover its
+//! libraries.
+//!
+//! # Retaining files until execution ends
+//!
+//! [`RuntimeClosure`] keeps complete [`RuntimeFile`] values and handles for all
+//! outputs. The launcher retains this closure until the namespace settles, before
+//! propagating status or releasing retention. [`launch_preparation`](../../src/syrox_engine/runtime/launch_preparation.rs.html) gathers the
+//! invocation resources; [`crate::execution`] owns admission and process evidence.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;

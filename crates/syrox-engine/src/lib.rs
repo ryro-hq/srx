@@ -1,17 +1,46 @@
-//! Do projeto `.srx` ao build, ao programa em execução e à instalação.
+//! From a `.srx` project to builds, running programs and installations.
 //!
-//! Comece por [`project`]: ele carrega as fontes, confere o lock e prepara o
-//! [`plan::Plan`]. [`plan`] descreve o que será feito. [`realize`] usa esse plano
-//! para adquirir fontes e realizar os outputs escolhidos.
+//! Start with [`project`] for loading and evaluation, then follow the topic your
+//! change affects. Each operation owns the resources it opens through settlement.
 //!
-//! [`store`] guarda os objetos; [`result`] reúne os outputs e suas referências.
-//! [`runtime`] verifica a aplicação, o loader e as bibliotecas antes de executar.
-//! Os handles ficam vivos enquanto o processo ainda pode usar esses arquivos.
+//! # From projects to builds
 //!
-//! [`deployment::shell`] cuida das sessões temporárias. [`deployment::os`] cuida
-//! das gerações persistentes e da recuperação. Os protocolos de execução ficam
-//! em [`execution`], a comunicação com o manager em [`systemd`] e os detalhes de
-//! Linux em [`platform`]. Cada operação cuida dos recursos que abriu até encerrar.
+//! [`project`] loads sources, checks the lock and prepares a [`project::PreparedPlan`].
+//! [`plan`] describes acquisition, builds and consumers before host effects begin.
+//! [`realize`] resolves a selection and realizes its dependencies using [`acquire`]
+//! and [`build`]. A prepared plan carries input origins so realization uses the
+//! same project preparation.
+//!
+//! # Keeping outputs alive
+//!
+//! [`store`] keeps objects by digest and provides leases for access and retention.
+//! [`result`] groups admitted outputs and their references. [`runtime`] checks the
+//! application, loader and libraries before execution. Its handles keep those
+//! files alive until the processes that can use them have settled.
+//!
+//! # Shell sessions and Os generations
+//!
+//! [`deployment::shell`] owns temporary sessions and their commands, configuration
+//! and secrets. [`deployment::os`] owns persistent generations and records the
+//! effects of applying them. Both use [`execution`] for admission and process
+//! observations, [`systemd`] for manager communication and [`platform`] for Linux
+//! handles. Follow these modules for the contracts behind each handoff.
+//!
+//! # Cancellation and recovery
+//!
+//! [`cancellation`] provides cooperative cancellation; each transport also needs
+//! its own way to bound a blocked read. [Build cancellation] tracks interest in
+//! shared producers, so cancelling one consumer need not cancel another's build.
+//!
+//! Recovery reconciles durable records with observed execution before releasing
+//! resources. Start with the [build journal] for interrupted builds or
+//! [Os recovery] for installations. A missing reply can leave
+//! an effect unresolved; neither cancellation nor reading a journal proves that
+//! execution has ended.
+//!
+//! [Build cancellation]: ../src/syrox_engine/build/cancellation/mod.rs.html
+//! [build journal]: ../src/syrox_engine/build/journal/mod.rs.html
+//! [Os recovery]: ../src/syrox_engine/deployment/os/apply/recovery/mod.rs.html
 
 #[cfg(not(target_os = "linux"))]
 compile_error!("syrox-engine supports Linux only");

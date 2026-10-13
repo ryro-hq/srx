@@ -1,11 +1,13 @@
-//! Avalia o programa que passou pela checagem.
+//! Evaluating a program that passed checking.
 //!
-//! A avaliação usa a mesma política e um ambiente explícito. Trabalho, expansão
-//! e dados retidos têm limites próprios. Os valores descrevem receitas e seus
-//! recursos; adquirir arquivos e executar builds ficam na engine.
+//! Evaluation uses the same policy and an explicit environment. Work, expansion
+//! and retained data have separate limits. Values describe recipes and their
+//! resources; acquiring files and executing builds belong to the engine.
 //!
-//! [`evaluate`] avalia tudo. [`EvaluationSession`] permite selecionar publicações
-//! sob demanda, mantendo o ambiente e os valores compartilhados entre consultas.
+//! [`evaluate`] evaluates everything. [`EvaluationSession`] selects publications
+//! on demand, keeping the environment and shared values between queries. See
+//! [`session`](../../src/syrox_lang/evaluator/session/mod.rs.html) for the lifetime of its budget and [`calls`](../../src/syrox_lang/evaluator/runtime/calls.rs.html) for restoring
+//! local bindings when a function call fails.
 
 mod environment;
 mod index;

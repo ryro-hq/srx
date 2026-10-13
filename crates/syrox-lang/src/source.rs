@@ -1,8 +1,9 @@
-//! Texto e coordenadas usados pelas etapas da linguagem.
+//! Text and coordinates shared by the language stages.
 //!
-//! Um `SourceId` só identifica uma fonte dentro do seu `SourceSet`. Guarde o
-//! conjunto junto dos spans que pretende consultar. Domínios separam o projeto,
-//! a std e os inputs, inclusive quando eles têm nomes de módulos iguais.
+//! A [`SourceId`] identifies a source only within its [`SourceSet`]. Keep that set
+//! with the spans you intend to query. Domains separate the project, standard
+//! library and inputs even when they contain modules with the same names.
+//! [`crate::syntax`] preserves these coordinates when parsing.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;

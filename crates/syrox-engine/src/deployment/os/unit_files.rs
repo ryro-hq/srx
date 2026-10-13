@@ -1,8 +1,8 @@
-//! Publicação dos unit files pertencentes a uma instalação.
+//! Publishing unit files owned by an installation.
 //!
-//! O lock permanente da instalação serializa os escritores que seguem esse
-//! protocolo. Outros processos do mesmo usuário não devem mudar esses arquivos
-//! enquanto a operação trabalha neles. Publicar o arquivo não autoriza start.
+//! The permanent installation lock serializes writers following this protocol.
+//! Other processes of the same user must not change these files while the operation
+//! uses them. Publishing a file does not authorize a start.
 
 use crate::platform::linux::fd::{self as linux_fd, FileIdentity, FlockMode, OpenedPath};
 use crate::{cancellation::Cancellation, store::ContentDigest, systemd::SystemdUnitName};

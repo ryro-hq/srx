@@ -1,8 +1,8 @@
-//! Registro do trabalho e das decisões observadas durante a checagem de um body.
+//! Recording work and decisions observed while checking a body.
 //!
-//! O replay compara essas observações com outro estado de orçamento e instâncias.
-//! Se algum limite ou decisão muda, ele recusa o resultado. O registro não
-//! instala fatos no checker nem faz a avaliação de um body ser pulada.
+//! Replay compares these observations with another budget and instance state.
+//! If any limit or decision changes, replay rejects the result. The record does
+//! not install facts in the checker or cause a body's evaluation to be skipped.
 
 use super::{BodyBudget, Checker};
 use crate::{

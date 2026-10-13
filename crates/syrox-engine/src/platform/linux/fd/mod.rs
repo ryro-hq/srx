@@ -1,12 +1,13 @@
-//! Descritores Linux e os pontos de contato com a ABI.
+//! Linux descriptors and calls into the ABI.
 //!
-//! Cada handle cru é conferido antes de virar um tipo com dono em Rust. Uma
-//! transferência bem-sucedida deixa um único dono responsável por fechá-lo.
-//! Os comentários de segurança junto das chamadas explicam os requisitos da ABI.
+//! Each raw handle is checked before becoming an owned Rust type. A successful
+//! transfer leaves one owner responsible for closing it. Safety comments beside
+//! the calls explain ABI requirements.
 //!
-//! A publicação atômica conserva e revalida a identidade do descritor. Escritas
-//! concorrentes por terceiros num diretório de projeto mutável ainda precisam
-//! ser consideradas por quem autorizou aquele diretório.
+//! Atomic publication retains and revalidates descriptor identity. Concurrent
+//! third-party writes in a mutable project directory must still be considered by
+//! the caller that authorized that directory. [`process`] covers process identity;
+//! [`terminal`] covers PTYs and restoration.
 
 use self::process::pidfs_metadata;
 

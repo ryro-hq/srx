@@ -1,9 +1,17 @@
-//! Gerações persistentes e aplicação da configuração Os.
+//! Persistent generations and application of Os configuration.
 //!
-//! O manifesto descreve a geração; sozinho, não autoriza um start. A instalação
-//! associa seus objetos à Store e o apply registra os efeitos antes de executá-los.
-//! A recuperação confere esses registros e a execução observada para continuar
-//! o fechamento sem iniciar uma geração por acidente.
+//! # Preparing and applying a generation
+//!
+//! The manifest describes a generation; it does not by itself authorize a start.
+//! [`installation`](../../../src/syrox_engine/deployment/os/installation/mod.rs.html) associates its objects with the Store. [`apply`](../../../src/syrox_engine/deployment/os/apply/mod.rs.html) records
+//! effects in [`activation`](../../../src/syrox_engine/deployment/os/activation/mod.rs.html) before executing them. [`launch_binding`](../../../src/syrox_engine/deployment/os/launch_binding/mod.rs.html) binds an
+//! invocation to the selected generation, process and context.
+//!
+//! # Recovering interrupted effects
+//!
+//! [`recovery`](../../../src/syrox_engine/deployment/os/apply/recovery/mod.rs.html) checks records and observed execution to continue settlement
+//! without accidentally starting a generation. A partial apply does not make the
+//! whole generation applied or permit collection of old resources.
 
 pub(crate) mod abandon;
 pub(crate) mod activation;

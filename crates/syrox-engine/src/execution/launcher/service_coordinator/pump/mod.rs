@@ -1,8 +1,8 @@
-//! Admissão dos serviços enquanto o comando foreground está em andamento.
+//! Admitting services while the foreground command is running.
 //!
-//! Os restarts ficam com o systemd. Se o pump for perdido, o interesse durável
-//! na Store permanece, para que a recuperação possa conferir a execução antes
-//! de soltar os recursos.
+//! systemd owns restarts. If the pump is lost, durable Store interest remains so
+//! recovery can check execution before releasing resources. [`closing`] owns the
+//! sequence that ends admission, checks the manager epoch and observes settlement.
 
 use super::{OwnerHandle, ServiceError, ServiceOwner};
 use crate::execution::journal::{

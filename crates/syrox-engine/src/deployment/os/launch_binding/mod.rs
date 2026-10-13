@@ -1,8 +1,8 @@
-//! Liga uma invocação à geração, ao processo e ao contexto escolhidos no apply.
+//! Binding an invocation to the generation, process and context selected by apply.
 //!
-//! Paths ajudam a reabrir os recursos. A invocação ainda precisa conferir conteúdo,
-//! diretórios e autorização no journal. Um path salvo não prova ownership nem
-//! permite apagar arquivos durante a recuperação.
+//! Paths help reopen resources. The invocation must still check content,
+//! directories and journal authorization. A saved path neither proves ownership
+//! nor permits file removal during recovery.
 
 use super::{activation::ExecutionEpoch, manifest::LauncherIdentity};
 use crate::{store::ContentDigest, systemd::SystemdUnitName};

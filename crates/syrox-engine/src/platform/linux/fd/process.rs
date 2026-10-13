@@ -1,8 +1,7 @@
-//! Credenciais e identidades de processos obtidas por handles do kernel.
+//! Process credentials and identities obtained through kernel handles.
 //!
-//! Um PID numérico pode ser reutilizado. O pidfd mantém a referência ao processo
-//! observado; os descritores dos namespaces guardam as identidades usadas nas
-//! comparações seguintes.
+//! A numeric PID can be reused. A pidfd retains the observed process reference;
+//! namespace descriptors keep the identities used in subsequent comparisons.
 
 use super::{
     AsFd, AsRawFd, BorrowedFd, File, FromRawFd, Metadata, OwnedFd, filesystem_type, io, metadata,

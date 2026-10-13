@@ -1,8 +1,11 @@
-//! Helper Linux que prepara o namespace e supervisiona o payload.
+//! A Linux helper that prepares the namespace and supervises the payload.
 //!
-//! Ele executa em um processo dedicado, com uma só thread. O monitor conserva
-//! o PID 1 do namespace até terminar o wait. Perder o coordenador fecha o canal
-//! de controle e leva a execução ao fechamento.
+//! It runs in a dedicated process with one thread. The monitor retains namespace
+//! PID 1 until its wait completes. Losing the coordinator closes the control
+//! channel and drives execution toward settlement.
+//!
+//! [`proxy::custodian`] adopts and reaps descendants independently of the monitor.
+//! [`terminal_custody`] owns terminal restoration and its concurrency limits.
 
 use std::ffi::{CString, OsString};
 use std::io::{self, Read as _};

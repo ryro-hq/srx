@@ -1,8 +1,20 @@
-//! Entrada do comando `srx`.
+//! The `srx` command entry point.
 //!
-//! `cli` lê os argumentos e chama as operações da engine. `lsp` atende o editor
-//! com snapshots da linguagem. A execução interna tem outro binário, em
-//! `worker.rs`, para que mudanças na CLI não mudem a identidade do worker.
+//! # Dispatching commands
+//!
+//! Start with [`cli`], which parses arguments, selects configuration and dispatches
+//! engine operations. Its command handlers translate results into CLI output and
+//! exit status.
+//!
+//! # Serving the editor
+//!
+//! [`lsp`] serves editor requests from language snapshots. Its analysis and
+//! formatting workers return versioned results that the session checks before
+//! publication.
+//!
+//! Internal execution uses a separate binary, [the worker](../syrox_worker/index.html),
+//! so CLI changes do not change the worker's identity. Its entry explains modes
+//! and admission; the engine owns the execution protocols.
 
 mod cli;
 #[cfg(target_os = "linux")]

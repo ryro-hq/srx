@@ -1,8 +1,8 @@
-//! Avaliação sob demanda das publicações de um projeto.
+//! Evaluating a project's publications on demand.
 //!
-//! A sessão mantém o programa checado, a política e o ambiente entre consultas.
-//! Uma nova seleção reaproveita os valores já avaliados, mas continua cobrando
-//! trabalho e retenção no orçamento da mesma sessão.
+//! The session keeps the checked program, policy and environment between queries.
+//! A new selection reuses values already evaluated, but continues charging work
+//! and retention against the same session's budget.
 
 use std::{
     collections::{BTreeMap, BTreeSet},

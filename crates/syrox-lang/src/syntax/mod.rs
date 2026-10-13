@@ -1,8 +1,12 @@
-//! Sintaxe dos arquivos `.srx`, com os spans do texto original.
+//! Syntax for `.srx` files, with spans into the original text.
 //!
-//! [`parse_sources`] é a entrada para um conjunto de fontes válido. [`parse_file`]
-//! guarda também tokens, comentários e trechos incompletos para o editor. A árvore
-//! recuperada permite continuar uma consulta, sem tornar o arquivo válido.
+//! [`parse_sources`] accepts a source set for the language pipeline and reports
+//! syntax errors before resolution. [`parse_file`] also retains tokens, comments
+//! and incomplete regions for editor queries. A recovered tree lets a query
+//! continue; it does not make the file valid.
+//!
+//! See [`parser`] for recovery and resource limits, then [`crate::resolver`] for
+//! binding names in a successfully parsed source set.
 
 pub mod lexer;
 pub mod parser;

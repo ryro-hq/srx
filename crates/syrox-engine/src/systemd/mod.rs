@@ -1,22 +1,29 @@
-//! Comunicação local com o manager systemd, usando o cliente D-Bus da engine.
+//! Local communication with systemd through the engine's D-Bus client.
 //!
-//! Aceitar um job, concluir esse job e observar a unidade depois são resultados
-//! diferentes. Se a conexão perder uma resposta, a operação reconecta e reconcilia
-//! o estado antes de decidir o próximo passo. Uma mutação não é repetida só
-//! porque a resposta faltou.
+//! # Jobs and observations
 //!
-//! O manager precisa de systemd >=250 para `ExitType=cgroup`. Builds Managed
-//! precisam de >=254 para conferir a identidade dos descritores com
-//! `DumpFileDescriptorStore`. Os pedidos usam o bus local escolhido e não pedem
-//! autorização interativa.
+//! Accepting a job, completing it and observing the unit afterward are different
+//! outcomes. If a connection loses a reply, the operation reconnects and reconciles
+//! state before deciding what to do next. A mutation is not repeated merely
+//! because its reply was lost.
 //!
-//! Frames têm limite de 1 MiB, headers de 16 KiB, textos de 4 KiB e jobs pendentes
-//! de 64. As operações têm prazo máximo de 300 segundos; waits de socket,
-//! autenticação e resposta observam cancelamento a cada 20 ms. O socket de
-//! notificação trata FD store; transferência de FD/PTY por D-Bus não é implementada.
+//! The manager requires systemd >=250 for `ExitType=cgroup`. Managed builds require
+//! systemd >=254 to check descriptor identity with `DumpFileDescriptorStore`. Requests use
+//! the selected local bus without requesting interactive authorization.
 //!
-//! Os formatos vêm da [especificação D-Bus](https://dbus.freedesktop.org/doc/dbus-specification.html)
-//! e da [interface do manager](https://www.freedesktop.org/software/systemd/man/org.freedesktop.systemd1.html).
+//! # Descriptor retention and limits
+//!
+//! [`notify`](../../src/syrox_engine/systemd/notify.rs.html) sends FD store messages; [`fd_store`](../../src/syrox_engine/systemd/fd_store.rs.html) compares retained descriptors.
+//! [`quiescence`](../../src/syrox_engine/systemd/quiescence/mod.rs.html) observes the pinned cgroup and remaining descriptors. Those
+//! observations must be combined with the caller's process and retention evidence.
+//!
+//! Frames are limited to 1 MiB, headers to 16 KiB, text to 4 KiB and pending jobs
+//! to 64. Operations have a maximum deadline of 300 seconds; socket, authentication
+//! and response waits check cancellation every 20 ms. The notification socket
+//! handles FD store; FD/PTY transfer over D-Bus is not implemented.
+//!
+//! Formats follow the [D-Bus specification](https://dbus.freedesktop.org/doc/dbus-specification.html)
+//! and the [manager interface](https://www.freedesktop.org/software/systemd/man/org.freedesktop.systemd1.html).
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -157,7 +164,7 @@ pub struct SystemdService {
     /// its dependency. A launcher must separately reject revoked invocations.
     pub bound_to: Option<SystemdUnitName>,
     pub executable: PathBuf,
-    /// Argumentos depois de `argv[0]`, sem expansão de shell ou ambiente.
+    /// Arguments after `argv[0]`, without shell or environment expansion.
     pub arguments: Vec<String>,
     pub environment: BTreeMap<String, String>,
     pub working_directory: Option<PathBuf>,

@@ -1,8 +1,9 @@
-//! Coordena a admissão e o fechamento de owners e serviços.
+//! Coordinating admission and settlement of owners and services.
 //!
-//! As mensagens do owner pertencem a este coordenador. Os recursos recebidos e
-//! as observações do manager e dos processos são conferidos em etapas separadas,
-//! antes de liberar gates ou encerrar a retenção.
+//! Owner messages belong to this coordinator. Received resources, manager
+//! observations and process observations are checked in separate stages before
+//! gates are released or retention ends. [`service_coordinator`] handles service
+//! admission and readiness through settlement.
 
 pub(crate) use crate::execution::{resources as service_spec, transport};
 

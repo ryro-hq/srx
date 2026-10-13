@@ -1,8 +1,8 @@
-//! Baixa uma fonte HTTPS e confere seu digest antes de admiti-la na Store.
+//! Fetching an HTTPS source and checking its digest before Store admission.
 //!
-//! TLS confere o servidor; o digest confere os bytes. Redirects, leitura e
-//! cancelamento usam o prazo da mesma aquisição, com limites para tamanho e
-//! quantidade de redirects.
+//! TLS checks the server; the digest checks the bytes. Redirects, reads and
+//! cancellation share one acquisition deadline, with limits on size and the
+//! number of redirects.
 
 #[cfg(target_os = "linux")]
 use std::future::Future;

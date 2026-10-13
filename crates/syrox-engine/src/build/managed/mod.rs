@@ -1,8 +1,10 @@
-//! Build com worker fixado por hash e inputs já conferidos.
+//! Building with a worker pinned by hash and inputs already verified.
 //!
-//! Preparação, handoff, execução e fechamento têm provas diferentes. Receber
-//! um pacote ou um descritor não libera o payload. A autorização depende de
-//! conferir o worker, a invocação do manager, o namespace e a retenção dos inputs.
+//! Preparation, handoff, execution and settlement require different evidence.
+//! Receiving a packet or descriptor does not release the payload. Authorization
+//! depends on verifying the worker, manager invocation, namespace and input
+//! retention. [`namespace_identity`](../../../src/syrox_engine/build/managed/namespace_identity.rs.html) owns the process and namespace comparisons;
+//! [`journal`](../../../src/syrox_engine/build/journal/mod.rs.html) preserves recovery state.
 
 pub(crate) mod cgroup;
 pub(crate) mod entry;

@@ -1,8 +1,8 @@
-//! Fatos de resolução que podem ser comparados entre snapshots.
+//! Resolution facts that can be compared between snapshots.
 //!
-//! As coordenadas ficam relativas ao owner para sobreviver a texto inserido
-//! antes dele. Essa comparação ajuda a detectar mudanças; sozinha, não permite
-//! reaproveitar o resultado da checagem de outro snapshot.
+//! Coordinates are relative to the owner so they survive text inserted before it.
+//! This comparison helps detect changes; it does not by itself permit reuse of
+//! checking results from another snapshot.
 
 use std::{collections::BTreeMap, ops::Range, sync::Arc};
 

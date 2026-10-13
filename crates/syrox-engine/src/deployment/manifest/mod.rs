@@ -1,8 +1,7 @@
-//! Prepara os outputs e comandos de um consumer do plano.
+//! Preparing a plan consumer's outputs and commands.
 //!
-//! O resultado guarda as invocações e as views de que elas precisam. Instalar
-//! configuração ou iniciar processos são passos posteriores, escolhidos pelo
-//! percurso Shell ou Os.
+//! The result keeps invocations and the views they need. Installing configuration
+//! or starting processes are later steps chosen by the Shell or Os path.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;

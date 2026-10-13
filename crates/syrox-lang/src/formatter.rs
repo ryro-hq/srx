@@ -1,8 +1,9 @@
-//! Formata `.srx` preservando os tokens, comentários e strings.
+//! Formatting `.srx` while preserving tokens, comments and strings.
 //!
-//! A sintaxe precisa estar completa antes de emitir texto. Depois da formatação,
-//! os tokens são conferidos outra vez. Resolver imports, avaliar receitas e
-//! atualizar locks ficam fora desta operação.
+//! Syntax must be complete before text is emitted. Tokens are checked again after
+//! formatting. Import resolution, recipe evaluation and lock updates remain outside
+//! this operation. Editors can call [`format_source_cancellable`] on the current
+//! overlay without waiting for project analysis.
 
 use crate::syntax::lexer::{Token, TokenKind};
 use crate::{

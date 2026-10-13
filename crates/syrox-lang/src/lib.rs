@@ -1,19 +1,30 @@
-//! Leitura, checagem e avaliação dos arquivos `.srx`.
+//! Reading, checking and evaluating `.srx` programs.
 //!
-//! O fluxo começa em [`syntax`], resolve os nomes em [`resolver`], checa tipos e
-//! uso de valores em [`checker`] e avalia o programa em [`evaluator`]. Os efeitos
-//! no host ficam na engine. [`source`] guarda o texto e as coordenadas usadas
-//! pelos diagnósticos de todas essas etapas.
+//! Start with the source pipeline below. Host effects, including acquisition and
+//! build execution, belong to `syrox-engine`.
 //!
-//! Para o editor, [`analysis`] trabalha com snapshots e texto ainda incompleto.
-//! Esses resultados ajudam a editar; a avaliação recebe um programa checado.
+//! # Sources and name resolution
+//!
+//! [`source`] owns text and the coordinates used by every stage's diagnostics.
+//! [`syntax`] parses that text while preserving spans. [`resolver`] then binds
+//! names to declarations within the project's source domains. Keep the source
+//! set with any spans you intend to inspect.
+//!
+//! # Checking and evaluation
+//!
+//! [`checker`] checks types, policy and value consumption, producing a
+//! [`checker::CheckedProgram`]. [`evaluator`] uses that program with the same
+//! policy and an explicit environment. Its values describe recipes and resources;
+//! the engine decides how to realize them.
+//!
+//! This example stops at checking, so it needs neither a Store nor a build host:
 //!
 //! ```rust
 //! use syrox_lang::{checker, resolver, source::SourceSet, syntax};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let mut sources = SourceSet::new();
-//! sources.add("main.srx", "value Numero(int); outputs { resposta: Numero = Numero(42); }")?;
+//! sources.add("main.srx", "value Number(int); outputs { answer: Number = Number(42); }")?;
 //!
 //! let parsed = syntax::parse_sources(&sources).map_err(|errors| format!("{errors:?}"))?;
 //! let resolved = resolver::resolve(parsed).map_err(|errors| format!("{errors:?}"))?;
@@ -22,6 +33,15 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! # Editor snapshots and formatting
+//!
+//! [`analysis`] answers queries against snapshots, including incomplete text.
+//! Those partial facts help editing; evaluation still requires a checked program.
+//! Keep the snapshot with the query result and check its revision before publishing.
+//!
+//! [`formatter`] needs complete syntax and checks that formatting preserves tokens.
+//! It works on one source without resolving imports or evaluating a project.
 
 pub mod analysis;
 pub mod checker;
@@ -33,13 +53,13 @@ pub mod resolver;
 pub mod source;
 pub mod syntax;
 
-/// Limite de bytes por arquivo de fonte.
+/// Maximum bytes per source file.
 pub const MAX_SOURCE_BYTES: usize = 1024 * 1024;
-/// Limite de arquivos num conjunto de fontes.
+/// Maximum files in a source set.
 pub const MAX_SOURCES: usize = 65_536;
-/// Limite de tokens por arquivo, incluindo comentários e espaços.
+/// Maximum tokens per file, including comments and whitespace.
 pub const MAX_TOKENS: usize = 262_144;
-/// Limite de aninhamento de delimitadores e módulos.
+/// Maximum nesting depth of delimiters and modules.
 pub const MAX_DEPTH: usize = 128;
-/// Limite de diagnósticos por etapa da análise.
+/// Maximum diagnostics per analysis stage.
 pub const MAX_DIAGNOSTICS: usize = 256;

@@ -1,8 +1,11 @@
-//! Configuração e comandos de uma sessão Shell.
+//! Configuration and commands for a Shell session.
 //!
-//! A sessão mantém seus outputs, secrets e arquivos enquanto os comandos podem
-//! usá-los. No modo Managed, o owner coordena os serviços e fecha a sessão depois
-//! do settlement. A instalação persistente pertence ao percurso Os.
+//! The session keeps its outputs, secrets and files alive while commands can use
+//! them. In Managed mode, the owner coordinates services and closes the session
+//! after settlement. Persistent installation belongs to [`super::os`].
+//!
+//! See [`commands`](../../../src/syrox_engine/deployment/shell/commands.rs.html) for the public alias directory and its broker checks, and
+//! [`managed`](../../../src/syrox_engine/deployment/shell/managed/mod.rs.html) for service supervision, retained state and recovery.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;

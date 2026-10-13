@@ -1,7 +1,7 @@
-//! Chamadas de função e seus bindings locais.
+//! Function calls and their local bindings.
 //!
-//! Ao sair da chamada, o frame anterior precisa ser restaurado também nos
-//! erros de avaliação, profundidade ou expansão.
+//! Leaving a call must restore the previous frame even after evaluation, depth
+//! or expansion errors.
 
 use super::{
     BTreeMap, Block, CanonicalType, Elaboration, Eval, Evaluator, Expression, Halt, ItemId,

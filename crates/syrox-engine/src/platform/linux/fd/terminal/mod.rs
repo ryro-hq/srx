@@ -1,8 +1,8 @@
-//! PTYs e atributos do terminal, sempre com descritores abertos.
+//! PTYs and terminal attributes accessed through open descriptors.
 //!
-//! Criar uma PTY não altera o terminal do chamador. O guard do modo raw restaura
-//! os atributos ao retornar ou fazer unwind. Se o processo receber SIGKILL,
-//! a restauração depende do monitor que conserva a custody fora da CLI.
+//! Creating a PTY does not change the caller's terminal. The raw-mode guard restores
+//! attributes on return or unwind. After SIGKILL, restoration depends on the
+//! monitor that retains custody outside the CLI.
 
 use std::fmt;
 use std::io;

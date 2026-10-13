@@ -1,8 +1,8 @@
-//! Observação usada para confirmar o fechamento de um comando.
+//! Observations used to confirm command settlement.
 //!
-//! EOF e saída do init não bastam para soltar a retenção. O guardian precisa
-//! confirmar `ECHILD` no processo que adotou os descendentes, e o coordenador
-//! espera a saída desse mesmo guardian antes de concluir o fechamento.
+//! EOF and init exit are insufficient to release retention. The guardian must
+//! confirm `ECHILD` in the process that adopted the descendants. The coordinator
+//! then waits for that same guardian to exit before completing settlement.
 
 use std::io;
 use std::os::fd::{AsFd as _, BorrowedFd, OwnedFd};

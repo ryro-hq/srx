@@ -1,8 +1,8 @@
-//! Interesses nos objetos e views usados por uma operação ou processo.
+//! Interests in objects and views used by an operation or process.
 //!
-//! Cada interesse usa seu próprio inode de lock. Assim, manter um output vivo
-//! não bloqueia toda a manutenção da Store. O manager pode guardar um descritor
-//! independente do interesse; ele precisa continuar retido até o processo encerrar.
+//! Each interest uses its own lock inode, so keeping an output alive does not block
+//! all Store maintenance. The manager can keep an independent descriptor for the
+//! interest; it must remain retained until the process settles.
 
 use super::*;
 use std::fmt::Write as _;

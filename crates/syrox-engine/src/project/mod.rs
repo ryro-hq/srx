@@ -1,11 +1,17 @@
-//! Carrega o projeto, confere suas fontes e prepara a avaliação.
+//! Loading a project, verifying its sources and preparing evaluation.
 //!
-//! O lock e a std são conferidos antes de preparar o plano. [`PreparedPlan`]
-//! guarda o resultado e a origem dos inputs para que a realização não precise
-//! ler uma revisão diferente do projeto.
+//! # One preparation for planning and realization
 //!
-//! [`ProjectAnalysis`] é o percurso do editor: aceita overlays e mantém os
-//! snapshots com os quais cada consulta trabalhou.
+//! The lock and standard library are checked before the plan is prepared.
+//! [`PreparedPlan`] keeps the result and input origins so [`crate::realize`] does
+//! not read a different project revision. See [`lock`] for pinned identities and
+//! [`prepared`](../../src/syrox_engine/project/prepared.rs.html) for the data retained with the plan.
+//!
+//! # Editing a project
+//!
+//! [`ProjectAnalysis`] accepts overlays and keeps the snapshots used by each query.
+//! This path can report partial editor facts; execution uses the checked evaluation
+//! path. [`editor`](../../src/syrox_engine/project/editor.rs.html) owns project snapshots and [`evaluation`](../../src/syrox_engine/project/evaluation.rs.html) owns locked evaluation.
 
 #[cfg(target_os = "linux")]
 mod analyze;

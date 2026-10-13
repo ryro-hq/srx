@@ -1,8 +1,8 @@
-//! Observações dos processos fixados de um serviço.
+//! Observations of a service's pinned processes.
 //!
-//! `MainPID` identifica o monitor de um init de namespace específico. Isso não
-//! prova que o cgroup ficou vazio. O fechamento precisa conferir também o
-//! namespace e os recursos retidos antes de liberá-los.
+//! `MainPID` identifies the monitor of a specific namespace init. This does not
+//! prove that the cgroup is empty. Settlement must also check the namespace and
+//! retained resources before releasing them.
 
 use crate::execution::journal::{
     AttemptBinding, AttemptId, OwnershipError, RoleBinding, SessionId,

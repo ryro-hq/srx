@@ -1,8 +1,8 @@
-//! Cancelamento cooperativo das operações da engine.
+//! Cooperative cancellation of engine operations.
 //!
-//! Os leitores conferem cancelamento antes de cada read e devolvem um erro que
-//! não pede retry. Um read que já bloqueou precisa do mecanismo de prazo ou
-//! interrupção do próprio transporte; o token sozinho não o interrompe.
+//! Readers check cancellation before each read and return an error that does not
+//! request a retry. An already blocked read needs the transport's own deadline or
+//! interruption mechanism; the token alone cannot interrupt it.
 
 /// Cancellation observation without producer publication authority.
 pub(crate) trait OperationControl: fmt::Debug + Send + Sync {

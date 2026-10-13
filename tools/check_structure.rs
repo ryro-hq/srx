@@ -1,8 +1,8 @@
-//! Confere onde os módulos de produção ficam nas três crates.
+//! Checking where production modules live across the three crates.
 //!
-//! As entradas das crates precisam apresentar o fluxo de leitura. Arquivos
-//! internos podem ficar sem docs quando o nome e o código já explicam seu papel.
-//! Diretórios com `mod.rs` continuam reservados a módulos com filhos de produção.
+//! Crate entries must introduce the reading flow. Internal files may omit docs
+//! when their names and code already explain their role. Directories with `mod.rs`
+//! remain reserved for modules with production children.
 
 use std::fs;
 use std::io;

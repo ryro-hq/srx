@@ -1,12 +1,14 @@
-//! Objetos por digest e referências que os mantêm vivos.
+//! Objects addressed by digest and interests that keep them alive.
 //!
-//! [`Store::operation`] abre o acesso usado para ler e publicar. A manutenção
-//! usa outro lease para varrer o que já pode ser coletado. Esse bloqueio global
-//! não precisa durar enquanto um processo usa um output: [`ObjectLease`] guarda
-//! um interesse menor nos objetos e views necessários.
+//! # Access and retention have different lifetimes
 //!
-//! Digest confere conteúdo; o descritor aberto confere qual diretório ou arquivo
-//! está sendo usado. Publicação e coleta precisam das duas informações.
+//! [`Store::operation`] opens access for reading and publication. Maintenance uses
+//! a separate lease to sweep collectible objects. This global lock need not last
+//! while a process uses an output: [`ObjectLease`] keeps a narrower interest in the
+//! required objects and views. See [`retention`](../../src/syrox_engine/store/retention/mod.rs.html) for the locks behind each interest.
+//!
+//! A digest verifies content; an open descriptor identifies the directory or file
+//! being used. Publication and collection require both pieces of information.
 
 use std::io::{self, Read};
 use std::path::Path;

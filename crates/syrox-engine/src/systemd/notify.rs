@@ -1,10 +1,10 @@
-//! Mensagens e descritores enviados ao socket de notificação do manager.
+//! Messages and descriptors sent to the manager's notification socket.
 //!
-//! A origem do endpoint vem do contexto conferido pelo launcher. Conectar ao
-//! socket não autentica o manager, e cancelar o pedido não retira uma mensagem
-//! que já foi enviada.
+//! The endpoint comes from context verified by the launcher. Connecting to the
+//! socket does not authenticate the manager, and cancelling a request does not
+//! withdraw a message already sent.
 //!
-//! Referência: <https://raw.githubusercontent.com/systemd/systemd/v250/man/sd_notify.xml>.
+//! Reference: <https://raw.githubusercontent.com/systemd/systemd/v250/man/sd_notify.xml>.
 
 use std::io;
 use std::mem::size_of;

@@ -1,8 +1,8 @@
-//! Lê uma fonte fixada por digest dentro de um diretório autorizado.
+//! Reading a source pinned by digest within an authorized directory.
 //!
-//! A URL aponta para os bytes. A permissão para lê-los vem do diretório já aberto,
-//! com os componentes conferidos sem seguir symlinks. Um path do projeto não
-//! serve como prova de identidade da Store.
+//! The URL identifies the bytes. Read authority comes from the already open
+//! directory, with path components checked without following symlinks. A project
+//! path does not prove Store identity.
 
 use std::io;
 use std::path::{Path, PathBuf};

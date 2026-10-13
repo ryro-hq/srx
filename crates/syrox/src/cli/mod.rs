@@ -1,8 +1,9 @@
-//! Lê os argumentos de `srx` e chama a operação escolhida.
+//! Parsing `srx` arguments and dispatching the selected operation.
 //!
-//! Os handlers em `commands` cuidam dos domínios da engine. Aqui ficam a escolha
-//! da configuração, a std empacotada e a tradução do resultado para o status da
-//! CLI. O worker entra por outro binário.
+//! [`arguments`] defines command inputs. Handlers in [`commands`] own the engine
+//! operation for each domain. This module selects configuration and the bundled
+//! standard library, then translates the result into CLI status. [`crate::lsp`]
+//! serves editor requests; the internal worker enters through another binary.
 
 use crate::lsp;
 use arguments::{Cli, Command, HostCommand, StandardLibrarySelection};

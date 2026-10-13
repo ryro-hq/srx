@@ -669,30 +669,46 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 
 The [CI workflow](.github/workflows/ci.yml) also checks dependencies and the static Linux binaries. Native build and runtime integration tests require an appropriately configured Linux host.
 
-## Como ler o código
+## Reading the code
 
-Comece na raiz da crate que você vai mexer:
+Start at the root of the crate you intend to change, then follow its topic links:
 
-- [`syrox-lang`](crates/syrox-lang/src/lib.rs) acompanha o texto `.srx` até a avaliação, além das consultas do editor.
-- [`syrox-engine`](crates/syrox-engine/src/lib.rs) acompanha o projeto até os outputs, a execução e a instalação.
-- [`srx`](crates/syrox/src/main.rs) entra na CLI ou no LSP. O [worker](crates/syrox/src/worker.rs) tem outra entrada.
+- [`syrox-lang`](crates/syrox-lang/src/lib.rs): sources and resolution, checking and evaluation, editor snapshots and formatting.
+- [`syrox-engine`](crates/syrox-engine/src/lib.rs): projects and builds, output retention and execution, Shell sessions and Os generations, cancellation and recovery.
+- [`srx`](crates/syrox/src/main.rs): command dispatch and LSP integration. The [worker entry](crates/syrox/src/worker.rs) explains its separate identity, modes and admission.
 
-Dali, siga o módulo da operação. As docs ficam mais específicas quando chegam
-no contrato que precisa de explicação: o que um handle mantém vivo, quando
-um resultado pode ser publicado ou o que a recuperação precisa conferir.
-Arquivo com nome claro e implementação óbvia pode ficar sem introdução.
+From there, follow the operation to the contracts that need explanation: what a
+handle keeps alive, when a result may be published, or what recovery must verify.
+Internal docs describe decisions, data passed between stages and resource
+lifetimes. A clearly named file with an obvious implementation can omit an
+introduction.
 
-Escreva como explicaria o código para outra pessoa do projeto. Primeiro o
-fluxo, depois a decisão que não aparece só de ler a assinatura. Um exemplo
-ajuda quando mostra um uso real; getters e pequenos helpers não precisam de
-texto só para preencher espaço. Comentários de segurança ficam junto das
-chamadas que dependem deles.
+Write documentation in plain English with short paragraphs. Introduce the flow,
+then explain the decision that a signature alone does not reveal. Use an example
+when it shows a meaningful use; getters and small helpers need no filler.
+Keep safety comments beside the calls whose requirements they explain.
 
-Essa organização usa a [introdução por crate do rustdoc](https://doc.rust-lang.org/rustdoc/how-to-write-documentation.html)
-e a orientação de [usar exemplos com um motivo](https://rust-lang.github.io/api-guidelines/documentation.html#c-example).
-O [checker](tools/check_structure.rs) confere as entradas e a estrutura dos
-módulos, sem exigir cabeçalho em cada arquivo. O histórico de reorganização
-e de APIs está no [PLANO](docs/PLANO.md).
+The topic guide follows [Tokio's crate tour](https://docs.rs/tokio/latest/tokio/).
+The explanations for contributors follow the
+[rust-analyzer architecture guide](https://rust-analyzer.github.io/book/contributing/architecture.html),
+which connects code structure to the decisions behind it. The
+[checker](tools/check_structure.rs) checks crate entries and module layout without
+requiring a header in every file. Reorganization and API history remain in
+[PLANO](docs/PLANO.md).
+
+To check the reading guide and its links, generate private-item documentation and
+run the examples and layout regressions:
+
+```sh
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --locked --all-features --no-deps --document-private-items
+RUSTDOCFLAGS="-D warnings" cargo test --workspace --locked --all-features --doc
+cargo fmt --all -- --check
+rustfmt --edition 2024 --check tools/check_structure.rs
+rustc --edition 2024 -D warnings --test tools/check_structure.rs -o /tmp/syrox-check-structure-tests
+/tmp/syrox-check-structure-tests
+rustc --edition 2024 -D warnings tools/check_structure.rs -o /tmp/syrox-check-structure
+/tmp/syrox-check-structure
+```
 
 ## License
 

@@ -1,11 +1,13 @@
-//! Liga cada nome à declaração que ele pode acessar.
+//! Binding each name to a declaration it may access.
 //!
-//! O namespace inteiro é coletado antes de resolver referências, então a ordem
-//! das declarações não define a visibilidade. A identidade de um item é seu
-//! domínio e a sequência de segmentos do path, não o texto usado para exibi-lo.
+//! The whole namespace is collected before references are resolved, so declaration
+//! order does not determine visibility. An item's identity is its domain and path
+//! segments, rather than the text used to display it.
 //!
-//! [`resolve`] entrega um programa válido ou diagnósticos. A análise do editor
-//! usa a resolução parcial para consultar as declarações que já estão disponíveis.
+//! [`resolve`] returns a valid resolved program or diagnostics, ready for
+//! [`crate::checker`]. Editor analysis uses partial resolution to query declarations
+//! already available. [`editor`](../../src/syrox_lang/resolver/editor.rs.html) follows the same visibility rules; [`owners`](../../src/syrox_lang/resolver/owners/mod.rs.html)
+//! records facts for comparison between snapshots.
 
 mod body;
 mod collections;

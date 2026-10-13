@@ -1,9 +1,9 @@
-//! Reconcilia efeitos interrompidos com o estado observado da instalação.
+//! Reconciling interrupted effects with observed installation state.
 //!
-//! Uma chamada pode ter funcionado mesmo que sua resposta tenha faltado. A
-//! reconciliação comum consulta o estado sem emitir Start, Stop ou Reload. Se
-//! o manager mudou, o percurso próprio revoga a autoridade antiga antes de um
-//! Stop autorizado. As raízes retidas continuam guardadas durante a recuperação.
+//! A call may have succeeded even when its reply was lost. Ordinary reconciliation
+//! queries state without issuing Start, Stop or Reload. If the manager changed,
+//! the dedicated path revokes old authority before an authorized Stop. Retained
+//! roots stay held throughout recovery.
 
 use super::{
     manager::ApplyManager,

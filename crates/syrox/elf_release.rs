@@ -1,7 +1,7 @@
-//! Confere se a imagem da release é ELF64/x86_64 estático.
+//! Checking that a release image is static `ELF64/x86_64`.
 //!
-//! A leitura tem limites para tabelas e segmentos. Loader externo ou
-//! dependência dinâmica fazem a imagem ser recusada para distribuição.
+//! Reading bounds table and segment sizes. An external loader or dynamic dependency
+//! causes the image to be rejected for distribution.
 
 fn number(bytes: &[u8], start: usize, size: usize) -> Option<u64> {
     let slice = bytes.get(start..start.checked_add(size)?)?;

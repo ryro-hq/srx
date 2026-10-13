@@ -1,8 +1,9 @@
-//! Checagem de um body sem misturar seus fatos com o body seguinte.
+//! Checking one body without mixing its facts with the next body's facts.
 //!
-//! Cada resultado guarda os fatos e o custo observado. Limites e deduplicação
-//! de instâncias genéricas continuam valendo para a checagem inteira. Publicar
-//! esses fatos não cria uma entrada de cache entre revisões.
+//! Each result keeps its facts and observed cost. Limits and generic-instance
+//! deduplication still apply to the whole checking run. Publishing these facts
+//! does not create a cache entry across revisions. [`effects`] records the work
+//! and decisions used to compare a body against another checking state.
 
 use super::{
     BTreeMap, BTreeSet, Binding, CheckedExpression, CheckedLocal, CheckedPattern, Checker,

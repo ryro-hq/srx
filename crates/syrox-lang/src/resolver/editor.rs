@@ -1,7 +1,7 @@
-//! Consultas do editor sobre os nomes que o resolver já coletou.
+//! Editor queries over names already collected by the resolver.
 //!
-//! Lookup e completion seguem as mesmas regras de visibilidade da resolução,
-//! inclusive imports e interfaces de módulos fechadas.
+//! Lookup and completion follow resolution's visibility rules, including imports
+//! and closed module interfaces.
 
 use super::{
     BTreeMap, BTreeSet, DomainPath, Expected, ItemId, ItemKind, LocalId, ModuleId, ModuleInfo,

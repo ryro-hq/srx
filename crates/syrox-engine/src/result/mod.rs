@@ -1,9 +1,12 @@
-//! Outputs que podem ser guardados e consumidos depois do build.
+//! Outputs that can be stored and consumed after a build.
 //!
-//! Um resultado importado é admitido por seu manifesto e pins, sem inventar um
-//! registro de build. Para materializar, ele conserva os objetos referenciados e
-//! abre uma view conferida. O manifesto também liga os comandos aos outputs que
-//! fornecem a aplicação, o loader e as bibliotecas.
+//! An imported result is admitted through its manifest and pins without inventing
+//! a build record. Materialization retains referenced objects and opens a verified
+//! view. The manifest also binds commands to the outputs providing their
+//! application, loader and libraries.
+//!
+//! See [`materialize`](../../src/syrox_engine/result/materialize/mod.rs.html) for view reconstruction and handle lifetime, then
+//! [`crate::runtime`] for checking a command's executable closure.
 
 pub(crate) mod artifact;
 pub(crate) mod materialize;

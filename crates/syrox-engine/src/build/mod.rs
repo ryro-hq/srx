@@ -1,12 +1,22 @@
-//! Execução do build e publicação dos outputs que ele produziu.
+//! Executing builds and publishing their outputs.
 //!
-//! [`BuildProfile::HostBootstrap`] usa o toolchain do host escolhido pelo usuário.
-//! [`BuildProfile::Managed`] recebe inputs e worker conferidos por descritores.
-//! Cada backend faz seu preflight, consulta o cache e prepara a execução.
+//! # Choosing an execution backend
 //!
-//! O resultado só é publicado depois de encerrar a execução que ainda poderia
-//! alterá-lo. Cancelamento também passa por esse fechamento antes de liberar
-//! os arquivos retidos pelo build.
+//! [`BuildProfile::HostBootstrap`] uses the host toolchain selected by the user.
+//! [`BuildProfile::Managed`] receives inputs and a worker verified through
+//! descriptors. Each backend performs preflight, consults the cache and prepares
+//! execution. See [`bootstrap`] for toolchain identity and [`managed`] for worker
+//! admission.
+//!
+//! # Publishing after settlement
+//!
+//! Results are published only after the execution that could still modify them
+//! has ended. Cancellation also passes through settlement before releasing files
+//! retained by the build. [`publication`](../../src/syrox_engine/build/publication.rs.html) validates outputs after the backend has
+//! checked settlement; [`journal`](../../src/syrox_engine/build/journal/mod.rs.html) retains the state needed for recovery.
+//!
+//! [`shared`](../../src/syrox_engine/build/shared.rs.html) coordinates requests for the same producer. [`cancellation`](../../src/syrox_engine/build/cancellation/mod.rs.html) tracks
+//! each consumer's interest, and [`records`](../../src/syrox_engine/build/records.rs.html) owns the bytes used for build identity.
 
 use crate::{
     plan::Plan,

@@ -1,8 +1,8 @@
-//! Confere o processo e os namespaces mantendo o pidfd aberto.
+//! Checking a process and its namespaces while retaining the open pidfd.
 //!
-//! O binding do manager é observado antes e depois da admissão do protocolo.
-//! Essa observação não confirma FDSTORE nem libera o payload. São necessários
-//! pidfds de pidfs; o antigo tipo anônimo não fornece a identidade usada aqui.
+//! The manager binding is observed before and after protocol admission. This
+//! observation neither confirms FDSTORE nor releases the payload. pidfds from
+//! pidfs are required; the older anonymous type lacks the identity used here.
 
 // Kernel contracts: Linux v6.12 fs/pidfs.c and include/uapi/linux/pidfd.h.
 use super::{

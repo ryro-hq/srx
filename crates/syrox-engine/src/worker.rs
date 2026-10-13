@@ -29,6 +29,9 @@ pub fn run_build_worker(source_directory: &str, action: &str) -> Result<(), Buil
 }
 
 /// Internal Managed IR subprocess entry; no Store or journal authority is granted.
+///
+/// # Safety
+/// The caller must be a dedicated single-threaded process and exit after return.
 #[allow(unsafe_code)]
 pub unsafe fn run_managed_build_worker(
     source_directory: &str,

@@ -1,8 +1,8 @@
-//! Registro durável do build e da execução que ainda possui seus recursos.
+//! Durable records of a build and the execution that still owns its resources.
 //!
-//! A recuperação usa esse registro para encerrar uma tentativa interrompida.
-//! Apagar staging exige revogar a possibilidade de um novo start e observar
-//! o fim da execução. `Drop` não apaga esse estado.
+//! Recovery uses this record to settle an interrupted attempt. Removing staging
+//! requires revoking the possibility of another start and observing execution end.
+//! `Drop` does not remove this state.
 
 use std::fs;
 use std::io::Read as _;

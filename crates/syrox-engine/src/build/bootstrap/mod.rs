@@ -1,8 +1,8 @@
-//! Build com o toolchain do host escolhido para bootstrap.
+//! Building with the host toolchain selected for bootstrap.
 //!
-//! A identidade do toolchain entra na action e é conferida de novo quando a
-//! aquisição pode ter permitido uma mudança nos arquivos. O worker executa com
-//! mounts, ambiente e limites preparados antes de receber as instruções.
+//! Toolchain identity contributes to the action and is checked again when
+//! acquisition may have allowed files to change. The worker runs with mounts,
+//! environment and limits prepared before it receives instructions.
 
 pub(crate) mod capture;
 pub(crate) mod group;

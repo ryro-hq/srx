@@ -1,9 +1,18 @@
-//! Sessão do editor e despacho das consultas LSP.
+//! Editor sessions and dispatch of LSP queries.
 //!
-//! A sessão guarda documentos, capabilities e geração atual. Parsing e análise
-//! trabalham com snapshots; respostas de outra geração são descartadas. O worker
-//! tem um job ativo e um pendente substituível para que edições rápidas não
-//! acumulem uma fila de análises antigas.
+//! # Snapshots and publication
+//!
+//! The session owns documents, capabilities and the current generation. Parsing
+//! and analysis work on snapshots; responses from another generation are discarded.
+//! [`worker`] keeps one active job and one replaceable pending job so rapid edits
+//! do not accumulate old analyses.
+//!
+//! # Formatting an open buffer
+//!
+//! [`formatting`] has its own queue and cancellation, independent of project
+//! analysis. Before returning an edit, the session checks that the document version
+//! still matches. Language parsing, checking and formatting live in `syrox-lang`;
+//! the session owns the decision to publish their results.
 
 mod actions;
 mod completion;
