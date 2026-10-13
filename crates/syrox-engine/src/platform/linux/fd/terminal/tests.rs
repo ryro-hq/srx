@@ -436,8 +436,13 @@ fn custody_fingerprint_covers_flags_speeds_and_control_characters() {
     } else {
         libc::B9600
     };
-    // SAFETY: the setters update an initialized local termios with valid rates.
+    #[cfg(target_env = "musl")]
+    // SAFETY: the setter updates an initialized local termios with a valid rate.
     checked(unsafe { libc::cfsetispeed(&raw mut changed.0, input) }).unwrap();
+    #[cfg(not(target_env = "musl"))]
+    {
+        changed.0.c_ispeed = input;
+    }
     assert_ne!(original.fingerprint(), changed.fingerprint());
     assert!(!original.matches(&changed));
     changed = original.clone();
@@ -446,8 +451,13 @@ fn custody_fingerprint_covers_flags_speeds_and_control_characters() {
     } else {
         libc::B9600
     };
+    #[cfg(target_env = "musl")]
     // SAFETY: the setter updates an initialized local termios with a valid rate.
     checked(unsafe { libc::cfsetospeed(&raw mut changed.0, output) }).unwrap();
+    #[cfg(not(target_env = "musl"))]
+    {
+        changed.0.c_ospeed = output;
+    }
     assert_ne!(original.fingerprint(), changed.fingerprint());
     assert!(!original.matches(&changed));
     changed = original.clone();

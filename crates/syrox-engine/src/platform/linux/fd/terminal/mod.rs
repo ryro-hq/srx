@@ -106,15 +106,22 @@ impl TerminalAttributes {
             && self.0.c_cc == other.0.c_cc
             && self.speeds() == other.speeds()
     }
-    // Accessors interpret the effective rates. musl's private speed fields are
-    // not initialized by TCGETS and cannot authenticate another libc's reader.
+    // glibc fills its public speed fields. musl's private fields are not
+    // initialized by TCGETS; its accessors derive the rates from c_cflag.
     fn speeds(&self) -> [libc::speed_t; 2] {
-        // SAFETY: both accessors only read the initialized termios value.
-        unsafe {
-            [
-                libc::cfgetispeed(&raw const self.0),
-                libc::cfgetospeed(&raw const self.0),
-            ]
+        #[cfg(target_env = "musl")]
+        {
+            // SAFETY: both accessors only read the initialized termios value.
+            unsafe {
+                [
+                    libc::cfgetispeed(&raw const self.0),
+                    libc::cfgetospeed(&raw const self.0),
+                ]
+            }
+        }
+        #[cfg(not(target_env = "musl"))]
+        {
+            [self.0.c_ispeed, self.0.c_ospeed]
         }
     }
     pub(crate) fn raw(&self) -> Self {
