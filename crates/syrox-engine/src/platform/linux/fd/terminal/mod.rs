@@ -65,10 +65,12 @@ impl fmt::Debug for TerminalAttributes {
 }
 impl TerminalAttributes {
     pub(crate) fn read(fd: BorrowedFd<'_>) -> io::Result<Self> {
-        let mut attributes = MaybeUninit::<libc::termios>::uninit();
+        // Linux TCGETS writes only the kernel termios prefix. musl forwards
+        // that ioctl directly, leaving libc-only storage untouched.
+        let mut attributes = MaybeUninit::<libc::termios>::zeroed();
         // SAFETY: attributes is writable and initialized by successful tcgetattr.
         checked(unsafe { libc::tcgetattr(fd.as_raw_fd(), attributes.as_mut_ptr()) })?;
-        // SAFETY: the successful call initialized every field.
+        // SAFETY: all storage started initialized and the call filled the kernel fields.
         Ok(Self(unsafe { attributes.assume_init() }))
     }
     /// Applies immediately; never waits for terminal output to drain.
@@ -104,16 +106,15 @@ impl TerminalAttributes {
             && self.0.c_cc == other.0.c_cc
             && self.speeds() == other.speeds()
     }
-    // These ABI fields have different libc names. Preserve the fingerprint's
-    // existing bytes and ordering rather than substituting encoded baud rates.
+    // Accessors interpret the effective rates. musl's private speed fields are
+    // not initialized by TCGETS and cannot authenticate another libc's reader.
     fn speeds(&self) -> [libc::speed_t; 2] {
-        #[cfg(target_env = "musl")]
-        {
-            [self.0.__c_ispeed, self.0.__c_ospeed]
-        }
-        #[cfg(not(target_env = "musl"))]
-        {
-            [self.0.c_ispeed, self.0.c_ospeed]
+        // SAFETY: both accessors only read the initialized termios value.
+        unsafe {
+            [
+                libc::cfgetispeed(&raw const self.0),
+                libc::cfgetospeed(&raw const self.0),
+            ]
         }
     }
     pub(crate) fn raw(&self) -> Self {

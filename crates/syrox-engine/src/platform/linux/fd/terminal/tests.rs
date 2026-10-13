@@ -431,25 +431,25 @@ fn custody_fingerprint_covers_flags_speeds_and_control_characters() {
     changed.0.c_cc[libc::VINTR] ^= 1;
     assert_ne!(original.fingerprint(), changed.fingerprint());
     changed = original.clone();
-    #[cfg(not(target_env = "musl"))]
-    {
-        changed.0.c_ispeed ^= 1;
-    }
-    #[cfg(target_env = "musl")]
-    {
-        changed.0.__c_ispeed ^= 1;
-    }
+    let input = if original.speeds()[0] == libc::B9600 {
+        libc::B19200
+    } else {
+        libc::B9600
+    };
+    // SAFETY: the setters update an initialized local termios with valid rates.
+    checked(unsafe { libc::cfsetispeed(&raw mut changed.0, input) }).unwrap();
     assert_ne!(original.fingerprint(), changed.fingerprint());
+    assert!(!original.matches(&changed));
     changed = original.clone();
-    #[cfg(not(target_env = "musl"))]
-    {
-        changed.0.c_ospeed ^= 1;
-    }
-    #[cfg(target_env = "musl")]
-    {
-        changed.0.__c_ospeed ^= 1;
-    }
+    let output = if original.speeds()[1] == libc::B9600 {
+        libc::B19200
+    } else {
+        libc::B9600
+    };
+    // SAFETY: the setter updates an initialized local termios with a valid rate.
+    checked(unsafe { libc::cfsetospeed(&raw mut changed.0, output) }).unwrap();
     assert_ne!(original.fingerprint(), changed.fingerprint());
+    assert!(!original.matches(&changed));
     changed = original.clone();
     changed.0.c_lflag ^= libc::ECHO;
     assert_ne!(original.fingerprint(), changed.fingerprint());
@@ -633,4 +633,33 @@ fn settled_relay_drains_output_without_consuming_queued_terminal_input() {
     let mut output = [0; 12];
     user.read_exact(&mut output).unwrap();
     assert_eq!(&output, b"final output");
+}
+
+#[test]
+fn terminal_reads_zero_unused_storage_and_keep_semantic_custody_stable() {
+    let pty = Pty::open(size(), None).unwrap();
+    let original = TerminalAttributes::read(pty.slave()).unwrap();
+    for _ in 0..64 {
+        let current = TerminalAttributes::read(pty.slave()).unwrap();
+        assert!(original.matches(&current));
+        assert_eq!(original.fingerprint(), current.fingerprint());
+        // Linux x86_64 TCGETS supplies 19 control characters; libc reserves 32.
+        #[cfg(target_arch = "x86_64")]
+        assert!(
+            current.0.c_cc[19..]
+                .iter()
+                .all(|character| *character == 0)
+        );
+    }
+    #[cfg(target_env = "musl")]
+    {
+        let mut private_storage = original.clone();
+        private_storage.0.__c_ispeed = u32::MAX;
+        private_storage.0.__c_ospeed = u32::MAX;
+        assert!(original.matches(&private_storage));
+        assert_eq!(
+            original.fingerprint(),
+            private_storage.fingerprint()
+        );
+    }
 }
