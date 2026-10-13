@@ -39,8 +39,10 @@ The Linux release workflow also checks a static `srx` and worker. Building from 
 
 The default `cargo test` run includes the required microVM suite. Microsandbox
 is a `[dev-dependencies]` dependency and is absent from normal product builds.
-Local Cargo defaults use one build job and one test thread, without debug
-information or incremental compilation in dev/test profiles. Missing KVM,
+Developer limits can live in the ignored `.cargo/config.toml`; this checkout
+keeps its local one-job limit. CI sets `CARGO_BUILD_JOBS` to the runner's CPU
+count. Dev/test profiles omit debug information and incremental compilation.
+Test processes remain single-threaded because several lifecycle fixtures fork. Missing KVM,
 configuration or capabilities fail the required VM target.
 
 ```sh
@@ -174,6 +176,12 @@ jobs import those pairs through `--candidate-bundle /absolute/directory` and
 refuse a different source inventory, toolchain, target or executable hash. They
 compile only the required GNU libtests and C fixtures. Firmware and the guest
 image are built once, cached with pinned inputs and checked before each row.
+Quality, Clippy, builds and environment preparation start concurrently on
+separate runners. Host Cargo caches include workspace crates and survive failed
+checks. Kernel rows restore vendored dependencies and GNU libtest compilation
+from a preparation cache bound to the immutable image, lockfile and toolchain;
+source hashes control freshness across commits. Only settled, inactive entries
+are saved. Build parallelism is recorded separately from VM execution limits.
 A second kernel belongs in this matrix only after the same capability probes
 and journeys qualify it. Weekly and manual runs repeat the required matrix.
 

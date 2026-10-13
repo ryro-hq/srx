@@ -145,3 +145,19 @@ pub fn verify_vm_for(config: &Value, memory_mib: u32) -> Result<()> {
     }
     Ok(())
 }
+
+/// Keep local preparation conservative; CI supplies its detected CPU count.
+pub fn preparation_jobs(requested: Option<&str>) -> Result<usize> {
+    match requested {
+        None => Ok(1),
+        Some(value) => value
+            .parse::<usize>()
+            .ok()
+            .filter(|jobs| *jobs > 0)
+            .ok_or_else(|| "CARGO_BUILD_JOBS must be a positive integer for VM preparation".into()),
+    }
+}
+
+pub fn build_jobs() -> Result<usize> {
+    preparation_jobs(std::env::var("CARGO_BUILD_JOBS").ok().as_deref())
+}

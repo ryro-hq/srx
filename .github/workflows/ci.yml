@@ -18,6 +18,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target/cargo
   RUST_BACKTRACE: '1'
 
 jobs:
@@ -25,8 +26,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - run: rustup show active-toolchain
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/rust
+        with:
+          cache-key: quality
       - name: Format and module layout
         run: |
           cargo fmt --all -- --check
@@ -55,10 +57,9 @@ jobs:
         features: [all-features, no-default-features]
     steps:
       - uses: actions/checkout@v7
-      - run: rustup show active-toolchain
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/rust
         with:
-          key: clippy-${{ matrix.features }}
+          cache-key: clippy-${{ matrix.features }}
       - name: Check all targets
         env:
           FEATURES: ${{ matrix.features }}
@@ -68,8 +69,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - run: rustup show active-toolchain
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/rust
+        with:
+          cache-key: host-tests
       - name: Language and CLI tests
         run: |
           cargo test --locked -p syrox-lang
@@ -77,7 +79,6 @@ jobs:
 
   build:
     name: build (${{ matrix.target }})
-    needs: [quality, clippy, portable-tests]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -97,20 +98,20 @@ jobs:
           rustup target add "$TARGET"
           sudo apt-get update
           sudo apt-get install -y musl-tools liblzma-dev pkg-config
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/rust
         with:
-          key: release-${{ matrix.target }}
+          cache-key: release-${{ matrix.target }}
       - name: Build worker before CLI
         run: |
           cargo build --release --locked -p syrox --bin syrox-worker --target "$TARGET"
-          SYROX_EMBED_WORKER="$PWD/target/$TARGET/release/syrox-worker" \
+          SYROX_EMBED_WORKER="$CARGO_TARGET_DIR/$TARGET/release/syrox-worker" \
             cargo build --release --locked -p syrox --bin srx --target "$TARGET"
       - name: Verify release and bind its source identity
         run: |
-          RUSTFLAGS="" cargo run --locked -p syrox-engine --example verify_release -- "target/$TARGET/release"
+          RUSTFLAGS="" cargo run --locked -p syrox-engine --example verify_release -- "$CARGO_TARGET_DIR/$TARGET/release"
           mkdir -p "target/candidates/$TARGET"
-          cp "target/$TARGET/release/srx" "target/$TARGET/release/syrox-worker" "target/candidates/$TARGET/"
-          RUSTFLAGS="" cargo run --locked -p syrox --example ci_candidates -- "$PWD/target/candidates/$TARGET" "$TARGET"
+          cp "$CARGO_TARGET_DIR/$TARGET/release/srx" "$CARGO_TARGET_DIR/$TARGET/release/syrox-worker" "target/candidates/$TARGET/"
+          RUSTFLAGS="" cargo run --locked -p syrox-engine --example ci_candidates -- "$PWD/target/candidates/$TARGET" "$TARGET"
       - uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.target }}
@@ -118,15 +119,15 @@ jobs:
           if-no-files-found: error
 
   vm-environment:
-    needs: [quality, clippy, portable-tests]
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
       SYROX_VM_CONFIG: ${{ github.workspace }}/target/environment-config.json
     steps:
       - uses: actions/checkout@v7
-      - run: rustup show active-toolchain
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/rust
+        with:
+          cache-key: host-tests
       - name: Require KVM and Docker
         run: |
           test -c /dev/kvm
@@ -198,10 +199,9 @@ jobs:
       SYROX_VM_EVIDENCE: ${{ github.workspace }}/target/test-evidence/ci-vm
     steps:
       - uses: actions/checkout@v7
-      - run: rustup show active-toolchain
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/rust
         with:
-          key: vm-harness-${{ matrix.profile }}-${{ matrix.target }}
+          cache-key: host-tests
       - uses: actions/download-artifact@v8
         with:
           name: release-${{ matrix.target }}
@@ -219,6 +219,16 @@ jobs:
           sudo chown "$(id -u):$(id -g)" /dev/kvm
           sudo chmod 660 /dev/kvm
           docker load --input target/ci-environment/image.tar
+      - name: Restore host preparation outputs
+        uses: actions/cache/restore@v6
+        id: preparation-cache
+        with:
+          path: |
+            target/vm-cache/vendor
+            target/vm-cache/guest/target
+          key: vm-prepare-v1-${{ runner.os }}-${{ hashFiles('target/ci-environment/image.id', 'Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
+          restore-keys: |
+            vm-prepare-v1-${{ runner.os }}-${{ hashFiles('target/ci-environment/image.id', 'Cargo.lock', 'rust-toolchain.toml') }}-
       - name: Configure the explicit resource profile and imported candidates
         run: |
           cargo test --locked -p syrox --test vm -- --prepare \
@@ -234,6 +244,22 @@ jobs:
           else
             cargo test --locked -p syrox --test vm
           fi
+      - name: Check compilation cache is inactive
+        if: always()
+        id: inactive-cache
+        run: |
+          if test -f target/test-evidence/ci-vm/report.json && \
+            jq -e '.vm_cleanup == "not-started" or .vm_cleanup == "confirmed absent" or (.vm_cleanup | startswith("destroyed;"))' target/test-evidence/ci-vm/report.json >/dev/null; then
+            echo "save=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Save settled preparation outputs
+        if: always() && steps.inactive-cache.outputs.save == 'true' && steps.preparation-cache.outputs.cache-hit != 'true' && steps.preparation-cache.outputs.cache-primary-key != ''
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            target/vm-cache/vendor
+            target/vm-cache/guest/target
+          key: ${{ steps.preparation-cache.outputs.cache-primary-key }}
       - name: Preserve kernel evidence
         if: always()
         uses: actions/upload-artifact@v7

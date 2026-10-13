@@ -229,14 +229,14 @@ async fn run_vm(
             "schema":5, "sdk":config.sdk, "preparation_image":config.preparation_image.as_deref().unwrap_or(&config.image),
             "lock":super::snapshot::digest(&evidence.join("sources/Cargo.lock"))?,
             "target":"x86_64-unknown-linux-gnu", "rustflags":"-C target-feature=+crt-static",
-            "incremental":false, "debug_info":false, "jobs":1,
+            "incremental":false, "debug_info":false,
             "candidate_profile":"release", "fixture_profile":"test", "policy":"single-producer-host-inherited-v2"
         }))?)
     );
     let cache_key = format!(
         "{:x}",
         sha2::Sha256::digest(serde_json::to_vec(&json!({
-            "schema":3, "compilation":environment_key, "environment":config, "release_bundle":config.candidate_bundle.as_ref().map(|directory| super::snapshot::digest(&directory.join("manifest.json"))).transpose()?, "sources":report["sources"]["sha256"], "selected":report["selected"]
+            "schema":3, "build_jobs":super::resources::build_jobs()?, "compilation":environment_key, "environment":config, "release_bundle":config.candidate_bundle.as_ref().map(|directory| super::snapshot::digest(&directory.join("manifest.json"))).transpose()?, "sources":report["sources"]["sha256"], "selected":report["selected"]
         }))?)
     );
     fs::write(evidence.join("cache-key"), &cache_key)?;

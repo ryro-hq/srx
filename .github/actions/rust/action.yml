@@ -1,0 +1,23 @@
+name: Rust setup
+description: Use the runner CPUs and cache Cargo outputs for the selected job family.
+inputs:
+  cache-key:
+    description: Separate incompatible target and feature builds.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Configure compiler parallelism
+      shell: bash
+      run: |
+        echo "CARGO_BUILD_JOBS=$(nproc)" >> "$GITHUB_ENV"
+        echo "RUST_TEST_THREADS=1" >> "$GITHUB_ENV"
+        nproc
+        free -h
+        rustup show active-toolchain
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: . -> target/cargo
+        shared-key: syrox-${{ inputs.cache-key }}
+        cache-workspace-crates: 'true'
+        cache-on-failure: 'true'

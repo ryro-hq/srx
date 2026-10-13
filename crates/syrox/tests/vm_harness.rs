@@ -1119,3 +1119,82 @@ fn release_bundle_rejects_different_sources_targets_and_executable_bytes() {
     fs::write(directory.path().join("syrox-worker"), elf).unwrap();
     assert!(vm_support::candidate_bundle::load(directory.path(), &sources, "1.98.1").is_err());
 }
+
+#[test]
+fn preparation_parallelism_requires_a_positive_count_and_keeps_local_default() {
+    let jobs = vm_support::resources::preparation_jobs;
+    assert_eq!(jobs(None).unwrap(), 1);
+    assert_eq!(jobs(Some("4")).unwrap(), 4);
+    for invalid in [
+        "0",
+        "-1",
+        "all",
+        "4; exit",
+        "99999999999999999999999999",
+    ] {
+        assert!(jobs(Some(invalid)).is_err());
+    }
+}
+
+#[test]
+fn embedded_worker_build_accepts_static_gnu_and_musl_and_refuses_dynamic_cli() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let directory = tempfile::tempdir().unwrap();
+    let script = directory.path().join("build-script");
+    assert!(
+        Command::new("rustc")
+            .arg("--edition=2024")
+            .arg(workspace.join("crates/syrox/build.rs"))
+            .arg("-o")
+            .arg(&script)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let mut elf = vec![0; 128];
+    elf[..6].copy_from_slice(b"\x7fELF\x02\x01");
+    elf[16] = 3;
+    elf[18] = 62;
+    elf[32] = 64;
+    elf[52] = 64;
+    elf[54] = 56;
+    elf[56] = 1;
+    elf[64] = 1;
+    let worker = directory.path().join("worker");
+    fs::write(&worker, &elf).unwrap();
+    for (target, features, accepted) in [
+        (
+            "x86_64-unknown-linux-gnu",
+            "sse2,crt-static",
+            true,
+        ),
+        (
+            "x86_64-unknown-linux-musl",
+            "crt-static,sse2",
+            true,
+        ),
+        ("x86_64-unknown-linux-gnu", "sse2", false),
+        ("x86_64-unknown-linux-musl", "sse2", false),
+        ("aarch64-unknown-linux-musl", "crt-static", false),
+    ] {
+        let output = Command::new(&script)
+            .env("TARGET", target)
+            .env("CARGO_CFG_TARGET_FEATURE", features)
+            .env("OUT_DIR", directory.path())
+            .env("SYROX_EMBED_WORKER", &worker)
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.success(),
+            accepted,
+            "{target}/{features}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if accepted {
+            assert_eq!(
+                fs::read(directory.path().join("syrox-worker.bin")).unwrap(),
+                elf
+            );
+        }
+    }
+}

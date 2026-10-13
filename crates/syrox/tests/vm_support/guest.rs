@@ -73,7 +73,10 @@ pub fn main(args: &[String]) -> Result<()> {
                 return Err("prepared candidate changed before guest execution".into());
             }
         }
-        report["build_environment"] = json!({"prepared_before_vm":true,"candidate_profile":"release","fixture_profile":"test","build_jobs":1,"memory_mib":2048,"debug_info":false,"incremental":false});
+        let preparation: Value = serde_json::from_slice(&fs::read(
+            evidence.join("preparation-report.json"),
+        )?)?;
+        report["build_environment"] = json!({"prepared_before_vm":true,"candidate_profile":"release","fixture_profile":"test","build_jobs":preparation["build_jobs"],"resource_policy":"host-inherited","debug_info":false,"incremental":false});
         qualify(&evidence, &control)?;
         report["qualification"] =
             json!("basic capabilities passed; core pidfs ioctl probe pending");

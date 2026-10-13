@@ -34,6 +34,7 @@ pub fn prepare(
 ) -> Result<Value> {
     let selected: Vec<common::Gate> =
         serde_json::from_slice(&fs::read(evidence.join("selected.json"))?)?;
+    let build_jobs = super::resources::build_jobs()?;
     let native = config.profile == super::config::Profile::Native;
     let mut targets = targets(&selected);
     if native {
@@ -89,7 +90,7 @@ trap 'cat /sys/fs/cgroup/cpu.stat > /evidence/preparation-cpu-final.txt; cat /sy
 cat /sys/fs/cgroup/cpu.stat > /evidence/preparation-cpu-initial.txt
 cat /sys/fs/cgroup/cpu.max /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.swap.max > /evidence/preparation-effective-limits.txt
 export PATH=/opt/rust/bin:/usr/local/cargo/bin:/usr/bin:/bin
-export CARGO_HOME=/tmp/cargo CARGO_TARGET_DIR=/target CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0
+export CARGO_HOME=/tmp/cargo CARGO_TARGET_DIR=/target CARGO_INCREMENTAL=0
 export RUST_TEST_THREADS=1 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
 export RUSTFLAGS='-C target-feature=+crt-static' LZMA_API_STATIC=1
 mkdir -p "$CARGO_HOME"
@@ -105,6 +106,7 @@ test "$(rustc --version | cut -d' ' -f2)" = "$(sed -n 's/channel = "\(.*\)"/\1/p
 sha256sum "$(command -v rustc)" "$(command -v gcc)" >> /evidence/preparation-toolchain.log
 "#,
     );
+    writeln!(script, "export CARGO_BUILD_JOBS={build_jobs}")?;
     if external.is_none() {
         script.push_str("cargo build --release --locked --offline -p syrox --bins --target x86_64-unknown-linux-gnu --message-format=json > /evidence/release-build.jsonl\n");
     }
@@ -292,7 +294,7 @@ gcc -std=c11 -O2 -Wall -Wextra -Werror crates/syrox/tests/vm_support/capabilitie
             .collect::<Result<_>>()?;
         common::save(&evidence.join("prepared-pins.json"), &pins)?;
         Ok(
-            json!({"image_id":image_id,"targets":targets,"release_bundle":external.as_ref().map(|bundle|&bundle.target),"candidate_profile":"release","fixture_profile":"test","features":["vm-guest"],"default_features":false,"resource_policy":"host-inherited","configuration":host,"state":state[0]["State"],"artifacts":manifest,"pins":pins, "resource_measurement":{"memory_peak_bytes":fs::read_to_string(evidence.join("preparation-memory-peak.txt"))?.trim().parse::<u64>()?,"cpu_initial":fs::read_to_string(evidence.join("preparation-cpu-initial.txt"))?,"cpu_final":fs::read_to_string(evidence.join("preparation-cpu-final.txt"))?,"effective_limits":fs::read_to_string(evidence.join("preparation-effective-limits.txt"))?}}),
+            json!({"image_id":image_id,"targets":targets,"release_bundle":external.as_ref().map(|bundle|&bundle.target),"candidate_profile":"release","fixture_profile":"test","features":["vm-guest"],"default_features":false,"resource_policy":"host-inherited","build_jobs":build_jobs,"configuration":host,"state":state[0]["State"],"artifacts":manifest,"pins":pins, "resource_measurement":{"memory_peak_bytes":fs::read_to_string(evidence.join("preparation-memory-peak.txt"))?.trim().parse::<u64>()?,"cpu_initial":fs::read_to_string(evidence.join("preparation-cpu-initial.txt"))?,"cpu_final":fs::read_to_string(evidence.join("preparation-cpu-final.txt"))?,"effective_limits":fs::read_to_string(evidence.join("preparation-effective-limits.txt"))?}}),
         )
     })();
     if !evidence.join("preparation-final.json").exists() {
@@ -312,6 +314,7 @@ gcc -std=c11 -O2 -Wall -Wextra -Werror crates/syrox/tests/vm_support/capabilitie
     common::save(
         &evidence.join("preparation-report.json"),
         &json!({
+            "build_jobs":build_jobs,
             "status":if outcome.is_ok() {"passed"} else if control.check().is_err() {"cancelled"} else {"failed"},
             "error":outcome.as_ref().err().map(ToString::to_string),
             "cleanup":if cleanup.is_ok() {"container removed"} else {"unconfirmed"},

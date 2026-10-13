@@ -1,5 +1,0 @@
-[build]
-jobs = 1
-
-[env]
-RUST_TEST_THREADS = { value = "1", force = false }
