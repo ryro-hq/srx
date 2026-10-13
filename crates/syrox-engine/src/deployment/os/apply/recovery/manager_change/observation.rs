@@ -6,11 +6,11 @@ impl Reconciler<'_> {
         let identity = self
             .manager
             .observe_identity(self.remaining()?, self.cancel)
-            .map_err(|_| "observe current manager")?;
+            .map_err(|source| super::failure_with("observe current manager", source))?;
         let boot = crate::platform::linux::boot::BootId::current(self.cancel, self.deadline)
-            .map_err(|_| "observe current boot")?;
+            .map_err(|source| super::failure_with("observe current boot", source))?;
         if identity.fingerprint().to_string() != self.current.manager || boot != self.current.boot {
-            return Err("manager recovery epoch changed");
+            return Err(super::failure("manager recovery epoch changed"));
         }
         Ok(())
     }
@@ -19,11 +19,11 @@ impl Reconciler<'_> {
         let loaded = self
             .manager
             .observe_os_unit(contract, self.remaining()?, self.cancel)
-            .map_err(|_| "observe historical loaded contract")?;
+            .map_err(|source| super::failure_with("observe historical loaded contract", source))?;
         if loaded.unit() != contract.unit()
             || loaded.manager().fingerprint().to_string() != self.current.manager
         {
-            return Err("loaded contract manager differs");
+            return Err(super::failure("loaded contract manager differs"));
         }
         self.epoch()
     }
@@ -35,10 +35,10 @@ impl Reconciler<'_> {
         let current = self
             .manager
             .query(unit, self.remaining()?, self.cancel)
-            .map_err(|_| "query prior invocation")?
-            .ok_or("prior unit is absent")?;
+            .map_err(|source| super::failure_with("query prior invocation", source))?
+            .ok_or_else(|| super::failure("prior unit is absent"))?;
         if current.unit != *unit {
-            return Err("prior invocation changed");
+            return Err(super::failure("prior invocation changed"));
         }
         expected.verify(&current.invocation)?;
         self.epoch()
@@ -50,7 +50,7 @@ impl Reconciler<'_> {
     ) -> Result<()> {
         self.manager
             .verify_unit_reference(&pinned.reference, self.remaining()?, self.cancel)
-            .map_err(|_| "unit reference changed")?;
+            .map_err(|source| super::failure_with("unit reference changed", source))?;
         self.loaded(contract)?;
         self.invocation(&pinned.unit, pinned.observation)
     }
@@ -70,7 +70,7 @@ impl Reconciler<'_> {
         if self
             .manager
             .unit_idle_without_job(&pinned.unit, self.remaining()?, self.cancel)
-            .map_err(|_| "observe idle unit before stop")?
+            .map_err(|source| super::failure_with("observe idle unit before stop", source))?
         {
             return Ok(());
         }
@@ -84,7 +84,9 @@ impl Reconciler<'_> {
                 self.cancel,
                 self.deadline,
             )
-            .map_err(|_| "persist single-use recovery stop intent")?
+            .map_err(|source| {
+                super::failure_with("persist single-use recovery stop intent", source)
+            })?
         {
             // Intent, Accepted and Unknown all enter observation-only recovery.
             return Ok(());
@@ -106,11 +108,12 @@ impl Reconciler<'_> {
                 self.cancel,
                 self.deadline,
             )
-            .map_err(|_| "persist recovery stop reply")?;
-        let job = response.map_err(|_| "recovery stop outcome uncertain")?;
+            .map_err(|source| super::failure_with("persist recovery stop reply", source))?;
+        let job = response
+            .map_err(|source| super::failure_with("recovery stop outcome uncertain", source))?;
         self.manager
             .wait_job(&job, self.remaining()?, self.cancel)
-            .map_err(|_| "recovery stop job unresolved")?;
+            .map_err(|source| super::failure_with("recovery stop job unresolved", source))?;
         self.check(pinned, contract)
     }
 }
@@ -125,13 +128,13 @@ impl Reconciler<'_> {
     ) -> Result<()> {
         self.manager
             .verify_unit_reference(reference, self.remaining()?, self.cancel)
-            .map_err(|_| "inventory unit reference changed")?;
+            .map_err(|source| super::failure_with("inventory unit reference changed", source))?;
         self.loaded(contract)?;
         let before = self
             .manager
             .query(contract.unit(), self.remaining()?, self.cancel)
-            .map_err(|_| "query inventory unit")?
-            .ok_or("inventory unit unavailable")?;
+            .map_err(|source| super::failure_with("query inventory unit", source))?
+            .ok_or_else(|| super::failure("inventory unit unavailable"))?;
         if before.unit != *contract.unit()
             || before.main_pid != 0
             || !before.control_group.is_empty()
@@ -140,35 +143,35 @@ impl Reconciler<'_> {
                 "inactive" | "failed"
             )
         {
-            return Err("inventory unit is not idle");
+            return Err(super::failure("inventory unit is not idle"));
         }
         if !self
             .manager
             .unit_idle_without_job(contract.unit(), self.remaining()?, self.cancel)
-            .map_err(|_| "observe inventory unit job")?
+            .map_err(|source| super::failure_with("observe inventory unit job", source))?
         {
-            return Err("inventory unit has pending job");
+            return Err(super::failure("inventory unit has pending job"));
         }
         let store = self
             .manager
             .query_fd_store(contract.unit(), self.remaining()?, self.cancel)
-            .map_err(|_| "observe inventory fdstore")?
-            .ok_or("inventory fdstore unavailable")?;
+            .map_err(|source| super::failure_with("observe inventory fdstore", source))?
+            .ok_or_else(|| super::failure("inventory fdstore unavailable"))?;
         if store.count != 0 || store.invocation != before.invocation {
-            return Err("inventory fdstore differs");
+            return Err(super::failure("inventory fdstore differs"));
         }
         let after = self
             .manager
             .query(contract.unit(), self.remaining()?, self.cancel)
-            .map_err(|_| "revalidate inventory unit")?
-            .ok_or("inventory unit disappeared")?;
+            .map_err(|source| super::failure_with("revalidate inventory unit", source))?
+            .ok_or_else(|| super::failure("inventory unit disappeared"))?;
         if after.unit != before.unit
             || after.invocation != before.invocation
             || after.main_pid != 0
             || !after.control_group.is_empty()
             || !matches!(after.active_state.as_str(), "inactive" | "failed")
         {
-            return Err("inventory unit changed");
+            return Err(super::failure("inventory unit changed"));
         }
         self.epoch()
     }

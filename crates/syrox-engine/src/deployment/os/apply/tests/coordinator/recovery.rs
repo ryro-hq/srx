@@ -414,3 +414,82 @@ fn fenced_remote_effect_is_reported_without_observing_or_replaying_old_manager_w
         EffectState::BootFenced { job: Some(job), .. } if job == "/org/freedesktop/systemd1/job/99")
     );
 }
+
+#[test]
+fn manager_failure_preserves_its_cause_without_replaying_or_releasing_resources() {
+    let fixture = Fixture::new(false);
+    let binding = fixture
+        .resources
+        .values()
+        .next()
+        .unwrap()
+        .binding
+        .clone();
+    let mut manager = Fake::new(&fixture, Some(binding.clone()));
+    manager.query_error = Some(std::io::ErrorKind::ConnectionReset);
+    assert!(
+        fixture
+            .run(&mut manager, &fixture.resources)
+            .needs_reconciliation
+    );
+    let snapshot = fixture
+        .journal
+        .snapshot(&fixture.cancel, deadline())
+        .unwrap();
+    let effect = snapshot.operations[&fixture.operation]
+        .effects
+        .iter()
+        .find(|(_, effect)| effect.kind == EffectKind::Start)
+        .unwrap()
+        .0
+        .clone();
+    manager.calls.clear();
+    let report = recover(&fixture, &mut manager);
+    assert!(report.needs_reconciliation);
+    let pending = report
+        .effects
+        .iter()
+        .find(|entry| entry.effect == effect)
+        .unwrap();
+    assert_eq!(pending.state, OsRecoveryState::Pending);
+    assert_eq!(pending.stage, Some("query unit"));
+    assert_eq!(
+        pending.error.as_deref(),
+        Some("manager connection lost")
+    );
+    assert_no_manager_effects(&manager);
+    let snapshot = fixture
+        .journal
+        .snapshot(&fixture.cancel, deadline())
+        .unwrap();
+    assert_eq!(
+        snapshot.operations[&fixture.operation].effects[&effect].state,
+        EffectState::Unknown
+    );
+    assert_eq!(
+        snapshot.active_operation.as_deref(),
+        Some(fixture.operation.as_str())
+    );
+    assert_eq!(
+        snapshot.desired.as_deref(),
+        Some(fixture.candidate.digest().to_string().as_str())
+    );
+    fixture
+        .installation
+        .read_launch_binding(
+            binding.digest().unwrap(),
+            &fixture.cancel,
+            deadline(),
+        )
+        .unwrap();
+    let store = Store::open_existing(fixture.paths.store()).unwrap();
+    fixture
+        .installation
+        .open(
+            &store,
+            fixture.candidate.digest(),
+            &fixture.cancel,
+            deadline(),
+        )
+        .unwrap();
+}

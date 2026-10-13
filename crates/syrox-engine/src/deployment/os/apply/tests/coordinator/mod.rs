@@ -224,6 +224,7 @@ struct Fake<'a> {
     invocation: u8,
     next_invocation: u8,
     supersede_on_query: bool,
+    query_error: Option<std::io::ErrorKind>,
     boot_job: Option<u32>,
     calls: Vec<&'static str>,
 }
@@ -238,6 +239,7 @@ impl<'a> Fake<'a> {
             invocation: 7,
             next_invocation: 7,
             supersede_on_query: false,
+            query_error: None,
             boot_job: None,
             calls: Vec::new(),
         }
@@ -271,6 +273,12 @@ impl Manager for Fake<'_> {
         _: &Budget<'_>,
     ) -> FakeResult<Option<SystemdUnitStatus>> {
         self.calls.push("query");
+        if let Some(kind) = self.query_error {
+            return Err(ApplyManagerError::caused_by(
+                "query unit",
+                std::io::Error::new(kind, "manager connection lost"),
+            ));
+        }
         if self.supersede_on_query {
             self.supersede_on_query = false;
             self.fixture

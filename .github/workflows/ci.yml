@@ -25,7 +25,11 @@ jobs:
           rustc --edition 2024 -D warnings --test tools/check_structure.rs -o /tmp/syrox-check-structure-tests
           /tmp/syrox-check-structure-tests
           /tmp/syrox-check-structure
-      - name: Test native subset (microVM runner pending)
+      - name: Rustdoc and examples
+        run: |
+          RUSTDOCFLAGS="-D warnings" cargo doc --workspace --locked --all-features --no-deps --document-private-items
+          RUSTDOCFLAGS="-D warnings" cargo test --workspace --locked --all-features --doc
+      - name: Test native subset
         run: cargo test --workspace --locked --no-default-features
       - name: Clippy all targets and features
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
@@ -35,6 +39,58 @@ jobs:
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
+
+  microvm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      SYROX_VM_EVIDENCE: ${{ github.workspace }}/target/test-evidence/ci-vm
+      SYROX_VM_CONFIG: ${{ github.workspace }}/target/ci-vm-config.json
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
+      - name: Require KVM and Docker
+        run: |
+          test -c /dev/kvm
+          sudo chown "$(id -u):$(id -g)" /dev/kvm
+          sudo chmod 660 /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+          docker info
+      - name: Build guest and preparation image
+        run: |
+          mkdir -p target
+          docker build --iidfile target/ci-vm-image.id \
+            --build-arg RUST_IMAGE=rust@sha256:4cd829461bd5c4d511c32e269da9cb8929223b666519d8004e35fc8d1d771ab7 \
+            --build-arg BASE_IMAGE=debian@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f \
+            -f tests/vm/Containerfile -t syrox-vm:ci tests/vm
+          docker save --output target/ci-vm-image.tar syrox-vm:ci
+      - name: Prepare pinned runtime and Landlock firmware
+        run: |
+          cargo test --locked -p syrox --test vm -- --prepare \
+            --install-runtime --build-firmware \
+            --image-archive "$PWD/target/ci-vm-image.tar" \
+            --preparation-image "$(cat target/ci-vm-image.id)"
+      - name: Run eight default VM gates
+        run: cargo test --locked -p syrox --test vm
+      - name: Preserve VM evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: microvm-evidence
+          if-no-files-found: warn
+          path: |
+            target/test-evidence/ci-vm/report.json
+            target/test-evidence/ci-vm/guest-report.json
+            target/test-evidence/ci-vm/**/*.log
+            target/test-evidence/ci-vm/**/*.json
+            target/test-evidence/ci-vm/**/*.jsonl
+            target/test-evidence/ci-vm/**/*.tar
+            target/firmware-evidence/**
+            target/vm-runtime/landlock/provenance.json
+            target/ci-vm-config.json
+            target/ci-vm-image.id
+            target/vm-doctor.json
 
   static-linux:
     runs-on: ubuntu-latest

@@ -44,13 +44,35 @@ pub struct OsRecoveryRequest {
     pub stop_timeout: Duration,
 }
 #[derive(Debug, thiserror::Error)]
-#[error("Os recovery failed during {stage}; retained evidence was preserved")]
+#[error("Os recovery failed during {stage}{detail}; retained evidence was preserved", detail = .source.as_ref().map(|error| format!(": {error}")).unwrap_or_default())]
 pub struct OsRecoveryError {
     stage: &'static str,
+    #[source]
+    source: Option<Box<dyn std::error::Error + Send + Sync>>,
+}
+impl OsRecoveryError {
+    pub const fn stage(&self) -> &'static str {
+        self.stage
+    }
+}
+impl From<&'static str> for OsRecoveryError {
+    fn from(stage: &'static str) -> Self {
+        failure(stage)
+    }
 }
 fn failure(stage: &'static str) -> OsRecoveryError {
     OsRecoveryError {
         stage,
+        source: None,
+    }
+}
+fn failure_with(
+    stage: &'static str,
+    source: impl Into<Box<dyn std::error::Error + Send + Sync>>,
+) -> OsRecoveryError {
+    OsRecoveryError {
+        stage,
+        source: Some(source.into()),
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,6 +103,8 @@ pub struct OsRecoveryEffect {
     pub kind: &'static str,
     pub state: OsRecoveryState,
     pub stage: Option<&'static str>,
+    /// Original failure details for this pending effect; never execution authority.
+    pub error: Option<String>,
 }
 #[derive(Debug)]
 pub struct OsRecoveryReport {
@@ -105,7 +129,7 @@ pub fn recover_os_generation(
         .clone();
     let (mut manager, epoch) =
         super::observe_manager(&request.scope, &context, cancellation, deadline)
-            .map_err(|error| failure(error.stage))?;
+            .map_err(|error| failure_with(error.stage, error))?;
     if request.manager_changed {
         if request.new_boot {
             return Err(failure("recovery modes are mutually exclusive"));
@@ -137,20 +161,20 @@ pub fn recover_os_generation(
         cancellation,
         deadline,
     )
-    .map_err(|_| failure("open existing unit publisher"))?;
+    .map_err(|source| failure_with("open existing unit publisher", source))?;
     opened
         .paths
         .revalidate(cancellation, deadline)
-        .map_err(|_| failure("execution paths changed"))?;
+        .map_err(|source| failure_with("execution paths changed", source))?;
     if request.new_boot {
         opened
             .journal
             .fence_previous_boot(&request.operation, &epoch, cancellation, deadline)
-            .map_err(|_| failure("fence previous boot"))?;
+            .map_err(|source| failure_with("fence previous boot", source))?;
         opened.snapshot = opened
             .journal
             .snapshot(cancellation, deadline)
-            .map_err(|_| failure("read fenced operation"))?;
+            .map_err(|source| failure_with("read fenced operation", source))?;
     }
     let driver = ApplyManager {
         manager: &mut manager,
@@ -193,18 +217,18 @@ impl OpenedRecovery {
             cancel,
             deadline,
         )
-        .map_err(|_| failure("execution paths"))?;
+        .map_err(|source| failure_with("execution paths", source))?;
         let installation =
             GenerationInstallation::open_existing(paths.installation(), cancel, deadline)
-                .map_err(|_| failure("open installation"))?;
+                .map_err(|source| failure_with("open installation", source))?;
         let execution = installation
             .execution(cancel, deadline)
-            .map_err(|_| failure("acquire installation execution authority"))?;
+            .map_err(|source| failure_with("acquire installation execution authority", source))?;
         let journal = ActivationJournal::open_existing(paths.installation(), cancel, deadline)
-            .map_err(|_| failure("open activation journal"))?;
+            .map_err(|source| failure_with("open activation journal", source))?;
         let snapshot = journal
             .snapshot(cancel, deadline)
-            .map_err(|_| failure("read activation journal"))?;
+            .map_err(|source| failure_with("read activation journal", source))?;
         let operation = snapshot
             .operations
             .get(&request.operation)
@@ -222,12 +246,12 @@ impl OpenedRecovery {
         let pin = operation
             .candidate
             .parse()
-            .map_err(|_| failure("invalid candidate identity"))?;
-        let store =
-            Store::open_existing(paths.store()).map_err(|_| failure("open existing Store"))?;
+            .map_err(|source| failure_with("invalid candidate identity", source))?;
+        let store = Store::open_existing(paths.store())
+            .map_err(|source| failure_with("open existing Store", source))?;
         let candidate = installation
             .open(&store, pin, cancel, deadline)
-            .map_err(|_| failure("open retained candidate"))?;
+            .map_err(|source| failure_with("open retained candidate", source))?;
         Ok(Self {
             installation,
             paths,
@@ -261,7 +285,7 @@ impl OpenedRecovery {
             cancel,
             deadline,
         )
-        .map_err(|_| failure("reopen retained execution choices"))
+        .map_err(|source| failure_with("reopen retained execution choices", source))
     }
 }
 
@@ -290,7 +314,7 @@ fn execution_context(
     {
         return Err(failure("operation identity"));
     }
-    super::remaining(cancellation, deadline).map_err(|error| failure(error.stage))?;
+    super::remaining(cancellation, deadline).map_err(|error| failure_with(error.stage, error))?;
     OsLaunchContext::new(
         request.scope.clone(),
         request.store.clone(),
@@ -300,5 +324,5 @@ fn execution_context(
         request.start_timeout,
         request.stop_timeout,
     )
-    .map_err(|_| failure("execution context"))
+    .map_err(|source| failure_with("execution context", source))
 }

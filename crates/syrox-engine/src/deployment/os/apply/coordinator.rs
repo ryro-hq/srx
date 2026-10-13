@@ -428,6 +428,7 @@ fn observed(outcome: EffectOutcome) -> Result<()> {
         } => Ok(()),
         EffectStatus::Uncertain {
             stage,
+            ..
         } => Err(stage),
     }
 }

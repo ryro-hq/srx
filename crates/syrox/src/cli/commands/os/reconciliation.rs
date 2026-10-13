@@ -83,7 +83,7 @@ fn report_json(report: &OsRecoveryReport) -> serde_json::Value {
         .map(|effect| {
             serde_json::json!({
                 "effect": effect.effect, "resource": effect.resource, "kind": effect.kind,
-                "state": effect.state.as_str(), "stage": effect.stage,
+                "state": effect.state.as_str(), "stage": effect.stage, "error": effect.error,
             })
         })
         .collect();
@@ -94,14 +94,18 @@ fn report_json(report: &OsRecoveryReport) -> serde_json::Value {
 }
 fn effect_text(effect: &OsRecoveryEffect) -> String {
     format!(
-        "effect={} resource={} kind={} state={}{}",
+        "effect={} resource={} kind={} state={}{}{}",
         effect.effect,
         effect.resource,
         effect.kind,
         effect.state.as_str(),
         effect
             .stage
-            .map_or_else(String::new, |stage| format!(" stage={stage}"))
+            .map_or_else(String::new, |stage| format!(" stage={stage}")),
+        effect
+            .error
+            .as_ref()
+            .map_or_else(String::new, |error| format!(" error={error}"))
     )
 }
 fn report_exit_code(report: &OsRecoveryReport) -> u8 {
@@ -167,6 +171,7 @@ mod tests {
                 kind: "publish",
                 state: OsRecoveryState::NotApplied,
                 stage: None,
+                error: None,
             }],
             needs_reconciliation: false,
         };
@@ -189,6 +194,15 @@ mod tests {
             report_json(&report)["effects"][0]["state"],
             "pending"
         );
+        assert_eq!(report_exit_code(&report), 2);
+        report.effects[0].stage = Some("query unit");
+        report.effects[0].error = Some("manager connection lost".into());
+        let effect = &report_json(&report)["effects"][0];
+        assert_eq!(effect["stage"], "query unit");
+        assert_eq!(effect["error"], "manager connection lost");
+        let text = effect_text(&report.effects[0]);
+        assert!(text.contains("stage=query unit"));
+        assert!(text.contains("error=manager connection lost"));
         assert_eq!(report_exit_code(&report), 2);
     }
 }

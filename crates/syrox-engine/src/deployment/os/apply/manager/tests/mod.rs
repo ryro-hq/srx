@@ -241,7 +241,7 @@ impl Manager for Fake<'_> {
         budget.remaining()?;
         self.calls.push("epoch");
         if self.fault == Fault::EpochAfterIdle && self.calls.contains(&"idle") {
-            return Err(ApplyManagerError("changed epoch"));
+            return Err(ApplyManagerError::new("changed epoch"));
         }
         Ok(())
     }
@@ -280,7 +280,7 @@ impl Manager for Fake<'_> {
         budget.remaining()?;
         self.calls.push("loaded");
         if self.fault == Fault::Loaded {
-            Err(ApplyManagerError("loaded mismatch"))
+            Err(ApplyManagerError::new("loaded mismatch"))
         } else {
             Ok(pin(b"effective properties"))
         }
@@ -299,7 +299,7 @@ impl Manager for Fake<'_> {
         self.assert_intent(EffectKind::Start);
         self.calls.push("start");
         if self.fault == Fault::Submit {
-            return Err(ApplyManagerError("lost start reply"));
+            return Err(ApplyManagerError::new("lost start reply"));
         }
         if self.fault != Fault::GateUnused {
             self.consume_gate();
@@ -311,7 +311,7 @@ impl Manager for Fake<'_> {
         self.assert_intent(EffectKind::Stop);
         self.calls.push("stop");
         if self.fault == Fault::Submit {
-            return Err(ApplyManagerError("lost stop reply"));
+            return Err(ApplyManagerError::new("lost stop reply"));
         }
         Ok("/job/2".into())
     }

@@ -1,6 +1,6 @@
 use super::{
     OpenedRecovery, OsRecoveryEffect, OsRecoveryError, OsRecoveryReport, OsRecoveryRequest,
-    OsRecoveryState, failure,
+    OsRecoveryState, failure, failure_with,
 };
 use crate::deployment::os::activation::{
     ActivationSnapshot, EffectKind, EffectState, ExecutionEpoch,
@@ -21,7 +21,7 @@ use invocation::ObservedInvocation;
 mod resources;
 use resources::HistoricalResources;
 
-type Result<T> = std::result::Result<T, &'static str>;
+type Result<T> = std::result::Result<T, OsRecoveryError>;
 /// Constructed only after live authenticated reconciliation. Neither a boolean
 /// nor deserialized state can be supplied as a substitute for the kernel proofs.
 pub(crate) struct ManagerEpochSettlement {
@@ -98,10 +98,10 @@ fn transition_pin(state: &ActivationSnapshot, change: &str) -> Result<ContentDig
     let record = state
         .manager_changes
         .get(change)
-        .ok_or("unknown manager transition")?;
+        .ok_or_else(|| failure("unknown manager transition"))?;
     serde_json::to_vec(record)
         .map(|bytes| ContentDigest::sha256(&bytes))
-        .map_err(|_| "encode transition identity")
+        .map_err(|source| failure_with("encode transition identity", source))
 }
 
 pub(super) fn reconcile(
@@ -115,11 +115,11 @@ pub(super) fn reconcile(
     let change = opened
         .journal
         .begin_manager_change(&request.operation, current, cancel, deadline)
-        .map_err(|_| failure("revoke prior manager authority"))?;
+        .map_err(|source| failure_with("revoke prior manager authority", source))?;
     let snapshot = opened
         .journal
         .snapshot(cancel, deadline)
-        .map_err(|_| failure("read manager transition"))?;
+        .map_err(|source| failure_with("read manager transition", source))?;
     let result = if snapshot.manager_changes[&change].settled {
         Ok(())
     } else {
@@ -137,7 +137,7 @@ pub(super) fn reconcile(
     let after = opened
         .journal
         .snapshot(cancel, deadline)
-        .map_err(|_| failure("read reconciled manager transition"))?;
+        .map_err(|source| failure_with("read reconciled manager transition", source))?;
     Ok(report(
         opened,
         request,
@@ -165,22 +165,24 @@ impl Reconciler<'_> {
     fn remaining(&self) -> Result<Duration> {
         self.cancel
             .check()
-            .map_err(|_| "manager recovery cancelled")?;
+            .map_err(|source| failure_with("manager recovery cancelled", source))?;
         self.deadline
             .checked_duration_since(Instant::now())
             .filter(|value| !value.is_zero())
-            .ok_or("manager recovery deadline")
+            .ok_or_else(|| failure("manager recovery deadline"))
     }
     fn finish_empty(&mut self, snapshot: &ActivationSnapshot) -> Result<()> {
         if !snapshot.changed_epoch_never_started(self.change) {
-            return Err("manager transition has unresolved start inventory");
+            return Err(failure(
+                "manager transition has unresolved start inventory",
+            ));
         }
         let namespaces = self
             .opened
             .journal
             .observe_changed_namespaces(self.change, self.cancel, self.deadline)
-            .map_err(|_| "observe empty execution inventory")?
-            .ok_or("execution inventory is incomplete")?;
+            .map_err(|source| failure_with("observe empty execution inventory", source))?
+            .ok_or_else(|| failure("execution inventory is incomplete"))?;
         self.epoch()?;
         let proof = ManagerEpochSettlement {
             change: self.change.into(),
@@ -193,7 +195,7 @@ impl Reconciler<'_> {
         self.opened
             .journal
             .finish_manager_change(proof, self.cancel, self.deadline)
-            .map_err(|_| "persist unstarted manager transition")
+            .map_err(|source| failure_with("persist unstarted manager transition", source))
     }
 
     fn pin_resources(
@@ -211,34 +213,34 @@ impl Reconciler<'_> {
             self.cancel,
             self.deadline,
         )
-        .map_err(|_| "open existing unit publication")?;
+        .map_err(|source| failure_with("open existing unit publication", source))?;
         let mut pins = BTreeMap::new();
         let mut unstarted_references = BTreeMap::new();
         for (name, resource) in &transition.resources {
             let contract = &historical.contracts[name];
             if units
                 .observe(contract.unit(), self.cancel, self.deadline)
-                .map_err(|_| "observe historical unit publication")?
+                .map_err(|source| failure_with("observe historical unit publication", source))?
                 != Some(contract.file_digest())
             {
-                return Err("historical unit publication differs");
+                return Err(failure("historical unit publication differs"));
             }
             match snapshot
                 .changed_execution(self.change, name)
-                .map_err(|_| "classify historical execution")?
+                .map_err(|source| failure_with("classify historical execution", source))?
             {
                 ResourceExecution::NeverStarted => {
                     self.loaded(contract)?;
                     let reference = self
                         .manager
                         .reference_unit(contract.unit(), self.remaining()?, self.cancel)
-                        .map_err(|_| "reference unstarted unit")?;
+                        .map_err(|source| failure_with("reference unstarted unit", source))?;
                     self.idle_without_cgroup(&reference, contract)?;
                     unstarted_references.insert(name.clone(), reference);
                     continue;
                 }
                 ResourceExecution::Incomplete => {
-                    return Err("historical start evidence is incomplete");
+                    return Err(failure("historical start evidence is incomplete"));
                 }
                 ResourceExecution::Started => {}
             }
@@ -257,18 +259,18 @@ impl Reconciler<'_> {
         let reference = self
             .manager
             .reference_unit(contract.unit(), self.remaining()?, self.cancel)
-            .map_err(|_| "reference prior unit")?;
+            .map_err(|source| failure_with("reference prior unit", source))?;
         let status = self
             .manager
             .query(contract.unit(), self.remaining()?, self.cancel)
-            .map_err(|_| "query cgroup before pin")?
-            .ok_or("prior unit disappeared")?;
+            .map_err(|source| failure_with("query cgroup before pin", source))?
+            .ok_or_else(|| failure("prior unit disappeared"))?;
         if status.unit != *contract.unit() {
-            return Err("queried unit differs");
+            return Err(failure("queried unit differs"));
         }
         let observation = ObservedInvocation::select(&status.invocation, &resource.invocations)?;
         if observation == ObservedInvocation::Reloaded && !status.control_group.is_empty() {
-            return Err("reloaded unit unexpectedly has a cgroup");
+            return Err(failure("reloaded unit unexpectedly has a cgroup"));
         }
         let group = if status.control_group.is_empty() {
             // This absence grants nothing. Only the independent, complete
@@ -276,13 +278,13 @@ impl Reconciler<'_> {
             None
         } else {
             let ObservedInvocation::Historical(invocation) = observation else {
-                return Err("reloaded unit has a cgroup");
+                return Err(failure("reloaded unit has a cgroup"));
             };
             let binding = UnitInvocation::new(contract.unit().clone(), invocation)
-                .map_err(|_| "invalid selected invocation")?;
+                .map_err(|source| failure_with("invalid selected invocation", source))?;
             Some(
                 PinnedUnitCgroup::capture(self.manager, &binding, self.cancel, self.deadline)
-                    .map_err(|_| "pin prior cgroup")?,
+                    .map_err(|source| failure_with("pin prior cgroup", source))?,
             )
         };
         let pinned = PinnedResource {
@@ -315,15 +317,22 @@ impl Reconciler<'_> {
             .opened
             .journal
             .observe_changed_namespaces(self.change, self.cancel, self.deadline)
-            .map_err(|_| "namespace exit observation unavailable")?
-            .ok_or("namespace exit evidence incomplete")?;
+            .map_err(|source| failure_with("namespace exit observation unavailable", source))?
+            .ok_or_else(|| failure("namespace exit evidence incomplete"))?;
         let closed_inventory = if pins.values().any(|pin| pin.group.is_none()) {
             Some(
                 self.opened
                     .journal
                     .observe_closed_process_inventory(self.change, self.cancel, self.deadline)
-                    .map_err(|_| "closed process inventory observation unavailable")?
-                    .ok_or("pre-fork launcher or namespace inventory incomplete")?,
+                    .map_err(|source| {
+                        failure_with(
+                            "closed process inventory observation unavailable",
+                            source,
+                        )
+                    })?
+                    .ok_or_else(|| {
+                        failure("pre-fork launcher or namespace inventory incomplete")
+                    })?,
             )
         } else {
             None
@@ -334,19 +343,21 @@ impl Reconciler<'_> {
             if !self
                 .manager
                 .unit_idle_without_job(&pinned.unit, self.remaining()?, self.cancel)
-                .map_err(|_| "observe current unit job")?
+                .map_err(|source| failure_with("observe current unit job", source))?
             {
-                return Err("unit or job is not idle");
+                return Err(failure("unit or job is not idle"));
             }
             let observed = if let Some(group) = &pinned.group {
                 match group
                     .observe_empty(self.manager, self.cancel, self.deadline)
-                    .map_err(|_| "observe pinned cgroup")?
+                    .map_err(|source| failure_with("observe pinned cgroup", source))?
                 {
                     CgroupObservation::Empty(proof) | CgroupObservation::Removed(proof) => {
                         ResourceSettlement::Cgroup(proof)
                     }
-                    CgroupObservation::Pending(reason) => return Err(pending_reason(&reason)),
+                    CgroupObservation::Pending(reason) => {
+                        return Err(failure(pending_reason(&reason)));
+                    }
                 }
             } else {
                 self.closed_inventory_idle(pinned, &historical.contracts[name])?;
@@ -370,7 +381,7 @@ impl Reconciler<'_> {
         for reference in unstarted_references.values_mut() {
             self.manager
                 .unreference_unit(reference, self.remaining()?, self.cancel)
-                .map_err(|_| "release unstarted unit reference")?;
+                .map_err(|source| failure_with("release unstarted unit reference", source))?;
         }
         for pinned in pins.values_mut() {
             self.manager
@@ -379,14 +390,14 @@ impl Reconciler<'_> {
                     self.remaining()?,
                     self.cancel,
                 )
-                .map_err(|_| "release prior unit reference")?;
+                .map_err(|source| failure_with("release prior unit reference", source))?;
         }
         self.epoch()?;
         let latest = self
             .opened
             .journal
             .snapshot(self.cancel, self.deadline)
-            .map_err(|_| "read final transition")?;
+            .map_err(|source| failure_with("read final transition", source))?;
         let proof = ManagerEpochSettlement {
             change: self.change.into(),
             transition: transition_pin(&latest, self.change)?,
@@ -398,7 +409,7 @@ impl Reconciler<'_> {
         self.opened
             .journal
             .finish_manager_change(proof, self.cancel, self.deadline)
-            .map_err(|_| "persist manager settlement")
+            .map_err(|source| failure_with("persist manager settlement", source))
     }
 }
 fn report(
@@ -406,8 +417,10 @@ fn report(
     request: &OsRecoveryRequest,
     state: &ActivationSnapshot,
     change: &str,
-    error: Option<&'static str>,
+    error: Option<OsRecoveryError>,
 ) -> OsRecoveryReport {
+    let error_stage = error.as_ref().map(|error| error.stage);
+    let cause = error.and_then(|error| error.source.map(|source| source.to_string()));
     let transition = &state.manager_changes[change];
     let mut effects: Vec<_> = transition
         .resources
@@ -421,7 +434,8 @@ fn report(
             } else {
                 OsRecoveryState::Pending
             },
-            stage: error,
+            stage: error_stage,
+            error: cause.clone(),
         })
         .collect();
     if effects.is_empty() {
@@ -434,7 +448,8 @@ fn report(
             } else {
                 OsRecoveryState::Pending
             },
-            stage: error,
+            stage: error_stage,
+            error: cause.clone(),
         });
     }
     for (id, effect) in &state.operations[&request.operation].effects {
@@ -450,6 +465,7 @@ fn report(
                 kind: "publish",
                 state: OsRecoveryState::Pending,
                 stage: Some("publication reconciliation remains required"),
+                error: None,
             });
         }
     }

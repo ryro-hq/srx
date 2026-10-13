@@ -43,10 +43,14 @@ impl HistoricalResources {
                 deadline,
             )?;
             if binding.context().fragment().parent() != Some(units) {
-                return Err("historical unit directory differs from explicit recovery path");
+                return Err(super::failure(
+                    "historical unit directory differs from explicit recovery path",
+                ));
             }
             if binding.generation().to_string() != resource.binding.generation {
-                return Err("historical generation differs from journal");
+                return Err(super::failure(
+                    "historical generation differs from journal",
+                ));
             }
             this.admit(opened, &binding, &mut bytes, cancel, deadline)?;
             let generation = &this.generations[&binding.generation()];
@@ -58,12 +62,14 @@ impl HistoricalResources {
                 cancel,
                 deadline,
             )
-            .map_err(|_| "revalidate retained historical runtime")?;
+            .map_err(|source| {
+                super::failure_with("revalidate retained historical runtime", source)
+            })?;
             this.contracts.insert(name.clone(), contract);
         }
         for (name, pin) in snapshot
             .manager_history(change)
-            .map_err(|_| "read historical startup inventory")?
+            .map_err(|source| super::failure_with("read historical startup inventory", source))?
         {
             let binding = Self::binding(opened, transition, &name, &pin, cancel, deadline)?;
             this.admit(opened, &binding, &mut bytes, cancel, deadline)?;
@@ -76,7 +82,9 @@ impl HistoricalResources {
                 cancel,
                 deadline,
             )
-            .map_err(|_| "revalidate previous invocation runtime")?;
+            .map_err(|source| {
+                super::failure_with("revalidate previous invocation runtime", source)
+            })?;
         }
         Ok(this)
     }
@@ -92,15 +100,15 @@ impl HistoricalResources {
             .installation
             .read_launch_binding(
                 pin.parse()
-                    .map_err(|_| "invalid historical pin")?,
+                    .map_err(|source| super::failure_with("invalid historical pin", source))?,
                 cancel,
                 deadline,
             )
-            .map_err(|_| "open historical binding")?;
+            .map_err(|source| super::failure_with("open historical binding", source))?;
         let resource = transition
             .resources
             .get(name)
-            .ok_or("historical resource not inventoried")?;
+            .ok_or_else(|| super::failure("historical resource not inventoried"))?;
         if binding.installation_id() != opened.installation.id()
             || binding.process_key() != name
             || binding.epoch() != &transition.previous
@@ -108,7 +116,9 @@ impl HistoricalResources {
             || binding.context().store() != opened.paths.store()
             || binding.cwd() != opened.paths.cwd()
         {
-            return Err("historical binding authority or execution paths differ");
+            return Err(super::failure(
+                "historical binding authority or execution paths differ",
+            ));
         }
         Ok(binding)
     }
@@ -129,14 +139,18 @@ impl HistoricalResources {
                     cancel,
                     deadline,
                 )
-                .map_err(|_| "open retained historical generation")?;
+                .map_err(|source| {
+                    super::failure_with("open retained historical generation", source)
+                })?;
             *bytes = bytes
                 .checked_add(retained.canonical_bytes().len())
                 .filter(|size| *size <= crate::deployment::os::manifest::MAX_BYTES)
-                .ok_or("historical generation aggregate limit exceeded")?;
+                .ok_or_else(|| super::failure("historical generation aggregate limit exceeded"))?;
             let snapshots =
                 ExistingSnapshots::open(&opened.installation, &retained, cancel, deadline)
-                    .map_err(|_| "open historical execution snapshots")?;
+                    .map_err(|source| {
+                        super::failure_with("open historical execution snapshots", source)
+                    })?;
             entry.insert(Generation {
                 retained,
                 snapshots,

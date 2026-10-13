@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
+use std::os::unix::fs::MetadataExt as _;
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
@@ -111,6 +112,10 @@ gcc -std=c11 -O2 -Wall -Wextra -Werror crates/syrox/tests/vm_support/capabilitie
 "#);
     fs::write(evidence.join("prepare-candidates.sh"), script)?;
     let name = format!("syrox-prep-{}", super::host::run_id()?);
+    // Bind mounts keep host ownership. Use the evidence owner rather than the
+    // guest's fixed UID so private preparation also works on hosted CI runners.
+    let owner = fs::metadata(evidence)?;
+    let container_user = format!("--user={}:{}", owner.uid(), owner.gid());
     let mut command = Command::new("docker");
     command.args([
         "create",
@@ -118,7 +123,7 @@ gcc -std=c11 -O2 -Wall -Wextra -Werror crates/syrox/tests/vm_support/capabilitie
         &name,
         "--network=none",
         "--pids-limit=256",
-        "--user=1000:1000",
+        &container_user,
         "--entrypoint=/bin/bash",
         "--tmpfs=/tmp:rw,nosuid,nodev,size=512m",
     ]);

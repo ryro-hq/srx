@@ -14,11 +14,13 @@ impl ObservedInvocation {
         }
         let invocation: [u8; 16] = current
             .try_into()
-            .map_err(|_| "invalid current invocation")?;
+            .map_err(|source| super::failure_with("invalid current invocation", source))?;
         if invocation.iter().all(|byte| *byte == 0)
             || !candidates.contains_key(&encode(&invocation))
         {
-            return Err("current invocation was not admitted");
+            return Err(super::failure(
+                "current invocation was not admitted",
+            ));
         }
         Ok(Self::Historical(invocation))
     }
@@ -30,7 +32,7 @@ impl ObservedInvocation {
         if matches {
             Ok(())
         } else {
-            Err("selected invocation changed")
+            Err(super::failure("selected invocation changed"))
         }
     }
 }

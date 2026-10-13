@@ -17,22 +17,24 @@ impl<M: Manager> ApplyManager<'_, M> {
         let state = self
             .journal
             .snapshot(self.cancellation, self.deadline)
-            .map_err(|_| ApplyManagerError("read recovery journal"))?;
+            .map_err(|source| ApplyManagerError::caused_by("read recovery journal", source))?;
         let operation = state
             .operations
             .get(self.operation)
-            .ok_or(ApplyManagerError("unknown recovery operation"))?;
+            .ok_or(ApplyManagerError::new(
+                "unknown recovery operation",
+            ))?;
         let recorded = operation
             .effects
             .get(effect)
-            .ok_or(ApplyManagerError("unknown recovery effect"))?;
+            .ok_or(ApplyManagerError::new("unknown recovery effect"))?;
         if &operation.epoch != self.epoch
             || recorded.resource != resource
             || recorded.kind != kind
             || recorded.target != target.to_string()
             || matches!(recorded.state, EffectState::Observed { .. })
         {
-            return Err(ApplyManagerError(
+            return Err(ApplyManagerError::new(
                 "recovery intent differs or is already observed",
             ));
         }
@@ -50,7 +52,7 @@ impl<M: Manager> ApplyManager<'_, M> {
     ) -> Result<EffectOutcome> {
         let target = binding
             .digest()
-            .map_err(|_| ApplyManagerError("invalid recovery binding"))?;
+            .map_err(|source| ApplyManagerError::caused_by("invalid recovery binding", source))?;
         self.recovery_effect(effect, resource, EffectKind::Start, target)?;
         let result = (|| {
             let budget = Budget {
@@ -60,15 +62,22 @@ impl<M: Manager> ApplyManager<'_, M> {
             let status = self
                 .manager
                 .query(&binding.unit(), &budget)?
-                .ok_or(ApplyManagerError("recovery start unit absent"))?;
-            let invocation: [u8; 16] = status
-                .invocation
-                .as_slice()
-                .try_into()
-                .map_err(|_| ApplyManagerError("invalid recovery invocation"))?;
+                .ok_or(ApplyManagerError::new(
+                    "recovery start unit absent",
+                ))?;
+            let invocation: [u8; 16] =
+                status
+                    .invocation
+                    .as_slice()
+                    .try_into()
+                    .map_err(|source| {
+                        ApplyManagerError::caused_by("invalid recovery invocation", source)
+                    })?;
             let loaded = self
                 .running_evidence(resource, binding, contract, &invocation)?
-                .ok_or(ApplyManagerError("recovery start is not running"))?;
+                .ok_or(ApplyManagerError::new(
+                    "recovery start is not running",
+                ))?;
             let text = invocation_hex(&invocation);
             if !self
                 .journal
@@ -80,9 +89,11 @@ impl<M: Manager> ApplyManager<'_, M> {
                     self.cancellation,
                     self.deadline,
                 )
-                .map_err(|_| ApplyManagerError("revalidate recovery gate"))?
+                .map_err(|source| {
+                    ApplyManagerError::caused_by("revalidate recovery gate", source)
+                })?
             {
-                return Err(ApplyManagerError(
+                return Err(ApplyManagerError::new(
                     "recovery gate authority changed",
                 ));
             }
@@ -105,13 +116,13 @@ impl<M: Manager> ApplyManager<'_, M> {
         let binding = state
             .bindings
             .get(resource)
-            .ok_or(ApplyManagerError("missing stopped binding"))?;
+            .ok_or(ApplyManagerError::new("missing stopped binding"))?;
         if binding.authorized
             || binding.pin != target.to_string()
             || binding.unit != unit.as_str()
             || &binding.epoch != self.epoch
         {
-            return Err(ApplyManagerError(
+            return Err(ApplyManagerError::new(
                 "stop recovery binding is not revoked or differs",
             ));
         }
@@ -119,11 +130,11 @@ impl<M: Manager> ApplyManager<'_, M> {
         if self
             .journal
             .observed_invocation(resource, target, self.cancellation, self.deadline)
-            .map_err(|_| ApplyManagerError("read owned stop invocation"))?
+            .map_err(|source| ApplyManagerError::caused_by("read owned stop invocation", source))?
             .as_deref()
             != Some(text.as_str())
         {
-            return Err(ApplyManagerError(
+            return Err(ApplyManagerError::new(
                 "stop recovery invocation is not owned",
             ));
         }
@@ -136,12 +147,12 @@ impl<M: Manager> ApplyManager<'_, M> {
                 job,
             } = &state.operations[self.operation].effects[effect].state
             else {
-                return Err(ApplyManagerError(
+                return Err(ApplyManagerError::new(
                     "stop acceptance has no recorded job",
                 ));
             };
             if !self.manager.recorded_job_absent(job, &budget)? {
-                return Err(ApplyManagerError(
+                return Err(ApplyManagerError::new(
                     "recorded stop job remains pending",
                 ));
             }
@@ -154,7 +165,7 @@ impl<M: Manager> ApplyManager<'_, M> {
                         "inactive" | "failed"
                     ))
             {
-                return Err(ApplyManagerError(
+                return Err(ApplyManagerError::new(
                     "stop recovery invocation conflicts or remains active",
                 ));
             }
@@ -173,14 +184,16 @@ impl<M: Manager> ApplyManager<'_, M> {
         contracts: &[&OsUnitContract],
     ) -> Result<EffectOutcome> {
         if contracts.is_empty() || contracts.len() > 1024 || reload_target(contracts) != target {
-            return Err(ApplyManagerError("invalid recovery reload batch"));
+            return Err(ApplyManagerError::new(
+                "invalid recovery reload batch",
+            ));
         }
         let mut units = std::collections::BTreeSet::new();
         if contracts
             .iter()
             .any(|contract| !units.insert(contract.unit()))
         {
-            return Err(ApplyManagerError(
+            return Err(ApplyManagerError::new(
                 "duplicate recovery reload unit",
             ));
         }

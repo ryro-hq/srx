@@ -518,6 +518,10 @@ srx os recover OPERATION --installation /absolute/installation --store /absolute
   --systemd-user-bus /run/user/1000/bus --uid 1000 --gid 1000 --json
 ```
 
+Pending effects include their `stage` and, when available, the original failure
+under `error`. Text output carries the same details. Recovery with unresolved
+effects continues to return exit status 2 and retains its evidence.
+
 Ordinary recovery reads the candidate from that operation's journal record. It checks
 current evidence and synchronizes confirmed ownership records; it does not send
 Start, Stop or Reload requests or republish units or bindings. Effects are
@@ -568,7 +572,7 @@ directory, `SYROX_RESTART_UNITS` to the user manager's unit directory, and
 
 ```sh
 cargo test --offline --locked -p syrox-engine --lib \
-  launcher::os::tests::restart::automatic_restart_reopens_pins_limits_attempts_and_refuses_revoked_payload \
+  execution::launcher::os::tests::restart::automatic_restart_reopens_pins_limits_attempts_and_refuses_revoked_payload \
   -- --ignored --exact --nocapture
 ```
 
@@ -587,7 +591,7 @@ their respective `_SHA256` variables to the authenticated digests, and
 
 ```sh
 cargo test --offline --locked -p syrox-engine --lib \
-  launcher::service_coordinator::tests::restart:: -- --ignored --nocapture
+  execution::launcher::service_coordinator::tests::restart:: -- --ignored --nocapture
 ```
 
 These gates check distinct admissions, the start limit, retention between

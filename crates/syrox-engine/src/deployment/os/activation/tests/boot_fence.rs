@@ -274,7 +274,7 @@ fn malformed_boot_fences_and_authorized_old_bindings_fail_closed() {
                     .bindings
                     .get_mut("test/server")
                     .unwrap()
-                    .authorized = true
+                    .authorized = true;
             }
             3 => {
                 state

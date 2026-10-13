@@ -10,6 +10,14 @@ scenarios share it and run sequentially. VM startup requires 1536 MiB available,
 including 1 GiB of host reserve, accounting for cgroup ancestors. Missing
 KVM/configuration or a failing scenario fails the run.
 
+The `microvm` job in [CI](../.github/workflows/ci.yml) runs the default gates on
+Linux x86_64. It checks KVM and Docker access, builds the guest from pinned base
+images, prepares the 0.7.3 runtime and Landlock firmware, and records the final
+image and firmware hashes. Preparation uses the host evidence owner's UID/GID;
+the guest continues to use its fixed test user. Missing prerequisites fail the
+job. Reports, logs, candidate hashes and gate archives are uploaded even when a
+gate fails; a successful image build is not passing gate evidence.
+
 ```sh
 cargo test --locked -p syrox --test vm host_managed_shell -- --nocapture
 cargo test --locked -p syrox --test vm host_managed_foreground -- --nocapture

@@ -103,7 +103,7 @@ pub fn main_with_ecosystem(args: &[String], ecosystem: bool) -> Result<()> {
         "cpus":super::resources::CPUS,"max_cpus":super::resources::CPUS,"memory_mib":super::resources::MEMORY_MIB,"max_memory_mib":super::resources::MEMORY_MIB,"cache_quota_mib":32768,"workspace_filesystem":"guest tmpfs","workspace_limit_mib":super::resources::WORKSPACE_MIB,"selected":selected,"vm_cleanup":"not-started",
         "harness_sha256":super::snapshot::digest(&std::env::current_exe()?)?,
         "fault":fault,
-        "coverage":"selected VM gates only; CI VM coverage pending",
+        "coverage":"selected VM gates only",
         "pending":common::gates().into_iter().filter(|gate|gate.category != common::Category::Gate).collect::<Vec<_>>()});
     super::evidence::save(&evidence.join("report.json"), &report)?;
     eprintln!("VM evidence: {}", evidence.display());

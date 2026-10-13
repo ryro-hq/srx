@@ -12,12 +12,31 @@ use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, thiserror::Error)]
-#[error("Os manager effect failed: {0}")]
-pub(super) struct ApplyManagerError(&'static str);
+#[error("Os manager effect failed during {stage}{detail}", detail = .source.as_ref().map(|error| format!(": {error}")).unwrap_or_default())]
+pub(super) struct ApplyManagerError {
+    stage: &'static str,
+    #[source]
+    source: Option<Box<dyn std::error::Error + Send + Sync>>,
+}
 impl ApplyManagerError {
+    const fn new(stage: &'static str) -> Self {
+        Self {
+            stage,
+            source: None,
+        }
+    }
+    pub(in crate::deployment::os::apply) fn caused_by(
+        stage: &'static str,
+        source: impl Into<Box<dyn std::error::Error + Send + Sync>>,
+    ) -> Self {
+        Self {
+            stage,
+            source: Some(source.into()),
+        }
+    }
     #[cfg(test)]
     pub(super) const fn for_test(stage: &'static str) -> Self {
-        Self(stage)
+        Self::new(stage)
     }
 }
 
@@ -33,6 +52,7 @@ pub(super) enum EffectStatus {
     },
     Uncertain {
         stage: &'static str,
+        error: Option<String>,
     },
 }
 #[derive(Debug)]
@@ -76,12 +96,14 @@ pub(super) struct Budget<'a> {
 impl Budget<'_> {
     fn remaining(&self) -> Result<Duration> {
         if self.cancellation.is_cancelled() {
-            return Err(ApplyManagerError("operation cancelled"));
+            return Err(ApplyManagerError::new("operation cancelled"));
         }
         self.deadline
             .checked_duration_since(Instant::now())
             .filter(|duration| !duration.is_zero())
-            .ok_or(ApplyManagerError("operation deadline expired"))
+            .ok_or(ApplyManagerError::new(
+                "operation deadline expired",
+            ))
     }
 }
 impl Manager for SystemdManager {
@@ -92,17 +114,17 @@ impl Manager for SystemdManager {
         budget: &Budget<'_>,
     ) -> Result<bool> {
         self.unit_idle_without_job(unit, budget.remaining()?, budget.cancellation)
-            .map_err(|_| ApplyManagerError("observe idle unit without job"))
+            .map_err(|source| ApplyManagerError::caused_by("observe idle unit without job", source))
     }
     fn epoch(&mut self, expected: &ExecutionEpoch, budget: &Budget<'_>) -> Result<()> {
         let identity = self
             .observe_identity(budget.remaining()?, budget.cancellation)
-            .map_err(|_| ApplyManagerError("observe manager identity"))?;
+            .map_err(|source| ApplyManagerError::caused_by("observe manager identity", source))?;
         let boot =
             crate::platform::linux::boot::BootId::current(budget.cancellation, budget.deadline)
-                .map_err(|_| ApplyManagerError("observe boot identity"))?;
+                .map_err(|source| ApplyManagerError::caused_by("observe boot identity", source))?;
         if identity.fingerprint().to_string() != expected.manager || boot != expected.boot {
-            return Err(ApplyManagerError("manager epoch changed"));
+            return Err(ApplyManagerError::new("manager epoch changed"));
         }
         Ok(())
     }
@@ -112,7 +134,7 @@ impl Manager for SystemdManager {
         budget: &Budget<'_>,
     ) -> Result<Option<SystemdUnitStatus>> {
         self.query(unit, budget.remaining()?, budget.cancellation)
-            .map_err(|_| ApplyManagerError("query unit"))
+            .map_err(|source| ApplyManagerError::caused_by("query unit", source))
     }
     fn fd_store(
         &mut self,
@@ -120,11 +142,11 @@ impl Manager for SystemdManager {
         budget: &Budget<'_>,
     ) -> Result<Option<SystemdFdStoreObserved>> {
         self.query_fd_store(unit, budget.remaining()?, budget.cancellation)
-            .map_err(|_| ApplyManagerError("query descriptor store"))
+            .map_err(|source| ApplyManagerError::caused_by("query descriptor store", source))
     }
     fn recorded_job_absent(&mut self, path: &str, budget: &Budget<'_>) -> Result<bool> {
         self.recorded_job_absent(path, budget.remaining()?, budget.cancellation)
-            .map_err(|_| ApplyManagerError("observe recorded stop job"))
+            .map_err(|source| ApplyManagerError::caused_by("observe recorded stop job", source))
     }
     fn loaded(&mut self, contract: &OsUnitContract, budget: &Budget<'_>) -> Result<ContentDigest> {
         self.observe_os_unit(contract, budget.remaining()?, budget.cancellation)
@@ -134,27 +156,27 @@ impl Manager for SystemdManager {
                     "Os loaded unit {}: {error}",
                     contract.unit().as_str()
                 );
-                ApplyManagerError("observe loaded unit")
+                ApplyManagerError::caused_by("observe loaded unit", error)
             })
     }
     fn reload(&mut self, budget: &Budget<'_>) -> Result<()> {
         self.reload(budget.remaining()?, budget.cancellation)
-            .map_err(|_| ApplyManagerError("reload manager"))
+            .map_err(|source| ApplyManagerError::caused_by("reload manager", source))
     }
     fn start(&mut self, unit: &SystemdUnitName, budget: &Budget<'_>) -> Result<Self::Job> {
         self.start_unit(unit, budget.remaining()?, budget.cancellation)
-            .map_err(|_| ApplyManagerError("submit start"))
+            .map_err(|source| ApplyManagerError::caused_by("submit start", source))
     }
     fn stop(&mut self, unit: &SystemdUnitName, budget: &Budget<'_>) -> Result<Self::Job> {
         self.stop(unit, budget.remaining()?, budget.cancellation)
-            .map_err(|_| ApplyManagerError("submit stop"))
+            .map_err(|source| ApplyManagerError::caused_by("submit stop", source))
     }
     fn job_path(job: &Self::Job) -> &str {
         job.path()
     }
     fn wait(&mut self, job: &Self::Job, budget: &Budget<'_>) -> Result<SystemdJobCompletion> {
         self.wait_job(job, budget.remaining()?, budget.cancellation)
-            .map_err(|_| ApplyManagerError("observe job completion"))
+            .map_err(|source| ApplyManagerError::caused_by("observe job completion", source))
     }
 }
 
@@ -189,13 +211,13 @@ impl<M: Manager> ApplyManager<'_, M> {
         let snapshot = self
             .journal
             .snapshot(self.cancellation, self.deadline)
-            .map_err(|_| ApplyManagerError("read activation journal"))?;
+            .map_err(|source| ApplyManagerError::caused_by("read activation journal", source))?;
         if snapshot
             .operations
             .get(self.operation)
             .is_none_or(|op| &op.epoch != self.epoch)
         {
-            return Err(ApplyManagerError("operation epoch differs"));
+            return Err(ApplyManagerError::new("operation epoch differs"));
         }
         self.journal
             .plan_effect(
@@ -207,7 +229,7 @@ impl<M: Manager> ApplyManager<'_, M> {
                 self.cancellation,
                 self.deadline,
             )
-            .map_err(|_| ApplyManagerError("persist effect intent"))
+            .map_err(|source| ApplyManagerError::caused_by("persist effect intent", source))
     }
     fn finish(
         &self,
@@ -217,19 +239,18 @@ impl<M: Manager> ApplyManager<'_, M> {
     ) -> EffectOutcome {
         match result {
             Ok((invocation, loaded)) => {
-                if self
-                    .journal
-                    .record_observed(
-                        self.operation,
-                        &effect,
-                        target,
-                        invocation.as_deref(),
-                        self.cancellation,
-                        self.deadline,
-                    )
-                    .is_err()
-                {
-                    return self.uncertain(effect, "persist observed effect");
+                if let Err(source) = self.journal.record_observed(
+                    self.operation,
+                    &effect,
+                    target,
+                    invocation.as_deref(),
+                    self.cancellation,
+                    self.deadline,
+                ) {
+                    return self.uncertain(
+                        effect,
+                        ApplyManagerError::caused_by("persist observed effect", source),
+                    );
                 }
                 EffectOutcome {
                     effect,
@@ -239,10 +260,10 @@ impl<M: Manager> ApplyManager<'_, M> {
                     loaded,
                 }
             }
-            Err(error) => self.uncertain(effect, error.0),
+            Err(error) => self.uncertain(effect, error),
         }
     }
-    fn uncertain(&self, effect: String, stage: &'static str) -> EffectOutcome {
+    fn uncertain(&self, effect: String, error: ApplyManagerError) -> EffectOutcome {
         // Failure to persist Unknown leaves Intent/Accepted, both unresolved.
         let _ = self.journal.record_unknown(
             self.operation,
@@ -253,7 +274,8 @@ impl<M: Manager> ApplyManager<'_, M> {
         EffectOutcome {
             effect,
             state: EffectStatus::Uncertain {
-                stage,
+                stage: error.stage,
+                error: error.source.map(|source| source.to_string()),
             },
             loaded: Vec::new(),
         }
@@ -267,7 +289,7 @@ impl<M: Manager> ApplyManager<'_, M> {
                 self.cancellation,
                 self.deadline,
             )
-            .map_err(|_| ApplyManagerError("persist accepted job"))
+            .map_err(|source| ApplyManagerError::caused_by("persist accepted job", source))
     }
     pub(super) fn stop(
         &mut self,
@@ -277,7 +299,9 @@ impl<M: Manager> ApplyManager<'_, M> {
         target: ContentDigest,
     ) -> Result<EffectOutcome> {
         if expected_invocation.iter().all(|byte| *byte == 0) {
-            return Err(ApplyManagerError("empty expected invocation"));
+            return Err(ApplyManagerError::new(
+                "empty expected invocation",
+            ));
         }
         let effect = self.plan(resource, EffectKind::Stop, target)?;
         let result = (|| {
@@ -290,7 +314,7 @@ impl<M: Manager> ApplyManager<'_, M> {
                 return Ok((None, Vec::new()));
             };
             if &status.unit != unit || status.invocation != expected_invocation {
-                return Err(ApplyManagerError("stop invocation conflict"));
+                return Err(ApplyManagerError::new("stop invocation conflict"));
             }
             self.manager.epoch(self.epoch, &budget)?;
             let job = self.manager.stop(unit, &budget)?;
@@ -305,7 +329,7 @@ impl<M: Manager> ApplyManager<'_, M> {
                         "inactive" | "failed"
                     ))
             {
-                return Err(ApplyManagerError(
+                return Err(ApplyManagerError::new(
                     "stop state conflicts after completion",
                 ));
             }
@@ -323,14 +347,14 @@ impl<M: Manager> ApplyManager<'_, M> {
         contracts: &[&OsUnitContract],
     ) -> Result<EffectOutcome> {
         if contracts.is_empty() || contracts.len() > 1024 || reload_target(contracts) != target {
-            return Err(ApplyManagerError("invalid reload batch"));
+            return Err(ApplyManagerError::new("invalid reload batch"));
         }
         let mut units = std::collections::BTreeSet::new();
         if contracts
             .iter()
             .any(|contract| !units.insert(contract.unit()))
         {
-            return Err(ApplyManagerError("duplicate reload unit"));
+            return Err(ApplyManagerError::new("duplicate reload unit"));
         }
         let effect = self.plan(resource, EffectKind::Reload, target)?;
         let result = (|| {
@@ -374,7 +398,7 @@ impl<M: Manager> ApplyManager<'_, M> {
     ) -> Result<Option<ContentDigest>> {
         let target = binding
             .digest()
-            .map_err(|_| ApplyManagerError("invalid launch binding"))?;
+            .map_err(|source| ApplyManagerError::caused_by("invalid launch binding", source))?;
         if resource != binding.process_key()
             || binding.epoch() != self.epoch
             || contract.unit() != &binding.unit()
@@ -382,7 +406,7 @@ impl<M: Manager> ApplyManager<'_, M> {
             || contract.binding() != target
             || expected_invocation.iter().all(|byte| *byte == 0)
         {
-            return Err(ApplyManagerError(
+            return Err(ApplyManagerError::new(
                 "running contract differs from binding",
             ));
         }
@@ -396,7 +420,9 @@ impl<M: Manager> ApplyManager<'_, M> {
             return Ok(None);
         };
         if status.unit != unit || status.invocation != expected_invocation {
-            return Err(ApplyManagerError("running invocation conflict"));
+            return Err(ApplyManagerError::new(
+                "running invocation conflict",
+            ));
         }
         if matches!(
             status.active_state.as_str(),
@@ -406,7 +432,7 @@ impl<M: Manager> ApplyManager<'_, M> {
         }
         if status.active_state != "active" || status.sub_state != "running" || status.main_pid == 0
         {
-            return Err(ApplyManagerError(
+            return Err(ApplyManagerError::new(
                 "running invocation is transitioning",
             ));
         }
@@ -414,13 +440,13 @@ impl<M: Manager> ApplyManager<'_, M> {
         let fd = self
             .manager
             .fd_store(&unit, &budget)?
-            .ok_or(ApplyManagerError("running FD store absent"))?;
+            .ok_or(ApplyManagerError::new("running FD store absent"))?;
         if fd.invocation != expected_invocation
             || fd.count != 1
             || fd.max != 1
             || fd.notify_access != "main"
         {
-            return Err(ApplyManagerError("running FD store differs"));
+            return Err(ApplyManagerError::new("running FD store differs"));
         }
         if !self
             .journal
@@ -432,12 +458,14 @@ impl<M: Manager> ApplyManager<'_, M> {
                 self.cancellation,
                 self.deadline,
             )
-            .map_err(|_| ApplyManagerError("read start gate evidence"))?
+            .map_err(|source| ApplyManagerError::caused_by("read start gate evidence", source))?
         {
-            return Err(ApplyManagerError("running gate evidence absent"));
+            return Err(ApplyManagerError::new(
+                "running gate evidence absent",
+            ));
         }
         if self.manager.loaded(contract, &budget)? != loaded {
-            return Err(ApplyManagerError(
+            return Err(ApplyManagerError::new(
                 "loaded running contract changed",
             ));
         }
@@ -445,14 +473,16 @@ impl<M: Manager> ApplyManager<'_, M> {
         let current = self
             .manager
             .query(&unit, &budget)?
-            .ok_or(ApplyManagerError("running unit disappeared"))?;
+            .ok_or(ApplyManagerError::new("running unit disappeared"))?;
         if current.unit != unit
             || current.invocation != expected_invocation
             || current.main_pid != status.main_pid
             || current.active_state != "active"
             || current.sub_state != "running"
         {
-            return Err(ApplyManagerError("running invocation changed"));
+            return Err(ApplyManagerError::new(
+                "running invocation changed",
+            ));
         }
         Ok(Some(loaded))
     }
@@ -464,14 +494,14 @@ impl<M: Manager> ApplyManager<'_, M> {
     ) -> Result<EffectOutcome> {
         let target = binding
             .digest()
-            .map_err(|_| ApplyManagerError("invalid launch binding"))?;
+            .map_err(|source| ApplyManagerError::caused_by("invalid launch binding", source))?;
         if resource != binding.process_key()
             || binding.epoch() != self.epoch
             || contract.unit() != &binding.unit()
             || contract.scope() != &binding.context().scope()
             || contract.binding() != target
         {
-            return Err(ApplyManagerError(
+            return Err(ApplyManagerError::new(
                 "start contract differs from binding",
             ));
         }
@@ -500,7 +530,7 @@ impl<M: Manager> ApplyManager<'_, M> {
                     "inactive" | "failed"
                 )
         }) {
-            return Err(ApplyManagerError(
+            return Err(ApplyManagerError::new(
                 "start requires inactive or absent unit",
             ));
         }
@@ -513,12 +543,12 @@ impl<M: Manager> ApplyManager<'_, M> {
         let status = self
             .manager
             .query(&unit, &budget)?
-            .ok_or(ApplyManagerError("started unit disappeared"))?;
+            .ok_or(ApplyManagerError::new("started unit disappeared"))?;
         let invocation: [u8; 16] = status
             .invocation
             .as_slice()
             .try_into()
-            .map_err(|_| ApplyManagerError("invalid started invocation"))?;
+            .map_err(|source| ApplyManagerError::caused_by("invalid started invocation", source))?;
         if status.unit != unit
             || status.active_state != "active"
             || status.sub_state != "running"
@@ -528,15 +558,17 @@ impl<M: Manager> ApplyManager<'_, M> {
                 .as_ref()
                 .is_some_and(|old| old.invocation == invocation)
         {
-            return Err(ApplyManagerError("started invocation not active"));
+            return Err(ApplyManagerError::new(
+                "started invocation not active",
+            ));
         }
         let fd = self
             .manager
             .fd_store(&unit, &budget)?
-            .ok_or(ApplyManagerError("started FD store absent"))?;
+            .ok_or(ApplyManagerError::new("started FD store absent"))?;
         if fd.invocation != invocation || fd.count != 1 || fd.max != 1 || fd.notify_access != "main"
         {
-            return Err(ApplyManagerError("started FD store differs"));
+            return Err(ApplyManagerError::new("started FD store differs"));
         }
         let text = invocation_hex(&invocation);
         if !self
@@ -549,25 +581,31 @@ impl<M: Manager> ApplyManager<'_, M> {
                 self.cancellation,
                 self.deadline,
             )
-            .map_err(|_| ApplyManagerError("read start gate evidence"))?
+            .map_err(|source| ApplyManagerError::caused_by("read start gate evidence", source))?
         {
-            return Err(ApplyManagerError("start gate was not consumed"));
+            return Err(ApplyManagerError::new(
+                "start gate was not consumed",
+            ));
         }
         if self.manager.loaded(contract, &budget)? != loaded {
-            return Err(ApplyManagerError("loaded start contract changed"));
+            return Err(ApplyManagerError::new(
+                "loaded start contract changed",
+            ));
         }
         self.manager.epoch(self.epoch, &budget)?;
         let final_status = self
             .manager
             .query(&unit, &budget)?
-            .ok_or(ApplyManagerError("started unit disappeared"))?;
+            .ok_or(ApplyManagerError::new("started unit disappeared"))?;
         if final_status.invocation != invocation
             || final_status.main_pid != status.main_pid
             || final_status.active_state != "active"
             || final_status.sub_state != "running"
             || final_status.unit != unit
         {
-            return Err(ApplyManagerError("started invocation changed"));
+            return Err(ApplyManagerError::new(
+                "started invocation changed",
+            ));
         }
         Ok((Some(text), vec![(unit, loaded)]))
     }
@@ -577,7 +615,7 @@ fn completed(completion: &SystemdJobCompletion) -> Result<()> {
         SystemdJobCompletion::Observed {
             result: SystemdJobResult::Done,
         } => Ok(()),
-        _ => Err(ApplyManagerError(
+        _ => Err(ApplyManagerError::new(
             "job completion not confirmed successful",
         )),
     }

@@ -1,4 +1,6 @@
-use super::{OsRecoveryEffect, OsRecoveryReport, OsRecoveryState};
+use super::{
+    OsRecoveryEffect, OsRecoveryError, OsRecoveryReport, OsRecoveryState, failure, failure_with,
+};
 use crate::deployment::os::{
     activation::{ActivationSnapshot, EffectKind, EffectState},
     apply::{
@@ -12,7 +14,7 @@ use crate::deployment::os::{
 use crate::{store::ContentDigest, systemd::SystemdUnitName};
 use std::collections::BTreeMap;
 
-type Result<T> = std::result::Result<T, &'static str>;
+type Result<T> = std::result::Result<T, OsRecoveryError>;
 /// Caller holds the installation execution guard through the whole observation.
 pub(in crate::deployment::os::apply) fn reconcile<M: Manager>(
     driver: ApplyManager<'_, M>,
@@ -66,13 +68,13 @@ pub(in crate::deployment::os::apply) fn reconcile<M: Manager>(
                 let target = effect
                     .target
                     .parse()
-                    .map_err(|_| "invalid effect target")?;
+                    .map_err(|source| failure_with("invalid effect target", source))?;
                 let previous = effect
                     .expected
                     .as_deref()
                     .map(str::parse)
                     .transpose()
-                    .map_err(|_| "invalid expected publication")?;
+                    .map_err(|source| failure_with("invalid expected publication", source))?;
                 coordinator.effect(
                     id,
                     &effect.resource,
@@ -82,19 +84,24 @@ pub(in crate::deployment::os::apply) fn reconcile<M: Manager>(
                 )
             })()
         };
-        let (state, error_stage) = match result {
-            Ok(state) => (state, None),
-            Err(stage) => {
+        let (status, stage, error) = match result {
+            Ok(state) => (state, None, None),
+            Err(error) => {
                 report.needs_reconciliation = true;
-                (OsRecoveryState::Pending, Some(stage))
+                (
+                    OsRecoveryState::Pending,
+                    Some(error.stage),
+                    error.source.map(|source| source.to_string()),
+                )
             }
         };
         report.effects.push(OsRecoveryEffect {
             effect: id.clone(),
             resource: effect.resource.clone(),
             kind: kind_name(effect.kind),
-            state,
-            stage: error_stage,
+            state: status,
+            stage,
+            error,
         });
     }
     report
@@ -117,7 +124,7 @@ impl<M: Manager> Coordinator<'_, M> {
     ) -> Result<OsRecoveryState> {
         self.paths
             .revalidate(self.driver.cancellation, self.driver.deadline)
-            .map_err(|_| "execution paths changed")?;
+            .map_err(|source| failure_with("execution paths changed", source))?;
         match kind {
             EffectKind::Publish => self.publication(id, resource, target, previous),
             EffectKind::Stop => self
@@ -129,14 +136,16 @@ impl<M: Manager> Coordinator<'_, M> {
                     .get(resource)
                     .ok_or("unknown start resource")?;
                 if next.contract.binding() != target {
-                    return Err("start binding differs from requested context");
+                    return Err(failure(
+                        "start binding differs from requested context",
+                    ));
                 }
                 self.published(next)?;
                 observed(
                     &self
                         .driver
                         .reconcile_start(id, resource, &next.binding, &next.contract)
-                        .map_err(|_| "validate start reconciliation")?,
+                        .map_err(|source| failure_with("validate start reconciliation", source))?,
                 )
                 .map(|()| OsRecoveryState::Observed)
             }
@@ -153,7 +162,7 @@ impl<M: Manager> Coordinator<'_, M> {
                     &self
                         .driver
                         .reconcile_reload(id, resource, target, &[&next.contract])
-                        .map_err(|_| "validate reload reconciliation")?,
+                        .map_err(|source| failure_with("validate reload reconciliation", source))?,
                 )
                 .map(|()| OsRecoveryState::Observed)
             }
@@ -176,7 +185,9 @@ impl<M: Manager> Coordinator<'_, M> {
                 .get(key)
                 .ok_or("unknown unit publication")?;
             if next.contract.file_digest() != target {
-                return Err("unit publication differs from requested context");
+                return Err(failure(
+                    "unit publication differs from requested context",
+                ));
             }
             self.units
                 .reconcile_expected(
@@ -186,7 +197,7 @@ impl<M: Manager> Coordinator<'_, M> {
                     driver.cancellation,
                     driver.deadline,
                 )
-                .map_err(|_| "reconcile exact unit publication")?;
+                .map_err(|source| failure_with("reconcile exact unit publication", source))?;
             if self
                 .units
                 .observe(
@@ -194,7 +205,7 @@ impl<M: Manager> Coordinator<'_, M> {
                     driver.cancellation,
                     driver.deadline,
                 )
-                .map_err(|_| "observe owned unit publication")?
+                .map_err(|source| failure_with("observe owned unit publication", source))?
                 != Some(target)
             {
                 self.units
@@ -205,7 +216,7 @@ impl<M: Manager> Coordinator<'_, M> {
                         driver.cancellation,
                         driver.deadline,
                     )
-                    .map_err(|_| "unit publication remains uncertain")?;
+                    .map_err(|source| failure_with("unit publication remains uncertain", source))?;
                 return self.not_applied(id);
             }
         } else {
@@ -214,15 +225,17 @@ impl<M: Manager> Coordinator<'_, M> {
                 .get(resource)
                 .ok_or("unknown binding publication")?;
             if next.contract.binding() != target {
-                return Err("binding publication differs from requested context");
+                return Err(failure(
+                    "binding publication differs from requested context",
+                ));
             }
             match self
                 .installation
                 .observe_launch_binding(target, driver.cancellation, driver.deadline)
-                .map_err(|_| "observe durable binding")?
+                .map_err(|source| failure_with("observe durable binding", source))?
             {
                 Some(binding) if binding == next.binding => {}
-                Some(_) => return Err("binding publication differs"),
+                Some(_) => return Err(failure("binding publication differs")),
                 None => return self.not_applied(id),
             }
         }
@@ -236,7 +249,7 @@ impl<M: Manager> Coordinator<'_, M> {
                 driver.cancellation,
                 driver.deadline,
             )
-            .map_err(|_| "record recovered publication")
+            .map_err(|source| failure_with("record recovered publication", source))
             .map(|()| OsRecoveryState::Observed)
     }
     fn not_applied(&self, id: &str) -> Result<OsRecoveryState> {
@@ -248,7 +261,7 @@ impl<M: Manager> Coordinator<'_, M> {
                 self.driver.cancellation,
                 self.driver.deadline,
             )
-            .map_err(|_| "record publication not applied")?;
+            .map_err(|source| failure_with("record publication not applied", source))?;
         Ok(OsRecoveryState::NotApplied)
     }
     fn published(&self, next: &PreparedResource) -> Result<()> {
@@ -260,11 +273,11 @@ impl<M: Manager> Coordinator<'_, M> {
                 driver.cancellation,
                 driver.deadline,
             )
-            .map_err(|_| "observe published binding")?
+            .map_err(|source| failure_with("observe published binding", source))?
             .as_ref()
             != Some(&next.binding)
         {
-            return Err("binding publication differs");
+            return Err(failure("binding publication differs"));
         }
         if self
             .units
@@ -273,10 +286,10 @@ impl<M: Manager> Coordinator<'_, M> {
                 driver.cancellation,
                 driver.deadline,
             )
-            .map_err(|_| "observe published unit")?
+            .map_err(|source| failure_with("observe published unit", source))?
             != Some(next.contract.file_digest())
         {
-            return Err("unit publication differs");
+            return Err(failure("unit publication differs"));
         }
         Ok(())
     }
@@ -288,9 +301,9 @@ impl<M: Manager> Coordinator<'_, M> {
                 self.driver.cancellation,
                 self.driver.deadline,
             )
-            .map_err(|_| "read prior stop binding")?;
+            .map_err(|source| failure_with("read prior stop binding", source))?;
         if binding.process_key() != resource || binding.epoch() != self.driver.epoch {
-            return Err("stop binding or epoch differs");
+            return Err(failure("stop binding or epoch differs"));
         }
         let invocation = self
             .driver
@@ -301,7 +314,7 @@ impl<M: Manager> Coordinator<'_, M> {
                 self.driver.cancellation,
                 self.driver.deadline,
             )
-            .map_err(|_| "read owned stop invocation")?
+            .map_err(|source| failure_with("read owned stop invocation", source))?
             .ok_or("stop invocation ownership is not recorded")?;
         let invocation = super::super::coordinator::invocation_bytes(&invocation)?;
         let unit: SystemdUnitName = binding.unit();
@@ -309,18 +322,22 @@ impl<M: Manager> Coordinator<'_, M> {
             &self
                 .driver
                 .reconcile_stop(id, resource, &unit, &invocation, target)
-                .map_err(|_| "validate stop reconciliation")?,
+                .map_err(|source| failure_with("validate stop reconciliation", source))?,
         )
     }
 }
 fn observed(outcome: &EffectOutcome) -> Result<()> {
-    match outcome.state {
+    match &outcome.state {
         EffectStatus::Observed {
             ..
         } => Ok(()),
         EffectStatus::Uncertain {
             stage,
-        } => Err(stage),
+            error,
+        } => Err(error.as_ref().map_or_else(
+            || failure(stage),
+            |source| failure_with(stage, source.clone()),
+        )),
     }
 }
 fn order(kind: EffectKind, is_binding: bool) -> u8 {
