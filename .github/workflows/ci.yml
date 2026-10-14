@@ -5,6 +5,7 @@ on:
   push:
     branches: [main]
   merge_group:
+    types: [checks_requested]
   workflow_dispatch:
   schedule:
     - cron: '23 4 * * 1'
@@ -14,7 +15,7 @@ permissions:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'merge_group' }}
 
 env:
   CARGO_TERM_COLOR: always
