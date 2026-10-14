@@ -114,45 +114,47 @@ impl Fixture {
         loop {
             let status = self.observe()?;
             let marker = self.cwd.join(format!("witness.{number}"));
-            if marker.exists() {
+            // Payload release precedes READY=1, and the marker may appear
+            // after the unit query. A witness alone cannot make that earlier
+            // startup snapshot active or bind it to the new invocation.
+            if marker.exists() && status.active_state == "active" && status.main_pid != 0 {
                 check(
                     fs::read(marker)? == format!("SYROX_RESTART_V1 {number}\n").as_bytes(),
                     "payload witness differs",
                 )?;
                 let attempts = self.attempts()?;
-                let invocation = context::hex(
-                    &status
-                        .invocation
-                        .clone()
-                        .try_into()
-                        .map_err(|_| invalid("invalid current invocation"))?,
-                );
-                check(
-                    attempts.len() == number as usize
-                        && attempts.values().any(|attempt| {
-                            attempt.invocation == invocation
-                                && attempt.gate_used
-                                && attempt.namespace.is_some()
-                                && attempt.launcher.is_some()
-                        }),
-                    "payload lacks authenticated admitted attempt",
-                )?;
-                check(
-                    status.active_state == "active" && status.main_pid != 0,
-                    "payload is not active",
-                )?;
                 let store = self
                     .manager
                     .query_fd_store(&status.unit, Duration::from_secs(2), &self.cancel)?
                     .ok_or_else(|| invalid("missing FD store"))?;
-                check(
-                    store.invocation == status.invocation
-                        && store.count == 1
-                        && store.max == 1
-                        && store.notify_access == "main",
-                    "per-attempt retention handoff did not reach one descriptor",
-                )?;
-                return Ok(status.invocation);
+                let after = self.observe()?;
+                if payload_observed(&status, &after) {
+                    let invocation = context::hex(
+                        &status
+                            .invocation
+                            .clone()
+                            .try_into()
+                            .map_err(|_| invalid("invalid current invocation"))?,
+                    );
+                    check(
+                        attempts.len() == number as usize
+                            && attempts.values().any(|attempt| {
+                                attempt.invocation == invocation
+                                    && attempt.gate_used
+                                    && attempt.namespace.is_some()
+                                    && attempt.launcher.is_some()
+                            }),
+                        "payload lacks authenticated admitted attempt",
+                    )?;
+                    check(
+                        store.invocation == status.invocation
+                            && store.count == 1
+                            && store.max == 1
+                            && store.notify_access == "main",
+                        "per-attempt retention handoff did not reach one descriptor",
+                    )?;
+                    return Ok(status.invocation);
+                }
             }
             check(Instant::now() < until, "payload witness deadline")?;
             std::thread::sleep(Duration::from_millis(20));
@@ -319,4 +321,38 @@ impl Fixture {
         )?;
         Ok(())
     }
+}
+
+// A filesystem witness is sampled inside this complete manager/attempt/store
+// bracket. Never accept the old invocation's active status after a restart.
+fn payload_observed(before: &SystemdUnitStatus, after: &SystemdUnitStatus) -> bool {
+    before == after && after.active_state == "active" && after.main_pid > 1
+}
+
+#[test]
+fn payload_witness_requires_a_stable_active_invocation() {
+    let mut active = SystemdUnitStatus {
+        unit: crate::systemd::SystemdUnitName::new("syrox-restart-observation.service").unwrap(),
+        invocation: vec![1; 16],
+        active_state: "active".into(),
+        sub_state: "running".into(),
+        control_group: "/user/test".into(),
+        result: "success".into(),
+        main_pid: 42,
+        exec_main_code: 0,
+        exec_main_status: 0,
+    };
+    assert!(payload_observed(&active, &active));
+    let mut starting = active.clone();
+    starting.active_state = "activating".into();
+    assert!(!payload_observed(&starting, &starting));
+    assert!(!payload_observed(&starting, &active));
+    let mut restarted = active.clone();
+    restarted.invocation[0] = 2;
+    assert!(!payload_observed(&active, &restarted));
+    restarted = active.clone();
+    restarted.main_pid += 1;
+    assert!(!payload_observed(&active, &restarted));
+    active.main_pid = 0;
+    assert!(!payload_observed(&active, &active));
 }
