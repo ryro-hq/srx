@@ -42,8 +42,7 @@ pub fn main(args: &[String]) -> Result<()> {
     let sources = snapshot::snapshot(&config::root(), &evidence.join("sources"))?;
     let catalog_sources = snapshot::snapshot(&catalog, &evidence.join("catalog"))?;
     let files = serde_json::from_value(sources["files"].clone())?;
-    let rust = fs::read_to_string(config::root().join("rust-toolchain.toml"))?;
-    let bundle = super::candidate_bundle::load(candidate, &files, &rust)?;
+    let bundle = super::candidate_bundle::load(candidate, &files, env!("CARGO_PKG_RUST_VERSION"))?;
     fs::write(evidence.join("build.toml"), fs::read(build)?)?;
     super::resources::require_host_for(config.profile.host_margin())?;
     let control = Control::new(None)?;
@@ -78,7 +77,8 @@ pub fn main(args: &[String]) -> Result<()> {
             };
             report["effective_config"] = serde_json::to_value(sandbox.config())?;
             let command = format!("{BOOTSTRAP}\n/usr/sbin/runuser -u syrox -- env XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus /candidate/srx catalog qualify /work/catalog --identity {identity} --config /evidence/build.toml --store /store --output /evidence/results");
-            let outcome = host::execute(&sandbox,&command,"qualification.log",&evidence,&control,Duration::from_hours(2)).await;
+            let effective = super::resources::verify_vm_for(&report["effective_config"], 2048);
+            let outcome = if let Err(error) = effective { Err(error) } else { host::execute(&sandbox,&command,"qualification.log",&evidence,&control,Duration::from_hours(2)).await };
             let cleanup = Control::uncancelled().bounded("VM destruction",Duration::from_secs(30),sandbox.destroy()).await;
             report["vm_cleanup"] = json!(if cleanup.is_ok() {"destroyed"} else {"unconfirmed"});
             if cleanup.is_err() { let _ = home.keep(); }
