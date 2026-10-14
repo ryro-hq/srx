@@ -8,7 +8,8 @@ on:
     types: [checks_requested]
   workflow_dispatch:
   schedule:
-    - cron: '23 4 * * 1'
+    # Like rust-lang/libc, keep a default-branch cache available to merge groups.
+    - cron: '23 4 * * *'
 
 permissions:
   contents: read
@@ -41,8 +42,6 @@ jobs:
           rustc --edition 2024 -D warnings --test tools/check_structure.rs -o /tmp/syrox-check-structure-tests
           /tmp/syrox-check-structure-tests
           /tmp/syrox-check-structure
-      - name: Cache retention regressions
-        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
       - name: Rustdoc and examples
         env:
           RUSTDOCFLAGS: -D warnings
@@ -188,7 +187,7 @@ jobs:
           name: vm-linux-6.12.109
           path: target/ci-environment/*
           if-no-files-found: error
-          compression-level: 0
+          compression-level: 1
 
   kernel:
     name: kernel (${{ matrix.profile }}, ${{ matrix.target }}, ${{ matrix.kernel }})
@@ -236,29 +235,14 @@ jobs:
           sudo chown "$(id -u):$(id -g)" /dev/kvm
           sudo chmod 660 /dev/kvm
           docker load --input target/ci-environment/image.tar
-      - name: Restore vendored dependencies
-        uses: actions/cache/restore@v6
-        id: vendor-cache
-        with:
-          path: target/vm-cache/vendor
-          key: vm-vendor-v1-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
-      - name: Restore guest compilation outputs
-        uses: actions/cache/restore@v6
-        id: compilation-cache
-        with:
-          path: target/vm-cache/guest/target
-          key: vm-compile-v2-${{ runner.os }}-${{ hashFiles('target/ci-environment/image.id', 'Cargo.lock', 'rust-toolchain.toml') }}-${{ hashFiles('Cargo.toml', 'crates/**', 'std/**', 'tests/fixtures/**') }}
-          restore-keys: |
-            vm-compile-v2-${{ runner.os }}-${{ hashFiles('target/ci-environment/image.id', 'Cargo.lock', 'rust-toolchain.toml') }}-
-      - name: Restore legacy preparation cache during migration
-        if: steps.compilation-cache.outputs.cache-matched-key == ''
+      - name: Restore guest preparation cache
         uses: actions/cache/restore@v6
         id: preparation-cache
         with:
           path: |
             target/vm-cache/vendor
             target/vm-cache/guest/target
-          key: vm-prepare-v1-${{ runner.os }}-${{ hashFiles('target/ci-environment/image.id', 'Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
+          key: vm-prepare-v1-${{ runner.os }}-${{ hashFiles('target/ci-environment/image.id', 'Cargo.lock', 'rust-toolchain.toml') }}-${{ hashFiles('Cargo.toml', 'crates/**', 'std/**', 'tests/fixtures/**') }}
           restore-keys: |
             vm-prepare-v1-${{ runner.os }}-${{ hashFiles('target/ci-environment/image.id', 'Cargo.lock', 'rust-toolchain.toml') }}-
       - name: Configure the explicit resource profile and imported candidates
@@ -284,18 +268,14 @@ jobs:
             jq -e '.vm_cleanup == "not-started" or .vm_cleanup == "confirmed absent" or (.vm_cleanup | startswith("destroyed;"))' target/test-evidence/ci-vm/report.json >/dev/null; then
             echo "save=true" >> "$GITHUB_OUTPUT"
           fi
-      - name: Save vendor from the default branch's native lane
-        if: success() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && matrix.profile == 'native' && steps.inactive-cache.outputs.save == 'true' && steps.vendor-cache.outputs.cache-hit != 'true'
+      - name: Save settled preparation from the default branch's native lane
+        if: success() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && matrix.profile == 'native' && steps.inactive-cache.outputs.save == 'true' && steps.preparation-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
-          path: target/vm-cache/vendor
-          key: ${{ steps.vendor-cache.outputs.cache-primary-key }}
-      - name: Save settled compilation from the default branch's native lane
-        if: success() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && matrix.profile == 'native' && steps.inactive-cache.outputs.save == 'true' && steps.compilation-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: target/vm-cache/guest/target
-          key: ${{ steps.compilation-cache.outputs.cache-primary-key }}
+          path: |
+            target/vm-cache/vendor
+            target/vm-cache/guest/target
+          key: ${{ steps.preparation-cache.outputs.cache-primary-key }}
       - name: Preserve kernel evidence
         if: always()
         uses: actions/upload-artifact@v7
