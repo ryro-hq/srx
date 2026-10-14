@@ -45,6 +45,12 @@ pub(super) fn lock(path: &Path, control: &Control) -> Result<File> {
 pub fn main(args: &[String]) -> Result<()> {
     if args
         .first()
+        .is_some_and(|value| value == "--qualify-catalog")
+    {
+        return super::catalog_qualification::main(&args[1..]);
+    }
+    if args
+        .first()
         .is_some_and(|value| value == "--prepare")
     {
         return super::prepare::main(&args[1..]);
@@ -550,7 +556,7 @@ async fn run_vm(
     outcome
 }
 
-async fn execute(
+pub(super) async fn execute(
     sandbox: &Sandbox,
     script: &str,
     name: &str,

@@ -15,7 +15,7 @@ use thiserror::Error;
 use crate::store::ContentDigest;
 use syrox_lang::{
     source::Source,
-    syntax::{ItemKind, StringPart, analyze},
+    syntax::{ItemKind, StringPart, TypeKind, analyze},
 };
 
 pub const INDEX_FILE: &str = "catalog.toml";
@@ -572,9 +572,13 @@ impl Catalog {
                 .find(|channel| channel.name == package.name)
                 .expect("validated channel");
             if let Some(key_file) = &channel.key_file {
+                let key_pin = ContentDigest::sha256(&bounded_file(root, key_file)?).to_string();
+                inputs.insert(key_file.clone(), key_pin.clone());
+                let authority = serde_json::to_vec(&(&channel.signing_key, key_file, key_pin))
+                    .map_err(|error| invalid(error.to_string()))?;
                 inputs.insert(
-                    key_file.clone(),
-                    ContentDigest::sha256(&bounded_file(root, key_file)?).to_string(),
+                    "@signing-authority".to_owned(),
+                    ContentDigest::sha256(&authority).to_string(),
                 );
             }
             let recipe = bounded_file(root, &package.recipe)?;
@@ -588,23 +592,60 @@ impl Catalog {
                 &package.variant,
                 &package.system,
             ];
-            let found = parsed.items.iter().any(|item| match &item.kind {
-                ItemKind::Function(function) if function.name.text == package.factory => {
-                    function.package.as_ref().is_some_and(|identity| {
-                        identity
-                            .iter()
-                            .zip(expected)
-                            .all(|(literal, value)| {
-                                literal
-                                    .parts
-                                    .iter()
-                                    .all(|part| matches!(part, StringPart::Text { .. }))
-                                    && literal.source == format!("\"{value}\"")
-                            })
-                    })
-                }
-                _ => false,
-            });
+            let found =
+                parsed.items.iter().any(|item| match &item.kind {
+                    ItemKind::Function(function) if function.name.text == package.factory => {
+                        let contract_module = Path::new(&package.contract)
+                            .file_stem()
+                            .and_then(|stem| stem.to_str());
+                        let contract_matches =
+                            function.result.as_ref().is_some_and(|result| {
+                                let TypeKind::Named {
+                                    path,
+                                    arguments,
+                                } = &result.kind
+                                else {
+                                    return false;
+                                };
+                                let [argument] = arguments.as_slice() else {
+                                    return false;
+                                };
+                                let TypeKind::Named {
+                                    path: contract,
+                                    arguments,
+                                } = &argument.kind
+                                else {
+                                    return false;
+                                };
+                                path.segments
+                                    .last()
+                                    .is_some_and(|segment| segment.text == "PackageRef")
+                                    && arguments.is_empty()
+                                    && contract.segments.last().is_some_and(|segment| {
+                                        segment.text == package.contract_type
+                                    })
+                                    && contract.segments.iter().rev().nth(1).is_some_and(
+                                        |segment| Some(segment.text.as_str()) == contract_module,
+                                    )
+                            });
+                        if !contract_matches {
+                            return false;
+                        }
+                        function.package.as_ref().is_some_and(|identity| {
+                            identity
+                                .iter()
+                                .zip(expected)
+                                .all(|(literal, value)| {
+                                    literal
+                                        .parts
+                                        .iter()
+                                        .all(|part| matches!(part, StringPart::Text { .. }))
+                                        && literal.source == format!("\"{value}\"")
+                                })
+                        })
+                    }
+                    _ => false,
+                });
             if !found {
                 return Err(invalid(format!(
                     "{} has no factory matching its version, variant and ABI",
@@ -784,7 +825,8 @@ impl CatalogLock {
             }
             if !accept_key_change
                 && old.inputs.iter().any(|(path, pin)| {
-                    path.starts_with("keys/") && current.inputs.get(path) != Some(pin)
+                    (path.starts_with("keys/") || path == "@signing-authority")
+                        && current.inputs.get(path) != Some(pin)
                 })
             {
                 return Err(invalid(

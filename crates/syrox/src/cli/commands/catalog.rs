@@ -160,6 +160,21 @@ fn execute(
             next.retain_previous(&previous, false)?;
         }
         fs::write(path.join(LOCK_FILE), next.encode()?)?;
+        let changes = path.join("changes");
+        fs::create_dir_all(&changes)?;
+        let record = serde_json::json!({
+            "schema": 1, "name": name, "version": version,
+            "default": catalog.defaults.get(name),
+            "signing_authority": catalog.channels.iter().find(|channel| &channel.name == name),
+            "combinations": next.versions.iter().filter(|entry| &entry.package.name == name && &entry.package.version == version).collect::<Vec<_>>(),
+            "qualification": "required before publication",
+        });
+        let mut change = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(changes.join(format!("{name}-{version}.json")))?;
+        change.write_all(serde_json::to_string_pretty(&record)?.as_bytes())?;
+        change.sync_all()?;
         return Ok(format!(
             "added {name} {version}; default unchanged; native qualification required"
         ));

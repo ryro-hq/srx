@@ -37,18 +37,21 @@ ARG TEST_GID=1000
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         binutils \
+        bison \
         bubblewrap \
         build-essential \
         ca-certificates \
         curl \
         dbus-user-session \
         git \
+        gawk \
         gnupg \
         liblzma-dev \
         libssl-dev \
         musl-tools \
         pkg-config \
         procps \
+        python3 \
         systemd \
         systemd-sysv \
         util-linux \
