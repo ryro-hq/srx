@@ -20,7 +20,7 @@ impl SignalFd {
         // SAFETY: initialized signal sets and writable saved-mask storage.
         unsafe {
             let mut set: libc::sigset_t = std::mem::zeroed();
-            let mut original = MaybeUninit::<libc::sigset_t>::uninit();
+            let mut original = MaybeUninit::<libc::sigset_t>::zeroed();
             super::checked(libc::sigemptyset(&raw mut set).into())?;
             for signal in FORWARDED.into_iter().chain([libc::SIGCHLD]) {
                 super::checked(libc::sigaddset(&raw mut set, signal).into())?;

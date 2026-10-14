@@ -21,6 +21,11 @@ struct OwnedNamespace {
 
 pub(crate) struct OwnedProxyNamespaces(Vec<OwnedNamespace>);
 impl OwnedProxyNamespaces {
+    /// Closed admission has no eligible namespaces; it grants no peer authority.
+    pub(crate) fn closed_admission() -> Self {
+        Self(Vec::new())
+    }
+
     /// Only the monitor supplies already-owned root/sibling init pidfds here.
     /// Never call this with descriptors supplied by a wrapper. This constructor
     /// pins kernel identities; it does not establish ownership of an init.
@@ -37,7 +42,9 @@ impl OwnedProxyNamespaces {
         for init in inits {
             check(cancel, deadline)?;
             linux_fd::require_unique_pidfd(*init)?;
-            alive(*init)?;
+            if linux_fd::pidfd_exited(*init)? {
+                return Err(io::Error::from_raw_os_error(libc::ESRCH));
+            }
             let namespace = linux_fd::pidfd_namespace(*init, PidfdNamespace::Pid)?;
             let identity = linux_fd::metadata(namespace.as_fd())?.identity();
             if entries

@@ -15,6 +15,10 @@ pub(in crate::execution::native) struct ProxyNamespace {
     child: process::NamespaceChild,
     _root: tempfile::TempDir,
     gate: Option<UnixStream>,
+    status: StatusChannel,
+}
+
+struct StatusChannel {
     channel: UnixStream,
     pending: [u8; 5],
     offset: usize,
@@ -83,6 +87,11 @@ pub(in crate::execution::native) unsafe fn prepare(
             }));
             let code = match outcome {
                 Ok(Ok(code)) => code,
+                Ok(Err(error)) => {
+                    let message = format!("error: command namespace init: {error}\n");
+                    let _ = io::stderr().lock().write_all(message.as_bytes());
+                    1
+                }
                 _ => 1,
             };
             // SAFETY: do not run copied external monitor owners' destructors.
@@ -95,11 +104,7 @@ pub(in crate::execution::native) unsafe fn prepare(
         child,
         _root: root,
         gate: Some(gate),
-        channel,
-        pending: [0; 5],
-        offset: 0,
-        executed: false,
-        exited: false,
+        status: StatusChannel::new(channel),
     })
 }
 
@@ -132,6 +137,34 @@ impl ProxyNamespace {
     }
 
     pub(in crate::execution::native) fn event(&mut self) -> io::Result<Option<Event>> {
+        self.status.event()
+    }
+
+    pub(in crate::execution::native) fn signal(&mut self, signal: i32) -> io::Result<()> {
+        if !self.status.executed || self.status.exited || !(1..=64).contains(&signal) {
+            return Err(io::Error::other("invalid proxy signal phase"));
+        }
+        self.status
+            .channel
+            .write_all(&[u8::try_from(signal).expect("validated signal")])
+    }
+
+    pub(in crate::execution::native) fn try_settled(&mut self) -> io::Result<Option<ExitStatus>> {
+        self.child.try_wait()
+    }
+}
+
+impl StatusChannel {
+    fn new(channel: UnixStream) -> Self {
+        Self {
+            channel,
+            pending: [0; 5],
+            offset: 0,
+            executed: false,
+            exited: false,
+        }
+    }
+    fn event(&mut self) -> io::Result<Option<Event>> {
         loop {
             match self
                 .channel
@@ -165,16 +198,61 @@ impl ProxyNamespace {
             }
         }
     }
+}
 
-    pub(in crate::execution::native) fn signal(&mut self, signal: i32) -> io::Result<()> {
-        if !self.executed || self.exited || !(1..=64).contains(&signal) {
-            return Err(io::Error::other("invalid proxy signal phase"));
-        }
-        self.channel
-            .write_all(&[u8::try_from(signal).expect("validated signal")])
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::process::ExitStatusExt as _;
+
+    fn channel() -> (StatusChannel, UnixStream) {
+        let (reader, writer) = UnixStream::pair().unwrap();
+        reader.set_nonblocking(true).unwrap();
+        (StatusChannel::new(reader), writer)
     }
-
-    pub(in crate::execution::native) fn try_settled(&mut self) -> io::Result<Option<ExitStatus>> {
-        self.child.try_wait()
+    #[test]
+    fn eof_without_valid_exit_status_is_failure() {
+        for prefix in [vec![], Event::Exec.encode().to_vec()] {
+            let (mut reader, mut writer) = channel();
+            writer.write_all(&prefix).unwrap();
+            drop(writer);
+            if !prefix.is_empty() {
+                assert_eq!(reader.event().unwrap(), Some(Event::Exec));
+            }
+            assert!(reader.event().is_err());
+        }
+    }
+    #[test]
+    fn partial_exit_and_exit_before_exec_are_refused() {
+        let (mut reader, mut writer) = channel();
+        writer
+            .write_all(&Event::Exited(ExitStatus::from_raw(0)).encode())
+            .unwrap();
+        assert!(reader.event().is_err());
+        let (mut reader, mut writer) = channel();
+        writer.write_all(&Event::Exec.encode()).unwrap();
+        writer
+            .write_all(&Event::Exited(ExitStatus::from_raw(0)).encode()[..3])
+            .unwrap();
+        drop(writer);
+        assert_eq!(reader.event().unwrap(), Some(Event::Exec));
+        assert!(reader.event().is_err());
+    }
+    #[test]
+    fn authenticated_exit_can_arrive_before_init_closes_channel() {
+        let (mut reader, mut writer) = channel();
+        let status = ExitStatus::from_raw(7 << 8);
+        writer.write_all(&Event::Exec.encode()).unwrap();
+        writer
+            .write_all(&Event::Exited(status).encode())
+            .unwrap();
+        assert_eq!(reader.event().unwrap(), Some(Event::Exec));
+        assert_eq!(
+            reader.event().unwrap(),
+            Some(Event::Exited(status))
+        );
+        assert!(reader.event().unwrap().is_none());
+        drop(writer);
+        assert!(reader.event().unwrap().is_none());
     }
 }

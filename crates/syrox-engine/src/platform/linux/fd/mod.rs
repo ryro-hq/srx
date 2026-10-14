@@ -26,7 +26,9 @@ use std::path::Path;
 use std::ptr::NonNull;
 
 mod buffer;
+mod path_handle;
 mod process;
+pub(crate) use path_handle::open_path;
 pub(crate) use process::{
     PidfdNamespace, descriptor_status_flags, effective_gid, effective_uid, kill_pidfd,
     namespace_parent, open_proc_executable, pidfd_exited, pidfd_namespace, pidfd_open,

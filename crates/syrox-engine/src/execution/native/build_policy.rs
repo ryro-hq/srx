@@ -1,7 +1,7 @@
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{self, Read as _};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::MetadataExt;
 
 const READ: u64 = (1 << 0) | (1 << 2) | (1 << 3);
 const WRITE: u64 = (1 << 1)
@@ -139,10 +139,7 @@ fn read_bounded(path: &str, maximum: u64) -> io::Result<String> {
 }
 
 fn check_mount(path: &str, readonly: bool, filesystem: Option<i64>) -> io::Result<()> {
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(path)?;
+    let file = crate::platform::linux::fd::open_path(std::path::Path::new(path))?;
     let mut stat = std::mem::MaybeUninit::<libc::statvfs>::uninit();
     let mut fs = std::mem::MaybeUninit::<libc::statfs>::uninit();
     // SAFETY: both outputs are writable, fd is live.
@@ -224,10 +221,7 @@ pub(crate) unsafe fn install() -> io::Result<()> {
 }
 
 fn add_rule(ruleset: &OwnedFd, path: &str, access: u64) -> io::Result<()> {
-    let file: File = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(path)?;
+    let file = crate::platform::linux::fd::open_path(std::path::Path::new(path))?;
     let rule = PathRule {
         access,
         parent: file.as_raw_fd(),

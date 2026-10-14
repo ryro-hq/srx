@@ -25,10 +25,7 @@ pub(super) fn open_null() -> io::Result<File> {
 /// Pin the kernel controlling-terminal device without opening its current
 /// session. `O_PATH` works even when the launcher itself has no controlling tty.
 pub(super) fn open_controlling_tty() -> io::Result<File> {
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open("/dev/tty")?;
+    let file = crate::platform::linux::fd::open_path(Path::new("/dev/tty"))?;
     validate_controlling_tty(&file)?;
     Ok(file)
 }
@@ -131,10 +128,7 @@ fn reopen_pinned_device(path: &Path, descriptor: BorrowedFd<'_>) -> io::Result<F
     // Reopen only the caller's known device path in this namespace, without
     // opening a terminal session or trusting a substituted node.
     let original = File::from(descriptor.try_clone_to_owned()?).metadata()?;
-    let local = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(path)?;
+    let local = crate::platform::linux::fd::open_path(path)?;
     let actual = local.metadata()?;
     if !original.file_type().is_char_device()
         || !actual.file_type().is_char_device()

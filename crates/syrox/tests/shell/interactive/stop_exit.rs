@@ -148,8 +148,8 @@ fn spawn_cli(root: &Path, bus: &Path) -> tracer::Tracer {
     // would otherwise stop the tracer itself and invalidate the barrier.
     unsafe {
         command.pre_exec(move || {
-            let mut block = MaybeUninit::<libc::sigset_t>::uninit();
-            let mut previous = MaybeUninit::<libc::sigset_t>::uninit();
+            let mut block = MaybeUninit::<libc::sigset_t>::zeroed();
+            let mut previous = MaybeUninit::<libc::sigset_t>::zeroed();
             if libc::sigemptyset(block.as_mut_ptr()) < 0
                 || libc::sigaddset(block.as_mut_ptr(), libc::SIGTTOU) < 0
                 || libc::sigprocmask(

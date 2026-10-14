@@ -308,7 +308,7 @@ mod tests {
     use std::fs::{self, File, OpenOptions};
     use std::os::fd::{AsFd as _, OwnedFd};
     use std::os::unix::ffi::OsStringExt as _;
-    use std::os::unix::fs::{OpenOptionsExt as _, symlink};
+    use std::os::unix::fs::symlink;
     use std::path::{Path, PathBuf};
 
     fn request(arguments: Vec<OsString>, cwd: &Path) -> ProxyRequest {
@@ -548,11 +548,7 @@ mod tests {
         assert!(validate_stdio(write_only.as_fd(), true).is_err());
         assert!(validate_stdio(write_only.as_fd(), false).is_ok());
         assert!(validate_stdio(root.as_fd(), true).is_err());
-        let path_only = OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_PATH)
-            .open("/dev/null")
-            .unwrap();
+        let path_only = crate::platform::linux::fd::open_path(Path::new("/dev/null")).unwrap();
         assert!(validate_stdio(path_only.as_fd(), true).is_err());
         let zero = File::open("/dev/zero").unwrap();
         assert!(validate_stdio(zero.as_fd(), true).is_err());

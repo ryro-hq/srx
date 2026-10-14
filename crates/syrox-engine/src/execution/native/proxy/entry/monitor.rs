@@ -40,7 +40,8 @@ pub(super) unsafe fn run(
     let request = root_request(&root, &mut inputs)?;
     let stdio = root_stdio(inputs.terminal.as_ref())?;
     let node = inputs.node.try_clone()?;
-    let commands = CommandsMount::new(inputs.directory, node)?;
+    let commands = CommandsMount::new(inputs.directory, node)
+        .map_err(|error| stage("commands mount", error))?;
     let listener = ProxyListener::from_inherited(
         inputs.listener,
         inputs.node,
@@ -63,7 +64,8 @@ pub(super) unsafe fn run(
             inputs.cwd.try_clone()?,
             original,
             &commands,
-        )?
+        )
+        .map_err(|error| stage("root namespace preparation", error))?
     };
     drop(inputs.terminal.take());
     inputs.root_info.send(
@@ -78,7 +80,6 @@ pub(super) unsafe fn run(
     }
     drop(inputs.root_gate);
     token.validate()?;
-    root_namespace.release(&cancel, Instant::now() + NEGOTIATION)?;
     let bootstrap = BootstrapClient::after_root_authorization(inputs.bootstrap, inputs.peer)?;
     // The durable execution's gate zero was consumed for this root; broker
     // admission begins only now and its first private authorization is gate one.
@@ -95,7 +96,11 @@ pub(super) unsafe fn run(
         context: inputs.metadata.context.clone(),
         worker: inputs.metadata.worker,
         original,
-    })?;
+    })
+    .map_err(|error| stage("broker preparation", error))?;
+    root_namespace
+        .release(&cancel, Instant::now() + NEGOTIATION)
+        .map_err(|error| stage("root release", error))?;
     drop(inputs.control); // Only the guardian consumes coordinator control.
     let exit = EventLoop {
         namespace: &mut root_namespace,
@@ -195,10 +200,17 @@ impl EventLoop<'_, '_> {
             if linux_fd::pidfd_exited(self.frontend)? {
                 return Err(crate::cancellation::cancellation_io());
             }
-            while let Some(event) = self.namespace.event()? {
+            while let Some(event) = self
+                .namespace
+                .event()
+                .map_err(|error| stage("root status", error))?
+            {
                 match event {
                     Event::Exec => executed = true,
-                    Event::Exited(status) => exit = Some(RootExit::new(status)?),
+                    Event::Exited(status) => {
+                        self.broker.close_admission();
+                        exit = Some(RootExit::new(status)?);
+                    }
                     Event::Stopped(signal) => {
                         if stopped.is_some() {
                             return Err(invalid());
@@ -226,34 +238,38 @@ impl EventLoop<'_, '_> {
                     }
                 }
             }
-            if self.namespace.try_settled()?.is_some() {
+            if self
+                .namespace
+                .try_settled()
+                .map_err(|error| stage("root reaping", error))?
+                .is_some()
+            {
                 // Drain once after observing exit: a final status packet may have
                 // arrived between the first read and the pidfd observation.
-                while let Some(event) = self.namespace.event()? {
+                while let Some(event) = self
+                    .namespace
+                    .event()
+                    .map_err(|error| stage("root status", error))?
+                {
                     if let Event::Exited(status) = event {
                         exit = Some(RootExit::new(status)?);
                     }
                 }
-                let exit = exit.ok_or_else(invalid)?;
-                return Ok(exit);
+                return settled_exit(exit, true)?.ok_or_else(invalid);
             }
             while let Some(signal) = self.signals.take()? {
                 if signal != libc::SIGCHLD {
-                    if executed {
+                    if executed && exit.is_none() {
                         self.namespace.signal(signal)?;
-                    } else {
+                    } else if !executed {
                         return Err(crate::cancellation::cancellation_io());
                     }
                 }
             }
             // SAFETY: this is still the dedicated monitor; the custodian capability
             // checked by Broker excludes copied init/payload processes.
-            if let Err(error) = unsafe { self.broker.tick(self.cancel) } {
-                if linux_fd::pidfd_exited(self.namespace.pidfd())? {
-                    continue;
-                }
-                return Err(error);
-            }
+            unsafe { self.broker.tick(self.cancel) }
+                .map_err(|error| stage("broker tick", error))?;
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
     }
@@ -306,5 +322,75 @@ fn root_stdio(terminal: Option<&std::os::fd::OwnedFd>) -> io::Result<[std::os::f
                 BorrowedFd::borrow_raw(2).try_clone_to_owned()?,
             ]
         })
+    }
+}
+
+#[derive(Debug)]
+struct StageError {
+    name: &'static str,
+    cause: io::Error,
+}
+impl std::fmt::Display for StageError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.name, self.cause)
+    }
+}
+impl std::error::Error for StageError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.cause)
+    }
+}
+fn stage(name: &'static str, error: io::Error) -> io::Error {
+    io::Error::new(
+        error.kind(),
+        StageError {
+            name,
+            cause: error,
+        },
+    )
+}
+
+fn settled_exit(exit: Option<RootExit>, reaped: bool) -> io::Result<Option<RootExit>> {
+    if !reaped {
+        return Ok(None);
+    }
+    exit.map(Some).ok_or_else(|| {
+        stage(
+            "root settlement missing authenticated status",
+            invalid(),
+        )
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::process::ExitStatusExt as _;
+
+    #[test]
+    fn root_success_requires_authenticated_status_and_actual_reaping() {
+        let exit = || Some(RootExit::new(std::process::ExitStatus::from_raw(0)).unwrap());
+        assert!(settled_exit(exit(), false).unwrap().is_none());
+        assert!(settled_exit(None, false).unwrap().is_none());
+        assert!(settled_exit(None, true).is_err());
+        assert!(settled_exit(exit(), true).unwrap().is_some());
+    }
+    #[test]
+    fn diagnostics_keep_the_original_error_as_a_source() {
+        let error = stage(
+            "broker preparation",
+            io::Error::from_raw_os_error(libc::EBADF),
+        );
+        let stage = error
+            .get_ref()
+            .unwrap()
+            .downcast_ref::<StageError>()
+            .unwrap();
+        assert_eq!(stage.cause.raw_os_error(), Some(libc::EBADF));
+        assert!(
+            error
+                .to_string()
+                .starts_with("broker preparation:")
+        );
     }
 }

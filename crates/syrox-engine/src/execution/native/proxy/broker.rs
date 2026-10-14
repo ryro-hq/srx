@@ -44,6 +44,7 @@ pub(super) struct Broker<'a> {
     original: libc::sigset_t,
     bootstrap_entry: Option<SessionId>,
     bootstrap_pending: bool,
+    admission_closed: bool,
 }
 
 struct Entry {
@@ -113,7 +114,12 @@ impl<'a> Broker<'a> {
             original: inputs.original,
             bootstrap_entry: None,
             bootstrap_pending: false,
+            admission_closed: false,
         })
+    }
+
+    pub(super) fn close_admission(&mut self) {
+        self.admission_closed = true;
     }
 
     /// # Safety
@@ -122,26 +128,49 @@ impl<'a> Broker<'a> {
     /// One packet per connection/bootstrap per tick; the outer monitor also
     /// drains its existing signals, root status and terminal custody each tick.
     pub(super) unsafe fn tick(&mut self, cancel: &Cancellation) -> io::Result<()> {
-        if cancel.is_cancelled() || linux_fd::pidfd_exited(self.root.as_fd())? {
-            self.entries.clear();
+        if cancel.is_cancelled() {
             return Err(crate::cancellation::cancellation_io());
         }
         self.custody.validate()?;
-        let allowed = self.allowed(cancel)?;
-        self.accept(&allowed, cancel)?;
-        // SAFETY: this method retains tick's dedicated monitor contract.
-        unsafe {
-            self.poll_bootstrap(&allowed, cancel)?;
+        if linux_fd::pidfd_exited(self.root.as_fd())? {
+            self.close_admission();
+        }
+        let allowed = if self.admission_closed {
+            OwnedProxyNamespaces::closed_admission()
+        } else if let Some(allowed) = owned_admission(self.allowed(cancel))? {
+            allowed
+        } else {
+            // Namespace teardown precedes pidfd readiness. This closes
+            // admission only; status and reaping remain the owners' work.
+            self.close_admission();
+            OwnedProxyNamespaces::closed_admission()
+        };
+        if !self.admission_closed {
+            self.accept(&allowed, cancel)?;
+            // SAFETY: this method retains tick's dedicated monitor contract.
+            unsafe {
+                self.poll_bootstrap(&allowed, cancel)?;
+            }
         }
         let mut index = 0;
         while index < self.entries.len() {
             let result = self.entries[index].tick(self.cwd.as_fd(), &allowed, cancel);
             match result {
-                Ok(true) | Err(_) => {
+                Ok(true) => {
+                    self.entries.remove(index);
+                }
+                Err(error) => {
+                    eprintln!(
+                        "error: command broker entry {:?}: {error}",
+                        self.entries[index].id
+                    );
                     self.entries.remove(index);
                 }
                 Ok(false) => index += 1,
             }
+        }
+        if self.admission_closed {
+            return Ok(());
         }
         if !self.bootstrap_pending
             && let Some(id) = &self.bootstrap_entry
@@ -319,14 +348,18 @@ impl<'a> Broker<'a> {
             return Ok(());
         };
         let deadline = Instant::now() + ADMISSION_TIMEOUT;
-        let Ok(peer) = ProxyPeer::authenticate(
+        let peer = match ProxyPeer::authenticate(
             channel.peer_credentials()?,
             self.worker,
             allowed,
             cancel,
             deadline,
-        ) else {
-            return Ok(());
+        ) {
+            Ok(peer) => peer,
+            Err(error) => {
+                eprintln!("error: command broker peer admission refused: {error}");
+                return Ok(());
+            }
         };
         let name = linux_fd::operation_name()?;
         let id = SessionId::parse(name.strip_prefix("op-").ok_or_else(invalid)?)
@@ -480,6 +513,16 @@ impl Entry {
         Ok(())
     }
 }
+// This classification is valid only for namespace observations of retained,
+// monitor-owned init pidfds. Unrelated broker failures must remain failures.
+fn owned_admission<T>(result: io::Result<T>) -> io::Result<Option<T>> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(error) if error.raw_os_error() == Some(libc::ESRCH) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 fn invalid() -> io::Error {
     io::Error::other("command broker admission or protocol refused")
 }
@@ -517,4 +560,28 @@ fn descriptor_budget(cancel: &Cancellation) -> io::Result<bool> {
     Ok(count
         .checked_add(required)
         .is_some_and(|total| total <= limit))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::owned_admission;
+    use std::io;
+
+    #[test]
+    fn owned_namespace_loss_closes_admission_without_claiming_settlement() {
+        assert_eq!(owned_admission(Ok(42)).unwrap(), Some(42));
+        // No pidfd readiness is needed: ESRCH can arrive earlier.
+        assert_eq!(
+            owned_admission::<()>(Err(io::Error::from_raw_os_error(libc::ESRCH))).unwrap(),
+            None
+        );
+        for code in [libc::EPERM, libc::EBADF, libc::EINVAL] {
+            assert_eq!(
+                owned_admission::<()>(Err(io::Error::from_raw_os_error(code)))
+                    .unwrap_err()
+                    .raw_os_error(),
+                Some(code)
+            );
+        }
+    }
 }

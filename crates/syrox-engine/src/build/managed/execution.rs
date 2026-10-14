@@ -270,28 +270,30 @@ impl<'a> ManagedBuildExecution<'a> {
     ) -> Result<(), BuildError> {
         loop {
             self.check_epoch(manager, cancel, deadline)?;
-            if let Some(status) = manager
+            let status = manager
                 .query(
                     &self.specification.context().unit,
                     remaining(cancel, deadline)?,
                     cancel,
                 )
-                .map_err(manager_error)?
-            {
-                if matches!(
-                    status.active_state.as_str(),
-                    "inactive" | "failed"
-                ) {
-                    return Err(BuildError::Execution(
-                        "managed worker exited before Hello".into(),
-                    ));
-                }
-                if status.main_pid > 1
-                    && status.invocation.len() == 16
-                    && status.invocation.iter().any(|byte| *byte != 0)
-                {
-                    return Ok(());
-                }
+                .map_err(manager_error)?;
+            // Type=notify keeps this exact job pending until after Hello and
+            // resource authorization. Readiness must never wait for JobRemoved.
+            if startup_ready(status.as_ref()) {
+                return Ok(());
+            }
+            let start = self
+                .start
+                .as_ref()
+                .ok_or(BuildError::InvalidRequest)?;
+            let pending = !manager
+                .recorded_job_absent(start.path(), remaining(cancel, deadline)?, cancel)
+                .map_err(manager_error)?;
+            self.check_epoch(manager, cancel, deadline)?;
+            if !startup_pending(status.as_ref(), pending) {
+                return Err(BuildError::Execution(
+                    "managed worker exited before Hello".into(),
+                ));
             }
             std::thread::sleep(Duration::from_millis(20));
         }
@@ -500,6 +502,20 @@ impl<'a> ManagedBuildExecution<'a> {
         Ok(())
     }
 }
+fn startup_ready(status: Option<&SystemdUnitStatus>) -> bool {
+    status.is_some_and(|status| {
+        matches!(
+            status.active_state.as_str(),
+            "activating" | "active"
+        ) && status.main_pid > 1
+            && status.invocation.len() == 16
+            && status.invocation.iter().any(|byte| *byte != 0)
+    })
+}
+fn startup_pending(status: Option<&SystemdUnitStatus>, exact_job_pending: bool) -> bool {
+    exact_job_pending && status.is_none_or(|status| status.active_state != "failed")
+}
+
 fn require_same_binding(
     expected: Option<&ObservedManagedBuildBinding>,
     actual: &ObservedManagedBuildBinding,
@@ -630,6 +646,22 @@ mod tests {
             exec_main_status: 0,
         }
     }
+    #[test]
+    fn inactive_startup_waits_only_for_the_exact_pending_job() {
+        let mut status = completed();
+        assert!(!startup_ready(Some(&status)));
+        assert!(startup_pending(Some(&status), true));
+        assert!(startup_pending(None, true));
+        assert!(!startup_pending(Some(&status), false));
+        assert!(!startup_pending(None, false));
+        status.active_state = "failed".into();
+        assert!(!startup_pending(Some(&status), true));
+        status.active_state = "activating".into();
+        status.main_pid = 42;
+        // The notify job may still be pending; Hello must be allowed now.
+        assert!(startup_ready(Some(&status)));
+    }
+
     #[test]
     fn successful_exit_requires_inactive_unit_and_no_remaining_main_process() {
         let status = completed();

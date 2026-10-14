@@ -196,7 +196,7 @@ impl Terminal {
     }
 }
 pub(super) fn attributes(fd: libc::c_int) -> libc::termios {
-    let mut value = MaybeUninit::<libc::termios>::uninit();
+    let mut value = MaybeUninit::<libc::termios>::zeroed();
     // SAFETY: tcgetattr initializes the complete structure on success.
     checked(unsafe { libc::tcgetattr(fd, value.as_mut_ptr()) });
     unsafe { value.assume_init() }

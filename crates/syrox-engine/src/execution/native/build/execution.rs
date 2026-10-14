@@ -251,11 +251,7 @@ mod tests {
             )
             .is_err()
         );
-        let path_only = std::fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_PATH | libc::O_CLOEXEC)
-            .open(&path)
-            .unwrap();
+        let path_only = crate::platform::linux::fd::open_path(&path).unwrap();
         assert!(BuildCapture::from_received(path_only.into(), capture.logs.into()).is_err());
     }
 }

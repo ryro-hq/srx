@@ -91,6 +91,10 @@ pub(in crate::execution::native) unsafe fn run(args: &[OsString]) -> io::Result<
                 // SAFETY: this is the unique child issued the custody token.
                 unsafe { monitor::run(inputs, root, &token, signals, reader) }
             }));
+            if let Ok(Err(error)) = &result {
+                let message = format!("error: command monitor: {error}\n");
+                let _ = io::stderr().lock().write_all(message.as_bytes());
+            }
             // SAFETY: copied guardian owners must never unwind to caller code.
             unsafe {
                 libc::_exit(if matches!(result, Ok(Ok(()))) {

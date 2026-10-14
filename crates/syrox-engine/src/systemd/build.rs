@@ -32,28 +32,47 @@ impl SystemdManager {
             return Err(changed());
         }
         self.bus.watch_loaded(&path, &budget)?;
-        let revision = self.bus.configuration_revision();
-        let first = observe(self, &path, &expected, &budget)?;
-        let second = observe(self, &path, &expected, &budget)?;
-        let after = self
-            .query_with(&service.unit, &budget)?
-            .ok_or_else(changed)?;
-        active_binding(&after)?;
-        if first != second
-            || !same_binding(&before, &after)
-            || self.observe_identity_with(&budget)? != manager
-            || self.bus.configuration_revision() != revision
-        {
-            return Err(changed());
-        }
-        let mut bytes = b"syrox-observed-build-unit-v1\n".to_vec();
-        bytes.extend(serde_json::to_vec(&first).map_err(|_| changed())?);
-        budget.check()?;
-        Ok(ObservedBuildUnit {
-            manager,
-            status: after,
-            contract: ContentDigest::sha256(&bytes),
+        observe_until_stable(&budget, || {
+            let revision = self.bus.configuration_revision();
+            let first = observe(self, &path, &expected, &budget)?;
+            let second = observe(self, &path, &expected, &budget)?;
+            let after = self
+                .query_with(&service.unit, &budget)?
+                .ok_or_else(changed)?;
+            active_binding(&after)?;
+            if first != second
+                || !same_binding(&before, &after)
+                || self.observe_identity_with(&budget)? != manager
+            {
+                return Err(changed());
+            }
+            if self.bus.configuration_revision() != revision {
+                // Keep the original process/manager binding, but discard all
+                // property reads invalidated by queued signals. Every expected
+                // property, including ExecStartEx, is validated again.
+                return Ok(None);
+            }
+            let mut bytes = b"syrox-observed-build-unit-v1\n".to_vec();
+            bytes.extend(serde_json::to_vec(&first).map_err(|_| changed())?);
+            budget.check()?;
+            Ok(Some(ObservedBuildUnit {
+                manager: manager.clone(),
+                status: after,
+                contract: ContentDigest::sha256(&bytes),
+            }))
         })
+    }
+}
+
+fn observe_until_stable<T>(
+    budget: &Budget<'_>,
+    mut observe: impl FnMut() -> Result<Option<T>, SystemdError>,
+) -> Result<T, SystemdError> {
+    loop {
+        budget.check()?;
+        if let Some(observed) = observe()? {
+            return Ok(observed);
+        }
     }
 }
 fn changed() -> SystemdError {
@@ -87,6 +106,37 @@ mod tests {
     use crate::{
         systemd::SystemdBuildLimits, systemd::SystemdServiceProfile, systemd::SystemdUnitName,
     };
+    #[test]
+    fn signals_discard_the_complete_observation_and_retry_under_one_budget() {
+        let cancel = Cancellation::default();
+        let budget = Budget::new(Duration::from_secs(1), &cancel).unwrap();
+        let mut observations = 0;
+        let observed = observe_until_stable(&budget, || {
+            observations += 1;
+            // Each call is a complete contract/binding bracket. The first two
+            // are invalidated by queued signals and must supply no fingerprint.
+            Ok((observations == 3).then_some("fresh validated contract"))
+        })
+        .unwrap();
+        assert_eq!(observations, 3);
+        assert_eq!(observed, "fresh validated contract");
+        let mut observations = 0;
+        assert!(
+            observe_until_stable::<()>(&budget, || {
+                observations += 1;
+                if observations == 1 {
+                    Ok(None)
+                } else {
+                    Err(changed())
+                }
+            })
+            .is_err()
+        );
+        assert_eq!(observations, 2); // Validation errors must never be retried.
+        cancel.cancel();
+        assert!(observe_until_stable::<()>(&budget, || panic!("expired bracket")).is_err());
+    }
+
     #[test]
     fn build_contract_requires_native_limits_and_no_extra_exec_hooks() {
         let mut service = SystemdService::new(

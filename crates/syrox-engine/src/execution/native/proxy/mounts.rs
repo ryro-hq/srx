@@ -1,7 +1,7 @@
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io;
 use std::os::fd::{AsFd as _, AsRawFd as _, OwnedFd};
-use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _};
+use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 
 use crate::execution::configuration::MountKind;
@@ -56,11 +56,7 @@ impl CommandsMount {
         if !socket_path.is_absolute() {
             return Err(invalid());
         }
-        let local_socket: OwnedFd = OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_PATH | libc::O_CLOEXEC | libc::O_NOFOLLOW)
-            .open(socket_path)?
-            .into();
+        let local_socket: OwnedFd = linux_fd::open_path(&socket_path)?.into();
         validate_socket(&local_socket)?;
         if linux_fd::metadata(local_socket.as_fd())?.identity() != self.socket_identity {
             return Err(invalid());
@@ -86,11 +82,7 @@ impl CommandsMount {
         if mounted.metadata().identity() != self.directory_identity {
             return Err(invalid());
         }
-        let mounted_socket: OwnedFd = OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_PATH | libc::O_CLOEXEC | libc::O_NOFOLLOW)
-            .open(socket_target)?
-            .into();
+        let mounted_socket: OwnedFd = linux_fd::open_path(&socket_target)?.into();
         if linux_fd::metadata(mounted_socket.as_fd())?.identity() != self.socket_identity {
             return Err(invalid());
         }
@@ -152,10 +144,10 @@ fn invalid() -> io::Error {
 #[cfg(test)]
 mod tests {
     //! Admission tests only. No test in this module performs mount or unshare.
-    use super::{CommandsMount, validate_directory, validate_socket};
-    use std::fs::{self, File, OpenOptions};
+    use super::{CommandsMount, linux_fd, validate_directory, validate_socket};
+    use std::fs::{self, File};
     use std::os::fd::{AsFd as _, AsRawFd as _, OwnedFd};
-    use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _, symlink};
+    use std::os::unix::fs::{PermissionsExt as _, symlink};
     use std::os::unix::net::UnixListener;
     use std::path::{Path, PathBuf};
 
@@ -201,12 +193,7 @@ mod tests {
         }
     }
     fn node(path: &Path) -> OwnedFd {
-        OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(path)
-            .unwrap()
-            .into()
+        linux_fd::open_path(path).unwrap().into()
     }
 
     #[test]

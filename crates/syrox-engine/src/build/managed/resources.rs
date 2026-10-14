@@ -516,7 +516,7 @@ mod tests {
         managed::preparation::{ManagedBuildRetention, PreparedManagedBuild},
     };
     use crate::{store::Store, systemd::SystemdUnitName};
-    use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+    use std::os::unix::fs::PermissionsExt as _;
     use std::time::Duration;
     struct Fixture {
         temporary: tempfile::TempDir,
@@ -690,11 +690,7 @@ mod tests {
             .prepared
             .operation_path()
             .join("stage/source");
-        let path_only = std::fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_PATH)
-            .open(&source)
-            .unwrap();
+        let path_only = crate::platform::linux::fd::open_path(&source).unwrap();
         let mut changed = copies(&fixture.resources);
         changed[2] = path_only.into();
         assert!(receiver(&fixture, changed).is_err());

@@ -99,7 +99,7 @@ impl<'a> PreparedLaunch<'a> {
                 &raw mut attributes.0,
                 0,
             ))?;
-            let mut defaults = MaybeUninit::<libc::sigset_t>::uninit();
+            let mut defaults = MaybeUninit::<libc::sigset_t>::zeroed();
             result(libc::sigemptyset(defaults.as_mut_ptr()))?;
             let mut defaults = defaults.assume_init();
             result(libc::sigaddset(&raw mut defaults, libc::SIGPIPE))?;
@@ -143,7 +143,7 @@ fn result(code: libc::c_int) -> io::Result<()> {
 struct Actions(libc::posix_spawn_file_actions_t);
 impl Actions {
     fn new() -> io::Result<Self> {
-        let mut value = MaybeUninit::uninit();
+        let mut value = MaybeUninit::zeroed();
         // SAFETY: init writes the opaque object on success, before any use.
         result(unsafe { libc::posix_spawn_file_actions_init(value.as_mut_ptr()) })?;
         // SAFETY: successful init initialized the complete opaque object.
@@ -162,7 +162,7 @@ impl Drop for Actions {
 struct Attributes(libc::posix_spawnattr_t);
 impl Attributes {
     fn new() -> io::Result<Self> {
-        let mut value = MaybeUninit::uninit();
+        let mut value = MaybeUninit::zeroed();
         // SAFETY: init writes the opaque object on success, before any use.
         result(unsafe { libc::posix_spawnattr_init(value.as_mut_ptr()) })?;
         // SAFETY: successful init initialized the complete opaque object.
@@ -364,7 +364,7 @@ pub(crate) fn run_build_command(command: &std::process::Command) -> io::Result<E
                 directory.as_ptr(),
             ))?;
         }
-        let mut defaults = MaybeUninit::<libc::sigset_t>::uninit();
+        let mut defaults = MaybeUninit::<libc::sigset_t>::zeroed();
         result(libc::sigemptyset(defaults.as_mut_ptr()))?;
         let mut defaults = defaults.assume_init();
         result(libc::sigaddset(&raw mut defaults, libc::SIGPIPE))?;
