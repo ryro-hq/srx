@@ -303,6 +303,8 @@ pub struct Function {
     pub type_parameters: Vec<TypeParameter>,
     pub parameters: Vec<Parameter>,
     pub result: Option<Type>,
+    /// Compile-time family, version, variant and result system of a package factory.
+    pub package: Option<Box<[StringLiteral; 4]>>,
     pub body: Block,
 }
 
@@ -376,6 +378,7 @@ pub struct Expression {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExpressionKind {
+    Let(Block),
     Memoize(Box<Expression>),
     /// Reorder items by a parallel list of reusable primitive keys. Items are
     /// moved, so sorting also supports affine elements without copying them.

@@ -647,6 +647,9 @@ mod tests {
                             ..
                         } => 3,
                         crate::checker::Elaboration::ValueLiteral(_) => 4,
+                        crate::checker::Elaboration::PackageSelection {
+                            ..
+                        } => 6,
                         crate::checker::Elaboration::Erasure {
                             ..
                         } => 5,

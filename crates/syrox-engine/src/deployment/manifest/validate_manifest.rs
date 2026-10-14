@@ -29,6 +29,7 @@ pub(in crate::deployment) fn manifest(value: &GenerationManifest) -> Result<()> 
         value.exposures.len(),
         value.configs.len(),
         value.processes.len(),
+        value.validators.len(),
     ];
     require(
         counts
@@ -83,6 +84,24 @@ pub(in crate::deployment) fn manifest(value: &GenerationManifest) -> Result<()> 
             output_ref(value, library, &mut used)?;
         }
         invocation(value, command)?;
+    }
+    for validator in &value.validators {
+        require(
+            value
+                .commands
+                .get(validator)
+                .is_some_and(|command| {
+                    command.service.is_some()
+                        && command
+                            .arguments
+                            .iter()
+                            .chain(command.environment.values())
+                            .all(|argument| {
+                                matches!(argument, Argument::Literal(_) | Argument::File(_))
+                            })
+                }),
+            "validator references absent command or mutable resources",
+        )?;
     }
     for (exposure, command) in &value.exposures {
         require(

@@ -48,6 +48,10 @@ pub mod acquire;
 pub mod build;
 pub mod bundle;
 pub mod cancellation;
+#[cfg(target_os = "linux")]
+pub mod catalog;
+#[cfg(all(test, target_os = "linux"))]
+mod catalog_tests;
 pub mod config;
 pub mod deployment;
 pub mod execution;

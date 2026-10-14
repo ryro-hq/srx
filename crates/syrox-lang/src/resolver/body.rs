@@ -548,18 +548,28 @@ impl Resolver<'_> {
                     value_locals,
                     type_locals,
                 ),
+                ExpressionKind::Let(block) => {
+                    self.resolve_block(
+                        module,
+                        block,
+                        &mut value_locals.clone(),
+                        type_locals,
+                    );
+                }
                 ExpressionKind::Struct {
                     path,
                     type_arguments,
                     fields,
                     ..
                 } => {
-                    self.resolve_path(
-                        module,
-                        path,
-                        Expected::Struct,
-                        ReferenceKind::StructConstructor,
-                    );
+                    if !path.segments.is_empty() {
+                        self.resolve_path(
+                            module,
+                            path,
+                            Expected::Struct,
+                            ReferenceKind::StructConstructor,
+                        );
+                    }
                     for ty in type_arguments {
                         self.resolve_type(module, ty, type_locals);
                     }

@@ -225,6 +225,11 @@ fn display_consumers<W: fmt::Write + ?Sized>(plan: &Plan, formatter: &mut W) -> 
                 }
                 writeln!(formatter)?;
             }
+            for validator in service.validators() {
+                formatter.write_str("    validator ")?;
+                display_string(formatter, validator)?;
+                writeln!(formatter)?;
+            }
             for file in service.files() {
                 formatter.write_str("    planned file ")?;
                 display_string(formatter, file.path())?;

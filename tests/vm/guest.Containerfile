@@ -43,8 +43,10 @@ RUN apt-get update \
         curl \
         dbus-user-session \
         git \
+        gnupg \
         liblzma-dev \
         libssl-dev \
+        musl-tools \
         pkg-config \
         procps \
         systemd \

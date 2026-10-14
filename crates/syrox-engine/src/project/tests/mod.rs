@@ -28,6 +28,7 @@ mod imported;
 mod package_set;
 mod recipe_ref;
 mod reference_graph;
+mod versioned;
 
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 

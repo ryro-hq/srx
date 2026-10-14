@@ -24,6 +24,8 @@ mod github_fixture;
 mod presentation;
 #[path = "lsp/status.rs"]
 mod status;
+#[path = "lsp/versioned.rs"]
+mod versioned;
 #[path = "lsp/watch.rs"]
 mod watch;
 

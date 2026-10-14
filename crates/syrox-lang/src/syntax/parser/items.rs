@@ -1,5 +1,5 @@
 use super::{
-    Block, Diagnostic, Enum, Field, Function, Input, Inputs, Item, ItemKind, Keyword,
+    Block, Diagnostic, Enum, Field, Function, Ident, Input, Inputs, Item, ItemKind, Keyword,
     MAX_DIAGNOSTICS, Module, Output, OutputKind, Outputs, Parameter, Parser, Primitive,
     PrimitiveDeclaration, Refinement, RefinementKind, Span, Statement, StatementKind, Struct,
     SyntaxKind, Token, TokenKind, Type, TypeAlias, TypeKind, TypeParameter, Use,
@@ -8,7 +8,25 @@ use super::{
 impl Parser<'_> {
     pub(super) fn parse_items(&mut self, nested: bool) -> Vec<Item> {
         let mut items = Vec::new();
+        let mut services = Vec::new();
+        let mut service_span = None;
         while self.peek().is_some() && !(nested && self.at(TokenKind::RightBrace)) {
+            if !nested
+                && self.peek().is_some_and(|token| {
+                    token.kind == TokenKind::Ident && self.text(token.span) == "services"
+                })
+            {
+                if let Some((service, span)) = self.syntax(
+                    SyntaxKind::Declaration,
+                    Self::parse_service_configuration,
+                ) {
+                    service_span = Some(service_span.map_or(span, |start: Span| start.join(span)));
+                    services.push(service);
+                } else {
+                    self.recover_item(self.at, nested);
+                }
+                continue;
+            }
             // The lexer already diagnosed these tokens. Keep them in the
             // lossless stream without cascading an item error for each one.
             if self.at(TokenKind::Invalid) || self.at(TokenKind::Unparsed) {
@@ -33,7 +51,204 @@ impl Parser<'_> {
                 break;
             }
         }
+        if let Some(span) = service_span {
+            items.push(Self::service_output(services, span));
+        }
         items
+    }
+
+    fn generated_path(span: Span, segments: &[&str]) -> super::Path {
+        super::Path {
+            span,
+            segments: segments
+                .iter()
+                .map(|text| Ident {
+                    text: (*text).to_owned(),
+                    span,
+                })
+                .collect(),
+        }
+    }
+
+    fn parse_service_configuration(&mut self) -> Option<(super::Expression, Span)> {
+        let start = self.advance()?.span;
+        self.expect(
+            TokenKind::Dot,
+            "expected service name after `services`",
+        )?;
+        let name = self.ident("expected service name")?;
+        self.expect(
+            TokenKind::Equal,
+            "expected `=` after service name",
+        )?;
+        let open = self.peek()?.span;
+        let configuration = self.parse_struct_literal(
+            super::Path {
+                segments: Vec::new(),
+                span: open,
+            },
+            Vec::new(),
+        )?;
+        let end = self
+            .expect(
+                TokenKind::Semicolon,
+                "expected `;` after service configuration",
+            )?
+            .span;
+        let super::ExpressionKind::Struct {
+            fields,
+            recovery,
+            ..
+        } = configuration.kind
+        else {
+            return None;
+        };
+        if !recovery.is_empty() {
+            return None;
+        }
+        let point = |offset| {
+            Span::new(
+                start.source_id(),
+                start.start() + offset,
+                start.start() + offset + 1,
+            )
+        };
+        let mut package = None;
+        let mut settings = None;
+        let mut enable = None;
+        for field in fields {
+            let slot = match field.name.text.as_str() {
+                "package" => &mut package,
+                "settings" => &mut settings,
+                "enable" => &mut enable,
+                _ => {
+                    self.error(Diagnostic::error(
+                        format!("unknown service option `{}`", field.name.text),
+                        field.name.span,
+                    ));
+                    continue;
+                }
+            };
+            if slot.is_some() {
+                self.error(Diagnostic::error(
+                    "duplicate service option",
+                    field.name.span,
+                ));
+            }
+            *slot = Some(field.value);
+        }
+        let Some(package) = package else {
+            self.error(Diagnostic::error(
+                "service requires a selected package",
+                name.span,
+            ));
+            return None;
+        };
+        let settings = settings.unwrap_or(super::Expression {
+            span: point(1),
+            kind: super::ExpressionKind::Struct {
+                path: super::Path {
+                    segments: Vec::new(),
+                    span: point(1),
+                },
+                type_arguments: Vec::new(),
+                fields: Vec::new(),
+                recovery: Vec::new(),
+            },
+        });
+        let enable = enable.unwrap_or(super::Expression {
+            span: point(0),
+            kind: super::ExpressionKind::Path(Self::generated_path(
+                point(0),
+                &["std", "Bool", "True"],
+            )),
+        });
+        let id = super::Expression {
+            span: name.span,
+            kind: super::ExpressionKind::String(super::StringLiteral {
+                source: format!("\"{}\"", name.text),
+                parts: vec![super::StringPart::Text {
+                    source: name.text,
+                    span: name.span,
+                }],
+                span: name.span,
+            }),
+        };
+        Some((
+            super::Expression {
+                span: start.join(configuration.span),
+                kind: super::ExpressionKind::Call {
+                    callee: Self::generated_path(start, &["std", "package_service"]),
+                    arguments: vec![package, settings, enable, id],
+                },
+            },
+            start.join(end),
+        ))
+    }
+
+    fn service_output(services: Vec<super::Expression>, span: Span) -> Item {
+        let point = |offset| {
+            Span::new(
+                span.source_id(),
+                span.start() + offset,
+                span.start() + offset + 1,
+            )
+        };
+        let fields = vec![
+            super::StructField {
+                name: Ident {
+                    text: "pkgs".to_owned(),
+                    span: point(2),
+                },
+                value: super::Expression {
+                    span: point(2),
+                    kind: super::ExpressionKind::List(Vec::new()),
+                },
+                span: point(2),
+            },
+            super::StructField {
+                name: Ident {
+                    text: "services".to_owned(),
+                    span: point(3),
+                },
+                value: super::Expression {
+                    span: point(3),
+                    kind: super::ExpressionKind::List(services),
+                },
+                span: point(3),
+            },
+        ];
+        Item {
+            public: false,
+            span,
+            kind: ItemKind::Outputs(Outputs {
+                entries: vec![Output {
+                    span,
+                    kind: OutputKind::Value {
+                        name: Ident {
+                            text: "os".to_owned(),
+                            span: Span::new(span.source_id(), span.end(), span.end()),
+                        },
+                        ty: Type {
+                            span: point(6),
+                            kind: TypeKind::Named {
+                                path: Self::generated_path(point(6), &["std", "Os"]),
+                                arguments: Vec::new(),
+                            },
+                        },
+                        value: super::Expression {
+                            span,
+                            kind: super::ExpressionKind::Struct {
+                                path: Self::generated_path(point(5), &["std", "Os"]),
+                                type_arguments: Vec::new(),
+                                fields,
+                                recovery: Vec::new(),
+                            },
+                        },
+                    },
+                }],
+            }),
+        }
     }
 
     pub(super) fn parse_item(&mut self) -> Option<Item> {
@@ -688,6 +903,43 @@ impl Parser<'_> {
             span: start.join(self.tokens[self.at - 1].span),
         });
         let body_at = self.at;
+        let package = if self.peek().is_some_and(|token| {
+            token.kind == TokenKind::Ident && self.text(token.span) == "package"
+        }) {
+            self.advance();
+            self.expect(
+                TokenKind::LeftParen,
+                "expected package identity tuple",
+            )?;
+            let mut identity = Vec::new();
+            for index in 0..4 {
+                if index > 0 {
+                    self.expect(
+                        TokenKind::Comma,
+                        "expected `,` in package identity",
+                    )?;
+                }
+                let literal = self.string_literal()?;
+                if literal
+                    .parts
+                    .iter()
+                    .any(|part| !matches!(part, super::StringPart::Text { .. }))
+                {
+                    self.error(Diagnostic::error(
+                        "package identity must be literal",
+                        literal.span,
+                    ));
+                }
+                identity.push(literal);
+            }
+            self.expect(
+                TokenKind::RightParen,
+                "expected `)` after package identity",
+            )?;
+            Some(Box::new(identity.try_into().ok()?))
+        } else {
+            None
+        };
         let body = if let Some(body) = self.parse_block() {
             body
         } else {
@@ -730,6 +982,7 @@ impl Parser<'_> {
                 type_parameters,
                 parameters,
                 result,
+                package,
                 body,
             }),
             end,
@@ -820,7 +1073,7 @@ impl Parser<'_> {
         })
     }
 
-    fn parse_let_statement(
+    pub(super) fn parse_let_statement(
         &mut self,
         start: Span,
         recovered: &mut Option<crate::syntax::RecoveredBinding>,
@@ -990,7 +1243,16 @@ impl Parser<'_> {
                 span: open.span.join(close.span),
             });
         }
-        let path = self.parse_path("expected type")?;
+        let mut path = self.parse_path("expected type")?;
+        if path.segments.len() == 1 && path.segments[0].text == "bool" {
+            path.segments = ["std", "Bool"]
+                .into_iter()
+                .map(|text| Ident {
+                    text: text.to_owned(),
+                    span: path.span,
+                })
+                .collect();
+        }
         let start = path.span;
         let (arguments, end) = if let Some(open) = self.consume(TokenKind::LeftAngle) {
             if !self.enter(open.span) {

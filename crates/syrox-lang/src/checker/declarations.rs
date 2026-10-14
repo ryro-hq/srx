@@ -54,6 +54,41 @@ impl Checker<'_> {
                 else {
                     return;
                 };
+                if let Some(identity) = &info.declaration.package {
+                    for literal in identity.iter() {
+                        let value = &literal.source[1..literal.source.len() - 1];
+                        if value.is_empty()
+                            || value.len() > 128
+                            || !value.bytes().all(|byte| {
+                                byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-')
+                            })
+                        {
+                            checker.error(
+                                "package identity must contain bounded literal components",
+                                literal.span,
+                            );
+                        }
+                    }
+                    if !parameter_types.is_empty() || !info.declaration.type_parameters.is_empty() {
+                        checker.error(
+                            "versioned package factory must have no parameters",
+                            info.declaration.name.span,
+                        );
+                    }
+                    let valid = result
+                        .nominal_head()
+                        .and_then(|item| checker.program.item(item))
+                        .is_some_and(|item| {
+                            item.domain() == crate::source::SourceDomainId::standard_library()
+                                && item.path().segments() == ["std", "recipe", "PackageRef"]
+                        });
+                    if !valid {
+                        checker.error(
+                            "versioned package factory must return std::PackageRef",
+                            info.declaration.name.span,
+                        );
+                    }
+                }
                 for (parameter, ty) in info
                     .declaration
                     .parameters

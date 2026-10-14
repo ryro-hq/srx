@@ -20,7 +20,7 @@ use thiserror::Error;
 
 pub(crate) mod command_broker;
 pub(crate) mod commands;
-mod files;
+pub(crate) mod files;
 pub(crate) mod managed;
 pub(crate) use crate::execution::journal as ownership;
 mod secrets;

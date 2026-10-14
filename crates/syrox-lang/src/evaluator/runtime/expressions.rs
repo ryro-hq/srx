@@ -41,6 +41,7 @@ impl Evaluator<'_> {
                 Halt
             })?;
         match &expression.kind {
+            ExpressionKind::Let(block) => self.block(block, substitutions),
             ExpressionKind::Integer(integer) => {
                 let value = PrimitiveValue::Int(integer.value);
                 if let Some(Elaboration::ValueLiteral(item)) = metadata.elaboration() {

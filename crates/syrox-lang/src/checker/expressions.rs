@@ -50,8 +50,14 @@ impl Checker<'_> {
                         self.expect_same(want, &actual, value.span, "let binding");
                     }
                     let ty = expected.unwrap_or(actual);
+                    let constant = self.package_constant(value);
                     if let Some(local) = self.local_id(name.span) {
                         self.bind_local(local, ty, name.span, annotation.is_some());
+                        self.body
+                            .bindings
+                            .get_mut(&local)
+                            .expect("bound local")
+                            .constant = constant;
                         if before != self.body.fact_errors {
                             self.body
                                 .bindings
@@ -175,12 +181,28 @@ impl Checker<'_> {
                 context,
                 expression.span,
             ),
+            ExpressionKind::Let(block) => {
+                let bindings = self.body.bindings.clone();
+                let result = self.check_block(block, expected, context);
+                // Preserve moves of enclosing affine values, discard lexical locals.
+                self.body
+                    .bindings
+                    .retain(|local, _| bindings.contains_key(local));
+                result
+            }
             ExpressionKind::Struct {
                 path,
                 type_arguments,
                 fields,
                 recovery,
-            } => self.check_struct_literal(path, type_arguments, fields, recovery, context),
+            } => self.check_struct_literal(
+                path,
+                type_arguments,
+                fields,
+                recovery,
+                expected,
+                context,
+            ),
             ExpressionKind::List(items) => {
                 self.check_list(items, expected, context, expression.span)
             }
@@ -537,6 +559,14 @@ impl Checker<'_> {
             return Ty::Error;
         }
         if let Some((parameters, result)) = self.function_types.get(&item).cloned() {
+            if self
+                .functions
+                .get(&item)
+                .is_some_and(|info| info.declaration.package.is_some())
+                && !arguments.is_empty()
+            {
+                return self.check_package_selection(item, arguments, elaboration, context);
+            }
             self.record_arguments(item, arguments);
             if !self.function_parameters(item).is_empty() {
                 let (result, substitutions) = self.infer_call(
@@ -600,9 +630,21 @@ impl Checker<'_> {
         type_arguments: &[Type],
         fields: &[StructField],
         recovery: &[Span],
+        expected: Option<&Ty>,
         context: Context,
     ) -> Ty {
-        let Some(ResolvedTarget::Item(item)) = self.target(path.span).cloned() else {
+        let item = if path.segments.is_empty() {
+            let Some(item) = expected.and_then(Ty::nominal_head) else {
+                self.error(
+                    "attribute set requires an expected configuration type",
+                    path.span,
+                );
+                return Ty::Error;
+            };
+            item
+        } else if let Some(ResolvedTarget::Item(item)) = self.target(path.span).cloned() {
+            item
+        } else {
             return Ty::Error;
         };
         let raw_parameters: BTreeMap<_, _> = self
@@ -611,16 +653,23 @@ impl Checker<'_> {
             .iter()
             .map(|(&parameter, ty)| (parameter, raw_from_ty(ty.clone())))
             .collect();
-        let raw = self.expand_item_type(
-            item,
-            type_arguments,
-            &raw_parameters,
-            0,
-            path.span,
-        );
-        let ty = self
-            .concretize(raw, &self.body.type_parameters.clone(), path.span)
-            .unwrap_or(Ty::Error);
+        let raw = if path.segments.is_empty() {
+            raw_from_ty(expected.cloned().unwrap_or(Ty::Error))
+        } else {
+            self.expand_item_type(
+                item,
+                type_arguments,
+                &raw_parameters,
+                0,
+                path.span,
+            )
+        };
+        let ty = if path.segments.is_empty() {
+            expected.cloned().unwrap_or(Ty::Error)
+        } else {
+            self.concretize(raw, &self.body.type_parameters.clone(), path.span)
+                .unwrap_or(Ty::Error)
+        };
         self.validate_concrete_type(&ty, path.span);
         self.track_generic_instances(&ty, path.span);
         let Some(info) = self.structs.get(&item).cloned() else {

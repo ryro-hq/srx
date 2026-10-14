@@ -85,6 +85,7 @@ mod std::deployment {
         processes: [ServiceProcess] = [];
         state: ServiceState = ServiceState::None;
         secrets: [SecretName] = [];
+        validators: [CommandName] = [];
     }
 
     struct Os {

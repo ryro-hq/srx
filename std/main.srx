@@ -1,4 +1,5 @@
 mod std {
+    pub enum Bool { False, True }
     pub use option::Option;
     pub use result::Result;
 
@@ -6,6 +7,8 @@ mod std {
     pub use deployment::{Os, Shell, Service, ServiceState, SecretName, ServiceId, ConfigFile, ConfigPath, ConfigText, PackageSelection, ServiceCommand, ServiceProcess, ProcessRestart, RestartLimits, RestartDelay, RestartWindow, RestartBurst, CommandArgument, CommandEnvironment, CommandLiteral, CommandEnvironmentName, select_package, select_output, select_command};
 
     pub use recipe::{
+        PackagePinText, PackageRef, package_ref, package_recipe, package_config, with_package_service, package_service,
+        package_version, package_variant, package_system, package_contract,
         RecipeRef, OutputRef, CommandRef, recipe_ref, recipe_factory, recipe_value,
         recipe_command, command_recipe, command_name,
         bind_recipe, bind_output,

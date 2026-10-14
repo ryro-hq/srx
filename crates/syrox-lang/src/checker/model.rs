@@ -72,6 +72,9 @@ impl Ty {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Elaboration {
+    PackageSelection {
+        factory: ItemId,
+    },
     ModuleExports {
         key: ItemId,
         function: Ty,

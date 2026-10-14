@@ -1,4 +1,74 @@
 mod std::recipe {
+    value PackagePinText(str);
+    value UnavailableService(int) where 1..=1;
+
+    // The configuration parameter remains nominal until a service renders it.
+    opaque struct PackageRef<C> {
+        recipe: RecipeRef<Recipe>;
+        version: PackagePinText;
+        variant: PackagePinText;
+        system: PackagePinText;
+        contract: PackagePinText;
+        render: fn(C) -> ConfigText;
+        integrate: Option<fn(RecipeRef<Recipe>, ConfigText) -> Service> = Option::None;
+    }
+
+    pub fn package_ref<C>(recipe: RecipeRef<Recipe>, version: PackagePinText, variant: PackagePinText, system: PackagePinText, contract: PackagePinText, render: fn(C) -> ConfigText) -> PackageRef<C> {
+        let pinned = recipe_ref(fn() -> Recipe {
+            let original = recipe_value(recipe);
+            Recipe {
+                package = Package {
+                    id = "${original.package.id}-${version}-${variant}-${system}-${contract}";
+                    dependencies = original.package.dependencies;
+                };
+                acquisition = original.acquisition;
+                build = match original.build {
+                    None => Option::None,
+                    Some(build) => Option::Some(Build {
+                        source_directory = build.source_directory; timeout_seconds = build.timeout_seconds;
+                        resources = build.resources; source_format = build.source_format;
+                        produces = build.produces; profile = build.profile;
+                        steps = [BuildStep::Write(BuildFile {
+                            path = BuildPath::Work(".syrox-package-identity");
+                            text = build_text("${version}\n${variant}\n${system}\n${contract}\n");
+                        })] ++ build.steps;
+                    }),
+                };
+                build_inputs = original.build_inputs; commands = original.commands;
+                imported = original.imported;
+            }
+        });
+        PackageRef<C> { recipe = pinned; version = version; variant = variant; system = system; contract = contract; render = render; }
+    }
+
+    pub fn package_recipe<C>(package: PackageRef<C>) -> RecipeRef<Recipe> { package.recipe }
+    pub fn with_package_service<C>(package: PackageRef<C>, integrate: fn(RecipeRef<Recipe>, ConfigText) -> Service) -> PackageRef<C> {
+        PackageRef<C> { recipe = package.recipe; version = package.version; variant = package.variant;
+            system = package.system; contract = package.contract; render = package.render; integrate = Option::Some(integrate); }
+    }
+    pub fn package_service<C>(package: PackageRef<C>, settings: C, enabled: std::Bool, id: ServiceId) -> Service {
+        match enabled {
+            False => Service { id = id; },
+            True => match package.integrate {
+                None => unavailable_service(id),
+                Some(integrate) => package_named_service(integrate(package.recipe, package.render(settings)), id),
+            },
+        }
+    }
+    fn unavailable_service(id: ServiceId) -> Service {
+        let unavailable = UnavailableService(0);
+        Service { id = id; }
+    }
+    fn package_named_service(service: Service, id: ServiceId) -> Service {
+        Service { id = id; pkgs = service.pkgs; files = service.files; commands = service.commands;
+            processes = service.processes; state = service.state; secrets = service.secrets; validators = service.validators; }
+    }
+    pub fn package_config<C>(package: PackageRef<C>, settings: C) -> ConfigText { package.render(settings) }
+    pub fn package_version<C>(package: PackageRef<C>) -> PackagePinText { package.version }
+    pub fn package_variant<C>(package: PackageRef<C>) -> PackagePinText { package.variant }
+    pub fn package_system<C>(package: PackageRef<C>) -> PackagePinText { package.system }
+    pub fn package_contract<C>(package: PackageRef<C>) -> PackagePinText { package.contract }
+
     // Generative, lazy instance identity. Copying or reexporting a reference
     // preserves the memoized function; constructing another reference does not.
     opaque struct RecipeRef<R> {

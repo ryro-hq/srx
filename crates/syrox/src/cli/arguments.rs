@@ -25,6 +25,12 @@ pub(crate) enum StandardLibrarySelection {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
+    /// Maintain versioned sources, configuration contracts and build matrices.
+    #[cfg(target_os = "linux")]
+    Catalog {
+        #[command(subcommand)]
+        command: super::commands::catalog::Command,
+    },
     /// Format one source to stdout, without loading or evaluating a project.
     Fmt(format::Arguments),
     /// Serve editor diagnostics and navigation over LSP stdio.

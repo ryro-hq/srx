@@ -153,15 +153,24 @@ fn lex_with_checkpoint(
                 TokenKind::Comment
             }
             b'"' => {
-                at += 1;
+                let multiline = bytes[at..].starts_with(b"\"\"\"");
+                let delimiter = if multiline {
+                    3
+                } else {
+                    1
+                };
+                at += delimiter;
                 let mut closed = false;
                 while at < bytes.len() {
                     checkpoint(at)?;
                     match bytes[at] {
                         b'"' => {
+                            if !multiline || bytes[at..].starts_with(b"\"\"\"") {
+                                at += delimiter;
+                                closed = true;
+                                break;
+                            }
                             at += 1;
-                            closed = true;
-                            break;
                         }
                         b'\\' => {
                             at += 1;
@@ -189,7 +198,7 @@ fn lex_with_checkpoint(
                             }
                             at += 1;
                         }
-                        b'\r' | b'\n' => {
+                        b'\r' | b'\n' if !multiline => {
                             push_error(
                                 &mut errors,
                                 Diagnostic::error(

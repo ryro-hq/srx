@@ -95,6 +95,7 @@ struct Descriptor {
     span: Span,
     header: Span,
     defaults: Vec<String>,
+    package_family: Option<String>,
 }
 
 impl SemanticAnalysis {
@@ -208,15 +209,33 @@ impl SemanticAnalysis {
         }
         let descriptors = self.interface_descriptors(&mut budget, cancel)?;
         let mut index = InterfaceIndex::default();
-        for descriptor in descriptors {
+        for descriptor in &descriptors {
             cancel.check()?;
             if budget.exhausted {
                 break;
             }
-            if let Some(interface) = self.declared_interface(&descriptor, &mut budget, cancel)? {
+            if let Some(mut interface) = self.declared_interface(descriptor, &mut budget, cancel)? {
+                if let Some(family) = &descriptor.package_family {
+                    // Selection depends on the entire family, including the
+                    // absence of duplicate or newly registered combinations.
+                    for candidate in &descriptors {
+                        cancel.check()?;
+                        if candidate.identity.domain() == descriptor.identity.domain()
+                            && candidate.package_family.as_ref() == Some(family)
+                            && candidate.identity != descriptor.identity
+                        {
+                            if !budget.identity(&candidate.identity) {
+                                break;
+                            }
+                            interface
+                                .dependencies
+                                .insert(candidate.identity.clone());
+                        }
+                    }
+                }
                 index
                     .entries
-                    .insert(descriptor.identity, Arc::new(interface));
+                    .insert(descriptor.identity.clone(), Arc::new(interface));
             }
         }
         if budget.exhausted {
@@ -312,6 +331,7 @@ impl SemanticAnalysis {
                                         value.span.start(),
                                     ),
                                     defaults: Vec::new(),
+                                    package_family: None,
                                 });
                             }
                         }
@@ -337,6 +357,13 @@ impl SemanticAnalysis {
                         span: item.span,
                         header: Span::new(item.span.source_id(), item.span.start(), end),
                         defaults,
+                        package_family: match &item.kind {
+                            ItemKind::Function(function) => function
+                                .package
+                                .as_ref()
+                                .map(|identity| identity[0].source.clone()),
+                            _ => None,
+                        },
                     });
                 }
             }

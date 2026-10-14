@@ -203,7 +203,7 @@ fn acquire_https_impl(
     request: &HttpsSourceRequest,
     root_name: &RootName,
     policy: HttpsTransportPolicy,
-    test_certificate: Option<reqwest::Certificate>,
+    test_certificate: Option<rustls::pki_types::CertificateDer<'static>>,
 ) -> Result<HttpsAcquisition, HttpsError> {
     acquire_https_cancellable(
         store,
@@ -230,7 +230,7 @@ fn acquire_https_cancellable(
     request: &HttpsSourceRequest,
     root_name: &RootName,
     policy: HttpsTransportPolicy,
-    test_certificate: Option<reqwest::Certificate>,
+    test_certificate: Option<rustls::pki_types::CertificateDer<'static>>,
     cancellation: &crate::cancellation::Cancellation,
 ) -> Result<HttpsAcquisition, HttpsError> {
     use std::time::Instant;
@@ -311,7 +311,7 @@ async fn stream_https(
     requested_url: &str,
     maximum_bytes: u64,
     policy: HttpsTransportPolicy,
-    test_certificate: Option<reqwest::Certificate>,
+    test_certificate: Option<rustls::pki_types::CertificateDer<'static>>,
     start: std::time::Instant,
     cancellation: &crate::cancellation::Cancellation,
     mut staging: StoreStaging,
@@ -341,7 +341,7 @@ pub(crate) struct DownloadRequest<'a> {
     pub(crate) url: &'a str,
     pub(crate) maximum_bytes: u64,
     pub(crate) policy: HttpsTransportPolicy,
-    pub(crate) test_certificate: Option<reqwest::Certificate>,
+    pub(crate) test_certificate: Option<rustls::pki_types::CertificateDer<'static>>,
     pub(crate) accept: Option<&'a str>,
     pub(crate) hosts: Option<&'a [&'a str]>,
 }
@@ -389,11 +389,26 @@ async fn download_https(
         hosts,
     } = request;
     let mut url = validate_https_url(requested_url)?;
-    let roots = webpki_root_certs::TLS_SERVER_ROOT_CERTS
-        .iter()
-        .map(|der| reqwest::Certificate::from_der(der.as_ref()))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| HttpsError::Transport)?;
+    let mut roots = rustls::RootCertStore::empty();
+    for der in webpki_root_certs::TLS_SERVER_ROOT_CERTS {
+        roots
+            .add(der.clone())
+            .map_err(|_| HttpsError::Transport)?;
+    }
+    if let Some(certificate) = test_certificate {
+        roots
+            .add(certificate)
+            .map_err(|_| HttpsError::Transport)?;
+    }
+    // Choose a provider per connection, independent of Cargo feature unification
+    // and any process-global provider installed by an embedding application.
+    let tls = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .map_err(|_| HttpsError::Transport)?
+    .with_root_certificates(roots)
+    .with_no_client_auth();
     let mut redirects = 0_u8;
     let mut response = loop {
         if hosts.is_some_and(|hosts| {
@@ -414,7 +429,8 @@ async fn download_https(
         // dropping its request cannot cancel or settle that worker.
         let host = url.host_str().ok_or(HttpsError::Transport)?;
         let addresses = dns::resolve_host(host, cancellation, start, policy.deadline).await?;
-        let mut builder = reqwest::Client::builder()
+        let builder = reqwest::Client::builder()
+            .tls_backend_preconfigured(tls.clone())
             .https_only(true)
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
@@ -426,12 +442,6 @@ async fn download_https(
             .no_zstd()
             .resolve_to_addrs(host, &addresses)
             .user_agent("syrox/0.1");
-        builder = builder.tls_certs_only(
-            roots
-                .iter()
-                .cloned()
-                .chain(test_certificate.clone()),
-        );
         let client = builder
             .build()
             .map_err(|_| HttpsError::Transport)?;
@@ -612,7 +622,7 @@ mod tests {
         responses: Vec<Vec<u8>>,
     ) -> (
         String,
-        reqwest::Certificate,
+        rustls::pki_types::CertificateDer<'static>,
         thread::JoinHandle<()>,
     ) {
         serve_delayed(
@@ -627,15 +637,14 @@ mod tests {
         responses: Vec<(Vec<u8>, Duration)>,
     ) -> (
         String,
-        reqwest::Certificate,
+        rustls::pki_types::CertificateDer<'static>,
         thread::JoinHandle<()>,
     ) {
         let issued = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).unwrap();
-        let certificate = reqwest::Certificate::from_der(issued.cert.der()).unwrap();
-        // The VM SDK enables ring as well as aws-lc. Select the fixture's
-        // provider explicitly so Cargo feature unification stays deterministic.
+        let certificate = issued.cert.der().clone();
+        // Use the same explicit provider as production, including VM builds.
         let config = rustls::ServerConfig::builder_with_provider(std::sync::Arc::new(
-            rustls::crypto::aws_lc_rs::default_provider(),
+            rustls::crypto::ring::default_provider(),
         ))
         .with_safe_default_protocol_versions()
         .unwrap()

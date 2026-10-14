@@ -22,6 +22,7 @@ mod index;
 mod inference;
 mod model;
 mod ownership;
+mod packages;
 mod policy;
 mod relocation;
 mod types;
@@ -108,6 +109,7 @@ enum RawTy {
 
 #[derive(Clone)]
 struct Binding {
+    constant: Option<std::sync::Arc<str>>,
     ty: Ty,
     affine: bool,
     moved: Option<Span>,

@@ -47,6 +47,95 @@ impl Parser<'_> {
                     parser.advance();
                     parser.ident("expected field name after `.`")
                 })?;
+                if let ExpressionKind::Path(path) = &expression.kind {
+                    if field.text == "forSystem" && self.at(TokenKind::LeftParen) {
+                        let open = self.advance()?.span;
+                        if !self.enter(open) {
+                            return None;
+                        }
+                        let system = self.parse_expression()?;
+                        self.expect(TokenKind::RightParen, "expected `)` after system")?;
+                        self.expect(
+                            TokenKind::Dot,
+                            "expected package after `forSystem`",
+                        )?;
+                        let member = self.ident("expected package name")?;
+                        let mut callee = path.clone();
+                        callee.span = callee.span.join(member.span);
+                        callee.segments.push(member);
+                        let start = self.peek()?.span;
+                        let mut request = self.parse_struct_literal(
+                            Path {
+                                segments: Vec::new(),
+                                span: start,
+                            },
+                            Vec::new(),
+                        )?;
+                        let ExpressionKind::Struct {
+                            fields,
+                            ..
+                        } = &mut request.kind
+                        else {
+                            return None;
+                        };
+                        fields.insert(
+                            0,
+                            StructField {
+                                name: Ident {
+                                    text: "system".to_owned(),
+                                    span: field.span,
+                                },
+                                span: field.span.join(system.span),
+                                value: system,
+                            },
+                        );
+                        self.leave();
+                        expression = Expression {
+                            span: expression.span.join(request.span),
+                            kind: ExpressionKind::Call {
+                                callee,
+                                arguments: vec![request],
+                            },
+                        };
+                        continue;
+                    }
+                    if allow_struct && self.at(TokenKind::LeftBrace) {
+                        let mut callee = path.clone();
+                        callee.span = callee.span.join(field.span);
+                        callee.segments.push(field);
+                        let arguments = if self.at(TokenKind::LeftBrace) {
+                            let open = self.peek()?.span;
+                            vec![self.parse_struct_literal(
+                                Path {
+                                    segments: Vec::new(),
+                                    span: open,
+                                },
+                                Vec::new(),
+                            )?]
+                        } else {
+                            let open = self.advance()?.span;
+                            if !self.enter(open) {
+                                return None;
+                            }
+                            let arguments = self.comma_expressions(TokenKind::RightParen)?;
+                            self.expect(
+                                TokenKind::RightParen,
+                                "expected `)` after arguments",
+                            )?;
+                            self.leave();
+                            arguments
+                        };
+                        let end = self.tokens[self.at - 1].span;
+                        expression = Expression {
+                            span: expression.span.join(end),
+                            kind: ExpressionKind::Call {
+                                callee,
+                                arguments,
+                            },
+                        };
+                        continue;
+                    }
+                }
                 if let ExpressionKind::Field {
                     fields,
                     ..
@@ -128,6 +217,17 @@ impl Parser<'_> {
                 kind: ExpressionKind::String(literal),
             }),
             TokenKind::Ident => self.parse_path_expression(allow_struct),
+            TokenKind::LeftBrace => {
+                let span = token.span;
+                self.parse_struct_literal(
+                    Path {
+                        segments: Vec::new(),
+                        span,
+                    },
+                    Vec::new(),
+                )
+            }
+            TokenKind::Keyword(Keyword::Let) => self.parse_let_expression(),
             TokenKind::LeftBracket => self.parse_list(),
             TokenKind::LeftParen => self.parse_group(),
             TokenKind::Keyword(Keyword::Erase) => self.parse_erase(),
@@ -200,6 +300,44 @@ impl Parser<'_> {
                 result,
                 body,
             },
+        })
+    }
+
+    fn parse_let_expression(&mut self) -> Option<Expression> {
+        let start = self.peek()?.span;
+        if !self.enter(start) {
+            return None;
+        }
+        let mut statements = Vec::new();
+        loop {
+            let binding = self
+                .expect_keyword(Keyword::Let, "expected `let` binding")?
+                .span;
+            statements.push(self.parse_let_statement(binding, &mut None)?);
+            if self.at_keyword(Keyword::In) {
+                break;
+            }
+            // Subsequent bindings may omit the repeated `let`.
+            if !self.at_keyword(Keyword::Let) {
+                while !self.at_keyword(Keyword::In) {
+                    let binding = self.peek()?.span;
+                    statements.push(self.parse_let_statement(binding, &mut None)?);
+                }
+                break;
+            }
+        }
+        self.expect_keyword(Keyword::In, "expected `in` after bindings")?;
+        let tail = self.parse_expression()?;
+        self.leave();
+        let span = start.join(tail.span);
+        Some(Expression {
+            kind: ExpressionKind::Let(crate::syntax::Block {
+                statements,
+                tail: Some(Box::new(tail)),
+                span,
+                incomplete: false,
+            }),
+            span,
         })
     }
 
@@ -359,7 +497,21 @@ impl Parser<'_> {
     }
 
     fn parse_path_expression(&mut self, allow_struct: bool) -> Option<Expression> {
-        let path = self.parse_path("expected path")?;
+        let mut path = self.parse_path("expected path")?;
+        if path.segments.len() == 1 && matches!(path.segments[0].text.as_str(), "true" | "false") {
+            let variant = if path.segments[0].text == "true" {
+                "True"
+            } else {
+                "False"
+            };
+            path.segments = ["std", "Bool", variant]
+                .into_iter()
+                .map(|text| Ident {
+                    text: text.to_owned(),
+                    span: path.span,
+                })
+                .collect();
+        }
         let start = path.span;
         if let Some(open) = self.consume(TokenKind::LeftParen) {
             if !self.enter(open.span) {
@@ -415,7 +567,7 @@ impl Parser<'_> {
         })
     }
 
-    fn parse_struct_literal(
+    pub(super) fn parse_struct_literal(
         &mut self,
         path: Path,
         type_arguments: Vec<Type>,
@@ -677,13 +829,19 @@ impl Parser<'_> {
         let token = self.expect(TokenKind::String, "expected string literal")?;
         let raw = self.text(token.span).to_owned();
         let bytes = raw.as_bytes();
-        if bytes.len() < 2 || bytes.last() != Some(&b'"') {
+        let delimiter = if bytes.starts_with(b"\"\"\"") {
+            3
+        } else {
+            1
+        };
+        if bytes.len() < 2 * delimiter || bytes.last() != Some(&b'"') {
             return None;
         }
+        let end = bytes.len() - delimiter;
         let mut parts = Vec::new();
-        let mut at = 1;
+        let mut at = delimiter;
         let mut text_start = at;
-        while at + 1 < bytes.len() {
+        while at < end {
             if self.cancelled() {
                 return None;
             }
@@ -701,13 +859,13 @@ impl Parser<'_> {
                 let interpolation_start = at;
                 at += 2;
                 let path_start = at;
-                while at + 1 < bytes.len() && bytes[at] != b'}' {
+                while at < end && bytes[at] != b'}' {
                     if self.cancelled() {
                         return None;
                     }
                     at += 1;
                 }
-                if at + 1 >= bytes.len() {
+                if at >= end {
                     self.error(Diagnostic::error(
                         "unterminated string interpolation",
                         Self::subspan(token.span, interpolation_start, at),
@@ -725,10 +883,10 @@ impl Parser<'_> {
                 at += 1;
             }
         }
-        if text_start < bytes.len() - 1 {
+        if text_start < end {
             parts.push(StringPart::Text {
-                source: raw[text_start..bytes.len() - 1].to_owned(),
-                span: Self::subspan(token.span, text_start, bytes.len() - 1),
+                source: raw[text_start..end].to_owned(),
+                span: Self::subspan(token.span, text_start, end),
             });
         }
         Some(StringLiteral {

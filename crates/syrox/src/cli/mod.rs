@@ -39,6 +39,10 @@ pub(crate) fn run(cli: Cli) -> ExitCode {
         StandardLibrarySelection::Bundled
     ));
     match cli.command {
+        #[cfg(target_os = "linux")]
+        Command::Catalog {
+            command,
+        } => commands::catalog::run(command, &configuration),
         Command::Fmt(arguments) => format::run(&arguments),
         #[cfg(target_os = "linux")]
         Command::Lsp {

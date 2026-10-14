@@ -65,6 +65,11 @@ pub(crate) trait FactMapper {
     fn elaboration(&mut self, elaboration: &Elaboration) -> Option<Elaboration> {
         self.reserve(0)?;
         Some(match elaboration {
+            Elaboration::PackageSelection {
+                factory,
+            } => Elaboration::PackageSelection {
+                factory: self.item(*factory)?,
+            },
             Elaboration::ModuleExports {
                 key,
                 function,

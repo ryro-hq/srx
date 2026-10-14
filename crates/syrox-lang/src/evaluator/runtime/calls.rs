@@ -16,6 +16,15 @@ impl Evaluator<'_> {
         substitutions: &BTreeMap<LocalId, Ty>,
         span: Span,
     ) -> Eval<Value> {
+        if let Some(Elaboration::PackageSelection {
+            factory,
+        }) = self
+            .checked
+            .expression(span)
+            .and_then(|metadata| metadata.elaboration())
+        {
+            return self.invoke_item(*factory, Vec::new(), &BTreeMap::new(), span);
+        }
         let item = match self.index.target(callee_span).cloned() {
             Some(ResolvedTarget::EnumVariant {
                 index,
@@ -228,7 +237,20 @@ impl Evaluator<'_> {
                 bound.push((local, evaluator.locals.insert(local, value)));
             }
             let previous_context = evaluator.enter_project_context(function.body.span);
-            let result = evaluator.block(&function.body, supplied);
+            let result = evaluator.block(&function.body, supplied).and_then(|value| {
+                if let Some(identity) = &function.package {
+                    let Value::Struct { fields, .. } = &value else {
+                        return evaluator.fail(span, "package factory did not return a package reference");
+                    };
+                    for (name, literal) in ["version", "variant", "system"].into_iter().zip(&identity[1..]) {
+                        let expected = evaluator.string(literal, supplied)?;
+                        if !fields.iter().any(|(field, value)| field == name && matches!(value, Value::Nominal { value: PrimitiveValue::Str(actual), .. } if *actual == expected)) {
+                            return evaluator.fail(span, "package reference identity differs from its declared selection");
+                        }
+                    }
+                }
+                Ok(value)
+            });
             evaluator.project_context = previous_context;
             result
         })
