@@ -9,9 +9,13 @@ mod std::maps {
         entries: [MapEntry<T>];
     }
 
-    enum Insertion<T> {
-        Pending(MapKey, T, [MapEntry<T>]),
-        Placed([MapEntry<T>]),
+    enum Indexed<T> {
+        Entries([MapKey], [MapEntry<T>]),
+    }
+
+    enum KeyScan {
+        Empty,
+        Previous(MapKey),
         Duplicate(MapKey),
     }
 
@@ -25,55 +29,48 @@ mod std::maps {
         key: MapKey,
         item: T,
     ) -> Result<OrderedMap<T>, MapKey> {
-        let inserted = fold(
-            items.entries,
-            Insertion::Pending<T>(key, item, []),
-            fn(state: Insertion<T>, entry: MapEntry<T>) -> Insertion<T> {
-                match state {
-                    Pending(key, item, acc) => match entry {
-                        Entry(existing, element) => compare(
-                            key,
-                            existing,
-                            Insertion::Placed(acc ++ [
-                                MapEntry::Entry(key, item),
-                                MapEntry::Entry(existing, element),
-                            ]),
-                            Insertion::Duplicate(key),
-                            Insertion::Pending(
-                                key,
-                                item,
-                                acc ++ [MapEntry::Entry(existing, element)],
-                            ),
-                        ),
-                    },
-                    Placed(acc) => Insertion::Placed(acc ++ [entry]),
-                    Duplicate(key) => Insertion::Duplicate(key),
-                }
-            },
-        );
-
-        match inserted {
-            Pending(key, item, acc) => Result::Ok(OrderedMap<T> {
-                entries = acc ++ [MapEntry::Entry(key, item)];
-            }),
-            Placed(entries) => Result::Ok(OrderedMap<T> { entries = entries; }),
-            Duplicate(key) => Result::Err(key),
-        }
+        map_from_entries(items.entries ++ [MapEntry::Entry(key, item)])
     }
 
     pub fn map_from_entries<T>(entries: [MapEntry<T>]) -> Result<OrderedMap<T>, MapKey> {
-        fold(
+        let indexed = fold(
             entries,
-            Result::Ok<OrderedMap<T>, MapKey>(map_empty<T>()),
-            fn(state: Result<OrderedMap<T>, MapKey>, entry: MapEntry<T>) -> Result<OrderedMap<T>, MapKey> {
+            Indexed::Entries<T>([], []),
+            fn(state: Indexed<T>, entry: MapEntry<T>) -> Indexed<T> {
                 match state {
-                    Ok(items) => match entry {
-                        Entry(key, item) => map_insert(items, key, item),
+                    Entries(keys, items) => match entry {
+                        Entry(key, item) => Indexed::Entries(
+                            keys ++ [key], items ++ [MapEntry::Entry(key, item)],
+                        ),
                     },
-                    Err(key) => Result::Err(key),
                 }
             },
-        )
+        );
+        match indexed {
+            Entries(keys, items) => finish_map(keys, items),
+        }
+    }
+
+    fn finish_map<T>(keys: [MapKey], items: [MapEntry<T>]) -> Result<OrderedMap<T>, MapKey> {
+        let scanned = fold(
+            sort_by_keys(keys, keys),
+            KeyScan::Empty,
+            fn(state: KeyScan, key: MapKey) -> KeyScan {
+                match state {
+                    Empty => KeyScan::Previous(key),
+                    Previous(previous) => compare(
+                        previous, key,
+                        KeyScan::Previous(key), KeyScan::Duplicate(key), KeyScan::Previous(key),
+                    ),
+                    Duplicate(key) => KeyScan::Duplicate(key),
+                }
+            }
+        );
+        match scanned {
+            Empty => Result::Ok(OrderedMap<T> { entries = sort_by_keys(items, keys); }),
+            Previous(_) => Result::Ok(OrderedMap<T> { entries = sort_by_keys(items, keys); }),
+            Duplicate(key) => Result::Err(key),
+        }
     }
 
     // Lookup consumes an affine map; reusable maps remain reusable values.

@@ -1,5 +1,8 @@
 use super::*;
-use crate::{DiagnosticCode, SyntaxKind, SyntaxTokenKind, TextPosition};
+use crate::{
+    diagnostic::DiagnosticCode, line_index::TextPosition, syntax::SyntaxKind,
+    syntax::SyntaxTokenKind,
+};
 
 #[test]
 fn snapshots_keep_old_buffers_and_reuse_only_unchanged_file_analysis() {
@@ -29,7 +32,12 @@ fn snapshots_keep_old_buffers_and_reuse_only_unchanged_file_analysis() {
         unchanged.parsed(&cancellation).unwrap()
     ));
     assert!(a.diagnostics(&cancellation).unwrap().is_empty());
-    assert!(!edited.diagnostics(&cancellation).unwrap().is_empty());
+    assert!(
+        !edited
+            .diagnostics(&cancellation)
+            .unwrap()
+            .is_empty()
+    );
     assert_eq!(edited.overlay_version(), Some(1));
     assert_eq!(a.overlay_version(), None);
     assert_eq!(a.source().text(), "value A(int);");
@@ -54,13 +62,15 @@ fn snapshots_keep_old_buffers_and_reuse_only_unchanged_file_analysis() {
 #[test]
 fn overlays_shadow_disk_changes_and_close_reveals_the_latest_disk() {
     let mut host = AnalysisHost::default();
-    host.set_disk("file.srx", "value Disk(int);").unwrap();
+    host.set_disk("file.srx", "value Disk(int);")
+        .unwrap();
     host.set_overlay("file.srx", 7, "value Buffer(int);")
         .unwrap();
     let buffer = host.snapshot().document("file.srx").unwrap();
     let cancellation = AnalysisCancellation::default();
     let cached = buffer.parsed(&cancellation).unwrap();
-    host.set_disk("file.srx", "value Updated(int);").unwrap();
+    host.set_disk("file.srx", "value Updated(int);")
+        .unwrap();
     let shadowed = host.snapshot().document("file.srx").unwrap();
     assert!(std::ptr::eq(
         cached,
@@ -95,15 +105,25 @@ fn overlays_shadow_disk_changes_and_close_reveals_the_latest_disk() {
 #[test]
 fn unchanged_content_reuses_parse_but_editor_versions_still_change_publication_stamp() {
     let mut host = AnalysisHost::default();
-    let first = host.set_disk("file.srx", "value I(int);").unwrap();
-    assert_eq!(host.set_disk("file.srx", "value I(int);").unwrap(), first);
+    let first = host
+        .set_disk("file.srx", "value I(int);")
+        .unwrap();
+    assert_eq!(
+        host.set_disk("file.srx", "value I(int);")
+            .unwrap(),
+        first
+    );
     let old = host.snapshot().document("file.srx").unwrap();
     let cancellation = AnalysisCancellation::default();
     let parsed = old.parsed(&cancellation).unwrap();
     let lines = old.line_index(&cancellation).unwrap();
-    host.set_overlay("file.srx", 1, "value I(int);").unwrap();
+    host.set_overlay("file.srx", 1, "value I(int);")
+        .unwrap();
     let current = host.snapshot().document("file.srx").unwrap();
-    assert!(std::ptr::eq(parsed, current.parsed(&cancellation).unwrap()));
+    assert!(std::ptr::eq(
+        parsed,
+        current.parsed(&cancellation).unwrap()
+    ));
     assert!(std::ptr::eq(
         lines,
         current.line_index(&cancellation).unwrap()
@@ -119,7 +139,8 @@ fn unchanged_content_reuses_parse_but_editor_versions_still_change_publication_s
         Err(AnalysisUpdateError::StaleVersion)
     );
     assert!(host.is_current(&current.revision()));
-    host.set_overlay("file.srx", 2, "value I(int);").unwrap();
+    host.set_overlay("file.srx", 2, "value I(int);")
+        .unwrap();
     assert!(!host.is_current(&current.revision()));
     assert_eq!(
         host.snapshot()
@@ -138,7 +159,10 @@ fn rejected_updates_are_atomic_and_input_limits_count_hidden_disk_text() {
     });
     host.set_disk("a", "value I(int);").unwrap();
     let before = host.snapshot();
-    assert_eq!(host.set_disk("b", ""), Err(AnalysisUpdateError::InputLimit));
+    assert_eq!(
+        host.set_disk("b", ""),
+        Err(AnalysisUpdateError::InputLimit)
+    );
     assert_eq!(
         host.set_overlay("a", 1, &" ".repeat(31)),
         Err(AnalysisUpdateError::InputLimit)
@@ -157,7 +181,11 @@ fn rejected_updates_are_atomic_and_input_limits_count_hidden_disk_text() {
     assert!(host.is_current(&overlay.revision()));
     host.close_overlay("a").unwrap();
     assert_eq!(
-        host.snapshot().document("a").unwrap().source().text(),
+        host.snapshot()
+            .document("a")
+            .unwrap()
+            .source()
+            .text(),
         "value I(int);"
     );
 }
@@ -165,7 +193,8 @@ fn rejected_updates_are_atomic_and_input_limits_count_hidden_disk_text() {
 #[test]
 fn cancellation_is_query_control_and_does_not_poison_lazy_caches() {
     let mut host = AnalysisHost::default();
-    host.set_overlay("a", 1, "fn f() { item.").unwrap();
+    host.set_overlay("a", 1, "fn f() { item.")
+        .unwrap();
     let document = host.snapshot().document("a").unwrap();
     let cancellation = AnalysisCancellation::default();
     let other_handle = cancellation.clone();
@@ -217,10 +246,18 @@ fn independent_hosts_cannot_accept_each_others_revision_and_shared_queries_are_t
     std::thread::scope(|scope| {
         let first = scope.spawn(|| document.parsed(&cancellation).unwrap());
         let second = scope.spawn(|| document.parsed(&cancellation).unwrap());
-        assert!(std::ptr::eq(first.join().unwrap(), second.join().unwrap()));
+        assert!(std::ptr::eq(
+            first.join().unwrap(),
+            second.join().unwrap()
+        ));
     });
     drop(host);
-    assert!(document.diagnostics(&cancellation).unwrap().is_empty());
+    assert!(
+        document
+            .diagnostics(&cancellation)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -231,7 +268,10 @@ fn signatures_survive_broken_bodies_and_keep_lexical_modules_and_generic_types()
     host.set_overlay("main.srx", 1, source).unwrap();
     let broken = host.snapshot().document("main.srx").unwrap();
     let cancellation = AnalysisCancellation::default();
-    let signatures: Vec<_> = broken.function_signatures(&cancellation).unwrap().collect();
+    let signatures: Vec<_> = broken
+        .function_signatures(&cancellation)
+        .unwrap()
+        .collect();
     assert_eq!(
         signatures
             .iter()
@@ -268,17 +308,29 @@ fn signatures_survive_broken_bodies_and_keep_lexical_modules_and_generic_types()
         .collect();
     assert_eq!(signatures[0], updated[0]);
     assert!(!host.is_current(&broken.revision()));
-    assert!(current.diagnostics(&cancellation).unwrap().is_empty());
+    assert!(
+        current
+            .diagnostics(&cancellation)
+            .unwrap()
+            .is_empty()
+    );
     // Following declarations get positions from the new source, not stale
     // locations reused merely because their header text did not change.
-    assert_eq!(signatures[2].span.start(), updated[2].span.start() + 1);
+    assert_eq!(
+        signatures[2].span.start(),
+        updated[2].span.start() + 1
+    );
 }
 
 #[test]
 fn malformed_headers_are_not_indexed_and_unsaved_documents_need_no_disk_entry() {
     let mut host = AnalysisHost::default();
-    host.set_overlay("untitled:test", 0, "fn broken(item:) {} fn good() {}")
-        .unwrap();
+    host.set_overlay(
+        "untitled:test",
+        0,
+        "fn broken(item:) {} fn good() {}",
+    )
+    .unwrap();
     let snapshot = host.snapshot();
     assert_eq!(
         snapshot.document_names().collect::<Vec<_>>(),
@@ -296,14 +348,20 @@ fn malformed_headers_are_not_indexed_and_unsaved_documents_need_no_disk_entry() 
     );
     host.close_overlay("untitled:test").unwrap();
     assert_eq!(host.snapshot().document_names().len(), 0);
-    assert!(!document.diagnostics(&cancellation).unwrap().is_empty());
+    assert!(
+        !document
+            .diagnostics(&cancellation)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
 fn unicode_editor_cursor_and_diagnostics_share_the_same_revision_and_ranges() {
     let source = "outputs { x: S = S(\"😀\"); y: I = ; }";
     let mut host = AnalysisHost::default();
-    host.set_overlay("unicode.srx", 1, source).unwrap();
+    host.set_overlay("unicode.srx", 1, source)
+        .unwrap();
     let document = host.snapshot().document("unicode.srx").unwrap();
     let cancellation = AnalysisCancellation::default();
     let error = document
@@ -326,8 +384,12 @@ fn unicode_editor_cursor_and_diagnostics_share_the_same_revision_and_ranges() {
         SyntaxKind::MissingExpression
     );
     assert!(host.is_current(&document.revision()));
-    host.set_overlay("unicode.srx", 2, &source.replace("= ;", "= I(1);"))
-        .unwrap();
+    host.set_overlay(
+        "unicode.srx",
+        2,
+        &source.replace("= ;", "= I(1);"),
+    )
+    .unwrap();
     assert!(!host.is_current(&document.revision()));
     assert_eq!(
         lines.offset(position, PositionEncoding::Utf16),

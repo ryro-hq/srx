@@ -1,8 +1,19 @@
-//! Type, policy and affine ownership checking for resolved Syrox programs.
+//! Checking types, policy rules and value consumption.
+//!
+//! [`check`] accepts a resolved program and returns a [`CheckedProgram`] on success.
+//! Editor analysis also keeps partial facts, with uncertainty preserved for queries
+//! on incomplete code. [`crate::evaluator`] requires successful checking and the
+//! same policy.
+//!
+//! # Checking bodies within one budget
+//!
+//! Bodies are checked separately, but work, diagnostics and generic instances
+//! count toward the same run. [`bodies`](../../src/syrox_lang/checker/bodies/mod.rs.html) owns each body's facts and observed cost;
+//! its effect records compare decisions without installing facts or skipping
+//! checking. Publishing those facts does not create a cache across revisions.
 
 mod bodies;
-mod collections;
-mod display;
+mod declarations;
 mod editor;
 mod enums;
 mod expressions;
@@ -18,20 +29,34 @@ mod types;
 pub use bodies::{BodyBudget, BodyEffects, BodyReplayState};
 pub(crate) use bodies::{BodyPublication, BodyPublications};
 pub use editor::FieldInfo;
-pub(crate) use editor::{NominalShape, RepresentationAuthority, nominal_id, substitute_type};
-pub use model::*;
-pub use policy::*;
+pub(crate) use editor::{NominalShape, RepresentationAuthority, substitute_type};
+pub(crate) use model::EditorFacts;
+pub use model::{
+    CheckLimits, CheckedExpression, CheckedLocal, CheckedPattern, CheckedProgram, Elaboration,
+    OwnershipUse, OwnershipUseKind, OwnershipUseStatus, ParameterHint, PolicyMismatch, Ty,
+    TypeStatus, check, check_with_limits,
+};
+pub use policy::{
+    CanonicalItemIdentity, CheckPolicy, ErasureRule, MAX_ALIAS_DEPTH, MAX_CHECK_WORK,
+    MAX_GENERIC_INSTANCES, MAX_METADATA_UNITS, MAX_POLICY_BYTES, MAX_POLICY_ENTRIES,
+    MAX_SPECIALIZATION_DEPTH, PolicyError, PolicyFingerprint, PredicateRule, PrimitiveType,
+    ScopeRule,
+};
 pub(crate) use relocation::FactMapper;
 pub use relocation::OwnerCheckedFacts;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use crate::{
-    Block, Diagnostic, Enum, Expression, ExpressionKind, Function, Item, ItemId, ItemKind, Literal,
-    LocalId, MAX_DIAGNOSTICS, MatchArm, ModuleId, OutputKind, ParsedSource, Path, Pattern,
-    Primitive, PrimitiveDeclaration, ReferenceKind, RefinementKind, ResolvedItem, ResolvedItemKind,
-    ResolvedProgram, ResolvedTarget, SourceDomainId, Span, StatementKind, StringLiteral,
-    StringPart, Struct, StructField, Type, TypeAlias, TypeKind,
+    MAX_DIAGNOSTICS, diagnostic::Diagnostic, resolver::ItemId, resolver::LocalId,
+    resolver::ModuleId, resolver::ReferenceKind, resolver::ResolvedItem,
+    resolver::ResolvedItemKind, resolver::ResolvedProgram, resolver::ResolvedTarget,
+    source::SourceDomainId, source::Span, syntax::Block, syntax::Enum, syntax::Expression,
+    syntax::ExpressionKind, syntax::Function, syntax::Item, syntax::ItemKind, syntax::Literal,
+    syntax::MatchArm, syntax::OutputKind, syntax::ParsedSource, syntax::Path, syntax::Pattern,
+    syntax::Primitive, syntax::PrimitiveDeclaration, syntax::RefinementKind, syntax::StatementKind,
+    syntax::StringLiteral, syntax::StringPart, syntax::Struct, syntax::StructField, syntax::Type,
+    syntax::TypeAlias, syntax::TypeKind,
 };
 use bodies::BodyState;
 
@@ -113,6 +138,7 @@ struct Checker<'a> {
     primitives: BTreeMap<ItemId, PrimitiveInfo<'a>>,
     functions: BTreeMap<ItemId, FunctionInfo<'a>>,
     output_values: BTreeMap<ItemId, &'a Type>,
+    published_types: BTreeMap<ItemId, Ty>,
     carriers: BTreeSet<ItemId>,
     generic_instances: BTreeSet<Ty>,
     struct_fields: BTreeMap<ItemId, Vec<(String, RawTy, bool)>>,
@@ -122,10 +148,8 @@ struct Checker<'a> {
     prior_metadata: usize,
     #[cfg(test)]
     unpartitioned_bodies: bool,
-    #[cfg(test)]
-    reuse: bodies::reuse::ReuseHarness,
     incomplete_bodies: BTreeSet<(u32, u32, u32)>,
-    cancellation: Option<&'a crate::AnalysisCancellation>,
+    cancellation: Option<&'a crate::analysis::AnalysisCancellation>,
     editor: EditorFacts,
     publications: BodyPublications,
     effect_retention: bodies::EffectRetention,
@@ -159,6 +183,7 @@ impl<'a> Checker<'a> {
             primitives: BTreeMap::new(),
             functions: BTreeMap::new(),
             output_values: BTreeMap::new(),
+            published_types: BTreeMap::new(),
             carriers: BTreeSet::new(),
             generic_instances: BTreeSet::new(),
             struct_fields: BTreeMap::new(),
@@ -168,8 +193,6 @@ impl<'a> Checker<'a> {
             prior_metadata: 0,
             #[cfg(test)]
             unpartitioned_bodies: false,
-            #[cfg(test)]
-            reuse: bodies::reuse::ReuseHarness::default(),
             incomplete_bodies: BTreeSet::new(),
             cancellation: None,
             editor: EditorFacts::default(),
@@ -225,7 +248,7 @@ pub(crate) fn check_partial(
     resolved: &ResolvedProgram,
     policy: &CheckPolicy,
     incomplete_bodies: BTreeSet<(u32, u32, u32)>,
-    cancellation: &crate::AnalysisCancellation,
+    cancellation: &crate::analysis::AnalysisCancellation,
     limits: CheckLimits,
 ) -> PartialCheck {
     let mut checker = Checker::new(resolved, policy, limits);

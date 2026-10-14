@@ -8,20 +8,216 @@ use std::fs;
 use std::io::Read as _;
 use std::io::Write as _;
 use std::net::TcpListener;
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 use flate2::{Compression, write::GzEncoder};
 use syrox_engine::{
-    ContentDigest, RootName, RuntimeOutput, RuntimeRequest, Store, materialize_artifact,
-    materialize_named_artifact, run_runtime, verify_runtime,
+    result::materialize_artifact, result::materialize_named_artifact, runtime::RuntimeFile,
+    runtime::RuntimeOutput, runtime::RuntimeRequest, runtime::run_runtime, runtime::verify_runtime,
+    store::ContentDigest, store::RootName, store::Store,
 };
+
+fn build_probe_script(body: &[u8]) -> Vec<u8> {
+    let mut script = b"cat > probe.c <<'SYROX_BUILD_PROBE'\n".to_vec();
+    script.extend_from_slice(include_bytes!(
+        "../../../tests/fixtures/build-probe.c"
+    ));
+    script.extend_from_slice(b"\nSYROX_BUILD_PROBE\n");
+    script.extend_from_slice(body);
+    script
+}
+
+#[test]
+#[ignore = "executes an external .srx builder, cache, runtime, failure and cancellation on a configured Linux host"]
+fn host_external_srx_builder_runs_without_binary_changes_and_preserves_settlement() {
+    let temporary = tempfile::tempdir().unwrap();
+    let project = temporary.path();
+    let store_path = tempfile::tempdir().unwrap();
+    fs::create_dir(project.join("builders")).unwrap();
+    let source = b"int main(void) { return 37; }\n";
+    fs::write(project.join("source.c"), source).unwrap();
+    fs::write(
+        project.join("config.toml"),
+        "[build]\nhost-toolchain = '/usr'\n",
+    )
+    .unwrap();
+    fs::write(project.join("main.srx"), format!(r#"
+        inputs {{ builders = "modules:builders"; }}
+        fn recipe() -> std::Recipe {{ std::Recipe {{
+            package = std::Package {{ id = "external"; dependencies = []; }};
+            acquisition = std::Option::Some(std::Acquisition {{ sources = [std::source_request("project:source.c", "{}", 1024)]; }});
+            build = std::Option::Some(builders::direct::build());
+        }} }}
+        mod factories::package {{ pub fn recipe() -> std::Recipe {{ project::recipe() }} }}
+        mod factories::consumer {{ pub fn recipe() -> std::Recipe {{ std::Recipe {{
+                package = std::Package {{ id = "consumer"; dependencies = []; }};
+                acquisition = std::Option::Some(std::Acquisition {{ sources = [std::source_request("project:source.c", "{}", 1024)]; }});
+                build = std::Option::Some(std::Build {{ profile = std::BuildProfile::HostBootstrap; source_directory = "consumer"; timeout_seconds = 30; source_format = std::BuildSourceFormat::Raw;
+                    steps = [std::BuildStep::Copy(std::BuildPath::Input(0, "readme"), std::BuildPath::Output("out", "copied"))]; }});
+                build_inputs = std::Option::Some(std::BuildInputs {{ selected = [std::recipe_output(std::recipe_ref(project::recipe), "doc")]; }});
+            }} }} }}
+        pub publish(factories, recipe): std::Recipe;
+    "#, ContentDigest::sha256(source), ContentDigest::sha256(source))).unwrap();
+    let save = |executable: &str, arguments: &str, text: &str| {
+        fs::write(project.join("builders/direct.srx"), format!(r#"
+            pub fn build() -> std::Build {{ std::Build {{ profile = std::BuildProfile::HostBootstrap;
+                source_directory = "external"; timeout_seconds = 60;
+                source_format = std::BuildSourceFormat::Raw; produces = ["doc", "out"];
+                steps = [
+                    std::BuildStep::Directory(std::BuildPath::Output("out", "bin")),
+                    std::BuildStep::Run(std::BuildProcess {{ executable = std::BuildPath::Host("{executable}"); directory = std::BuildPath::Work(""); arguments = [{arguments}]; }}),
+                    std::BuildStep::Write(std::BuildFile {{ path = std::BuildPath::Output("doc", "readme"); text = std::build_text("{text}"); }}),
+                ];
+            }} }}
+        "#)).unwrap();
+    };
+    let relock = || {
+        let result = run(&[
+            "project",
+            "lock",
+            project.to_str().unwrap(),
+        ]);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    };
+    let arguments = r#"std::build_text("-static"), std::build_text("-x"), std::build_text("c"), std::build_path(std::BuildPath::Source), std::build_text("-o"), std::build_path(std::BuildPath::Output("out", "bin/demo"))"#;
+    save("/usr/bin/gcc", arguments, "first");
+    relock();
+    let first = build(project, store_path.path());
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let text = String::from_utf8(first.stdout).unwrap();
+    assert!(text.contains("built external"));
+    let field = |prefix: &str| {
+        text.lines()
+            .find_map(|line| line.strip_prefix(prefix))
+            .unwrap()
+    };
+    let root = RootName::new(field("root ")).unwrap();
+    let receipt = field("receipt ").parse().unwrap();
+    let store = Store::open(store_path.path()).unwrap();
+    let docs = materialize_named_artifact(&store, &root, receipt, "doc").unwrap();
+    assert_eq!(
+        fs::read(docs.directory().unwrap().join("readme")).unwrap(),
+        b"first"
+    );
+    let closure = verify_runtime(
+        &store,
+        &RuntimeRequest {
+            application: RuntimeFile {
+                output: RuntimeOutput {
+                    root,
+                    receipt,
+                    output: "out".into(),
+                },
+                path: "bin/demo".into(),
+            },
+            loader: None,
+            libraries: vec![],
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        run_runtime(&closure, &[], project)
+            .unwrap()
+            .code(),
+        Some(37)
+    );
+    let second = build(project, store_path.path());
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert!(String::from_utf8_lossy(&second.stdout).contains("reused external"));
+    let consumer = run(&[
+        "build",
+        &format!("{}#consumer", project.display()),
+        "--config",
+        project.join("config.toml").to_str().unwrap(),
+        "--store",
+        store_path.path().to_str().unwrap(),
+        "--offline",
+    ]);
+    assert!(
+        consumer.status.success(),
+        "{}",
+        String::from_utf8_lossy(&consumer.stderr)
+    );
+    let consumer = String::from_utf8(consumer.stdout).unwrap();
+    let consumer_field = |prefix: &str| {
+        consumer
+            .lines()
+            .find_map(|line| line.strip_prefix(prefix))
+            .unwrap()
+    };
+    let view = materialize_artifact(
+        &store,
+        &RootName::new(consumer_field("root ")).unwrap(),
+        consumer_field("receipt ").parse().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read(view.directory().unwrap().join("copied")).unwrap(),
+        b"first"
+    );
+    save("/usr/bin/gcc", arguments, "second");
+    assert!(!build(project, store_path.path()).status.success());
+    relock();
+    let changed = build(project, store_path.path());
+    assert!(
+        changed.status.success(),
+        "{}\nfailed fixture retained at {}; Store at {}",
+        String::from_utf8_lossy(&changed.stderr),
+        temporary.keep().display(),
+        store_path.keep().display()
+    );
+    assert!(String::from_utf8_lossy(&changed.stdout).contains("built external"));
+    assert!(!String::from_utf8_lossy(&changed.stdout).contains(field("action ")));
+    let roots = managed_roots(store_path.path());
+    assert_eq!(roots, 3);
+    save("/usr/bin/false", "", "failed");
+    relock();
+    assert!(!build(project, store_path.path()).status.success());
+    assert_eq!(managed_roots(store_path.path()), roots);
+    save(
+        "/usr/bin/sleep",
+        r#"std::build_text("30")"#,
+        "cancelled",
+    );
+    relock();
+    let mut running = RunningBuild::start(project, store_path.path());
+    let group = running.wait_for_payload();
+    let result = running.signal_and_wait("TERM");
+    assert_eq!(
+        result.status.code(),
+        Some(143),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    wait_for_empty_cgroup(&group);
+    assert_eq!(managed_roots(store_path.path()), roots);
+    assert!(
+        !running
+            .operation
+            .as_ref()
+            .unwrap()
+            .join("stage")
+            .exists()
+    );
+    running.unit = None;
+}
 
 #[test]
 #[ignore = "requires Linux build preflight (user systemd, Bubblewrap, setpriv and Landlock); uses a local stalled TLS connection"]
-#[allow(clippy::too_many_lines)]
 fn build_cli_signals_cancel_pending_https_before_the_deadline() {
     for (signal, code) in [("-INT", 130), ("-TERM", 143)] {
         let temporary = tempfile::tempdir().unwrap();
@@ -35,16 +231,17 @@ fn build_cli_signals_cancel_pending_https_before_the_deadline() {
         fs::write(
             project.join("main.srx"),
             format!(
-                r#"outputs {{
-            app: std::Package = std::Package {{ id = "app"; dependencies = []; }};
-            source: std::Acquisition = std::Acquisition {{ package = "app"; sources = [
+                r#"fn recipe() -> std::Recipe {{ std::Recipe {{
+            package = std::Package {{ id = "app"; dependencies = []; }};
+            acquisition = std::Option::Some(std::Acquisition {{ sources = [
                 std::SourceRequest {{ url = "{url}"; sha256 = "{}"; maximum_bytes = 100; }}
-            ]; }};
-            build: std::AutotoolsBuild = std::AutotoolsBuild {{ package = "app";
-                source_directory = "app-1"; entry = "usr/bin/app"; timeout_seconds = 30;
-            }};
-            default_build: std::DefaultBuild = std::DefaultBuild {{ package = "app"; }};
-        }}"#,
+            ]; }});
+            build = std::Option::Some(std::autotools(std::BuildOptions {{
+                source_directory = "app-1"; timeout_seconds = 30;
+            }}));
+        }} }} mod factories::app {{ pub fn recipe() -> std::Recipe {{ project::recipe() }} }}
+        pub publish(factories, recipe): std::Recipe;
+    "#,
                 "0".repeat(64)
             ),
         )
@@ -68,7 +265,7 @@ fn build_cli_signals_cancel_pending_https_before_the_deadline() {
         let store = project.join("store");
         let mut child = Command::new(env!("CARGO_BIN_EXE_srx"))
             .arg("build")
-            .arg(project)
+            .arg(format!("{}#app", project.display()))
             .arg("--config")
             .arg(&config)
             .arg("--store")
@@ -154,221 +351,6 @@ fn build_cli_signals_cancel_pending_https_before_the_deadline() {
     }
 }
 
-#[test]
-#[ignore = "inspects SYROX_REALIZED_GLIBC_STORE and SYROX_REALIZED_GLIBC_RECEIPT without rebuilding"]
-fn retained_source_glibc_has_complete_runtime_and_development_outputs() {
-    let path = std::env::var_os("SYROX_REALIZED_GLIBC_STORE").expect("retained Store path");
-    let receipt: ContentDigest = std::env::var("SYROX_REALIZED_GLIBC_RECEIPT")
-        .expect("retained glibc receipt")
-        .parse()
-        .unwrap();
-    let store = Store::open(Path::new(&path)).unwrap();
-    let root = RootName::new(format!("build_{receipt}")).unwrap();
-    let runtime = materialize_artifact(&store, &root, receipt).unwrap();
-    let development = materialize_named_artifact(&store, &root, receipt, "dev").unwrap();
-    assert!(runtime.files() >= 315);
-    assert_eq!(development.files(), 1186);
-    assert_eq!(
-        &fs::read(runtime.directory().unwrap().join(runtime.entry())).unwrap()[..4],
-        b"\x7fELF"
-    );
-    assert!(
-        runtime
-            .directory()
-            .unwrap()
-            .join("usr/lib/libc.so.6")
-            .is_file()
-    );
-    assert!(
-        runtime
-            .directory()
-            .unwrap()
-            .join("usr/lib/gconv/gconv-modules")
-            .is_file()
-    );
-    assert!(
-        runtime
-            .directory()
-            .unwrap()
-            .join("usr/lib/locale/C.utf8/LC_CTYPE")
-            .is_file()
-    );
-    assert!(
-        !runtime
-            .directory()
-            .unwrap()
-            .join("usr/include/stdio.h")
-            .exists()
-    );
-    for file in ["usr/include/stdio.h", "usr/lib/libc.a", "usr/lib/crt1.o"] {
-        assert!(
-            development.directory().unwrap().join(file).is_file(),
-            "missing {file}"
-        );
-    }
-    let script =
-        fs::read_to_string(development.directory().unwrap().join("usr/lib/libc.so")).unwrap();
-    assert!(script.contains(&format!(
-        "/syrox/store/{}/dev/usr/lib/libc_nonshared.a",
-        runtime.action()
-    )));
-}
-
-#[test]
-#[ignore = "requires SYROX_REALIZED_GLIBC_STORE and SYROX_REALIZED_GLIBC_RECEIPT; copies verified objects into an isolated Store"]
-fn retained_source_glibc_refuses_primary_when_development_artifact_is_tampered() {
-    let path =
-        PathBuf::from(std::env::var_os("SYROX_REALIZED_GLIBC_STORE").expect("retained Store path"));
-    let receipt: ContentDigest = std::env::var("SYROX_REALIZED_GLIBC_RECEIPT")
-        .expect("retained glibc receipt")
-        .parse()
-        .unwrap();
-    let source = Store::open(&path).unwrap();
-    let lease = source.operation().unwrap();
-    let record = lease.read_verified(receipt, 4096).unwrap().unwrap();
-    let record = std::str::from_utf8(record.as_bytes()).unwrap();
-    let mut references = vec![receipt];
-    let mut development = None;
-    for line in record.lines() {
-        if let Some(digest) = line.split_whitespace().nth(1).filter(|_| {
-            ["action", "source", "toolchain"]
-                .iter()
-                .any(|key| line.starts_with(&format!("{key} ")))
-        }) {
-            references.push(digest.parse().unwrap());
-        }
-        if let Some(output) = line.strip_prefix("output ") {
-            let mut fields = output.split_whitespace();
-            let name = fields.next().unwrap();
-            let digest = fields.next().unwrap();
-            let digest: ContentDigest = digest.parse().unwrap();
-            if name == "dev" {
-                development = Some(digest);
-            }
-            references.push(digest);
-        }
-    }
-    references.sort_unstable();
-    references.dedup();
-    let development = development.expect("named dev output");
-    let temporary = tempfile::tempdir().unwrap();
-    let isolated = Store::initialize(temporary.path()).unwrap();
-    let target = isolated.operation().unwrap();
-    for digest in &references {
-        let input = lease
-            .open_verified(*digest, 128 * 1024 * 1024)
-            .unwrap()
-            .unwrap();
-        target.ingest(input, *digest, 128 * 1024 * 1024).unwrap();
-    }
-    let root = RootName::new(format!("build_{receipt}")).unwrap();
-    target.publish_root(&root, &references).unwrap();
-    drop(target);
-    assert!(materialize_artifact(&isolated, &root, receipt).is_ok());
-    assert!(materialize_named_artifact(&isolated, &root, receipt, "dev").is_ok());
-    let blob = temporary.path().join(format!(
-        "objects/sha256/{}/{development}",
-        &development.to_string()[..2]
-    ));
-    fs::set_permissions(&blob, fs::Permissions::from_mode(0o600)).unwrap();
-    fs::write(&blob, b"tampered development output").unwrap();
-    assert!(materialize_artifact(&isolated, &root, receipt).is_err());
-}
-
-#[test]
-#[ignore = "requires SYROX_GLIBC_ARCHIVE and a Linux rootless build host; builds glibc 2.44 from source"]
-fn host_source_glibc_build_retains_both_outputs_from_one_action() {
-    let archive =
-        PathBuf::from(std::env::var_os("SYROX_GLIBC_ARCHIVE").expect("pinned glibc tarball path"));
-    let temporary = tempfile::tempdir().unwrap();
-    fs::copy(&archive, temporary.path().join("source.tar.xz")).unwrap();
-    fs::write(temporary.path().join("main.srx"), r#"outputs {
-        glibc: std::Package = std::Package { id = "glibc"; dependencies = []; };
-        glibc_sources: std::Acquisition = std::Acquisition { package = "glibc"; sources = [
-            std::SourceRequest { url = "project:source.tar.xz"; sha256 = "37f600f2bef3c5e8300147059568b2a2e40a7ad6ccc65ce942556d49429cc667"; maximum_bytes = 33554432; }
-        ]; };
-        glibc_build: std::GlibcBuild = std::GlibcBuild { package = "glibc"; source_directory = "glibc-2.44"; entry = "usr/lib/ld-linux-x86-64.so.2"; timeout_seconds = 1800; };
-        default_build: std::DefaultBuild = std::DefaultBuild { package = "glibc"; };
-    }"#).unwrap();
-    let config = temporary.path().join("config.toml");
-    fs::write(&config, "[build]\nhost-toolchain = '/usr'\n").unwrap();
-    let store_path = temporary.path().join("store");
-    let lock = run(&["project", "lock", temporary.path().to_str().unwrap()]);
-    assert!(
-        lock.status.success(),
-        "{}",
-        String::from_utf8_lossy(&lock.stderr)
-    );
-    let build = || {
-        run(&[
-            "build",
-            temporary.path().to_str().unwrap(),
-            "--config",
-            config.to_str().unwrap(),
-            "--store",
-            store_path.to_str().unwrap(),
-            "-o",
-        ])
-    };
-    let first = build();
-    assert!(
-        first.status.success(),
-        "{}",
-        String::from_utf8_lossy(&first.stderr)
-    );
-    let summary = String::from_utf8(first.stdout).unwrap();
-    assert!(summary.contains("built glibc") && summary.contains("protocol glibc"));
-    let line = |prefix: &str| {
-        summary
-            .lines()
-            .find_map(|line| line.strip_prefix(prefix))
-            .unwrap()
-            .to_owned()
-    };
-    let receipt: ContentDigest = line("receipt ").parse().unwrap();
-    let root = RootName::new(line("root ")).unwrap();
-    let store = Store::open(&store_path).unwrap();
-    let runtime = materialize_artifact(&store, &root, receipt).unwrap();
-    let dev = materialize_named_artifact(&store, &root, receipt, "dev").unwrap();
-    assert!(
-        runtime
-            .directory()
-            .unwrap()
-            .join("usr/lib/libc.so.6")
-            .is_file()
-    );
-    assert!(
-        runtime
-            .directory()
-            .unwrap()
-            .join("usr/lib/gconv/gconv-modules")
-            .is_file()
-    );
-    assert!(
-        dev.directory()
-            .unwrap()
-            .join("usr/include/stdio.h")
-            .is_file()
-    );
-    assert!(dev.directory().unwrap().join("usr/lib/libc.a").is_file());
-    assert!(dev.directory().unwrap().join("usr/lib/crt1.o").is_file());
-    assert!(
-        !runtime
-            .directory()
-            .unwrap()
-            .join("usr/include/stdio.h")
-            .exists()
-    );
-    let second = build();
-    assert!(
-        second.status.success(),
-        "{}",
-        String::from_utf8_lossy(&second.stderr)
-    );
-    assert!(String::from_utf8_lossy(&second.stdout).contains("reused glibc"));
-    assert_eq!(managed_roots(&store_path), 1);
-}
-
 fn run(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_srx"))
         .args(args)
@@ -401,23 +383,29 @@ fn project(path: &Path, store: &Store, configure: &[u8], timeout: u32) {
         .unwrap()
         .ingest(bytes.as_slice(), digest, bytes.len() as u64)
         .unwrap();
-    fs::write(path.join("main.srx"), format!(r#"outputs {{
-        package: std::Package = std::Package {{ id = "fixture"; dependencies = []; }};
-        source: std::Acquisition = std::Acquisition {{ package = "fixture"; sources = [
+    fs::write(path.join("main.srx"), format!(r#"fn recipe() -> std::Recipe {{ std::Recipe {{
+        package = std::Package {{ id = "fixture"; dependencies = []; }};
+        acquisition = std::Option::Some(std::Acquisition {{ sources = [
             std::SourceRequest {{ url = "https://nonexistent.invalid/source"; sha256 = "{digest}"; maximum_bytes = 1048576; }}
-        ]; }};
-        build: std::AutotoolsBuild = std::AutotoolsBuild {{
-            package = "fixture"; source_directory = "fixture";
-            entry = "usr/bin/hello"; timeout_seconds = {timeout};
-        }};
-        default_build: std::DefaultBuild = std::DefaultBuild {{ package = "fixture"; }};
-    }}"#)).unwrap();
+        ]; }});
+        build = std::Option::Some(std::autotools(std::BuildOptions {{
+            source_directory = "fixture";
+            timeout_seconds = {timeout};
+        }}));
+        commands = [];
+    }} }} mod factories::package {{ pub fn recipe() -> std::Recipe {{ project::recipe() }} }}
+        pub publish(factories, recipe): std::Recipe;
+    "#)).unwrap();
     fs::write(
         path.join("config.toml"),
         "[build]\nhost-toolchain = '/usr'\n",
     )
     .unwrap();
-    let result = run(&["project", "lock", path.to_str().unwrap()]);
+    let result = run(&[
+        "project",
+        "lock",
+        path.to_str().unwrap(),
+    ]);
     assert!(
         result.status.success(),
         "{}",
@@ -428,7 +416,7 @@ fn project(path: &Path, store: &Store, configure: &[u8], timeout: u32) {
 fn build(project: &Path, store: &Path) -> Output {
     run(&[
         "build",
-        project.to_str().unwrap(),
+        &format!("{}#package", project.display()),
         "--config",
         project.join("config.toml").to_str().unwrap(),
         "--store",
@@ -441,229 +429,29 @@ fn managed_roots(store: &Path) -> usize {
     fs::read_dir(store.join("roots/retained"))
         .unwrap()
         .filter_map(Result::ok)
-        .filter(|entry| entry.file_name().to_string_lossy().starts_with("build_"))
-        .count()
-}
-
-fn corrupt_provider_view(store: &Path) {
-    let libc = fs::read_dir(store.join(".syrox-store/views"))
-        .unwrap()
-        .filter_map(Result::ok)
-        .map(|entry| entry.path().join("usr/lib/libc.so.6"))
-        .find(|path| path.is_file())
-        .unwrap();
-    let mut bytes = fs::read(&libc).unwrap();
-    bytes[0] ^= 1;
-    fs::set_permissions(&libc, fs::Permissions::from_mode(0o600)).unwrap();
-    fs::write(&libc, bytes).unwrap();
-}
-
-fn preseed_sources_if_available(store: &Path) {
-    for (variable, identity, maximum) in [
-        (
-            "SYROX_GLIBC_ARCHIVE",
-            "37f600f2bef3c5e8300147059568b2a2e40a7ad6ccc65ce942556d49429cc667",
-            32 * 1024 * 1024,
-        ),
-        (
-            "SYROX_HELLO_ARCHIVE",
-            "8d99142afd92576f30b0cd7cb42a8dc6809998bc5d607d88761f512e26c7db20",
-            2 * 1024 * 1024,
-        ),
-    ] {
-        let Some(archive) = std::env::var_os(variable) else {
-            continue;
-        };
-        let bytes = fs::read(archive).unwrap();
-        let digest: ContentDigest = identity.parse().unwrap();
-        let store_ref = Store::initialize(store).unwrap();
-        let lease = store_ref.operation().unwrap();
-        lease.ingest(bytes.as_slice(), digest, maximum).unwrap();
-        lease
-            .publish_root(
-                &RootName::new(format!("source_{digest}")).unwrap(),
-                &[digest],
-            )
-            .unwrap();
-    }
-}
-
-#[test]
-#[ignore = "requires a rootless build host and HTTPS for pinned GNU Hello and glibc 2.44 sources"]
-fn host_catalog_dynamic_hello_runs_offline_after_first_realization() {
-    let catalog = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../syrox-pkgs");
-    let catalog = fs::canonicalize(catalog).unwrap();
-    let temp = tempfile::tempdir().unwrap();
-    let config = temp.path().join("config.toml");
-    fs::write(&config, "[build]\nhost-toolchain = '/usr'\n[network]\nallow-https = ['https://ftp.gnu.org/gnu/hello/hello-2.12.1.tar.gz', 'https://ftp.gnu.org/gnu/glibc/glibc-2.44.tar.xz']\n").unwrap();
-    let store = temp.path().join("store");
-    preseed_sources_if_available(&store);
-    let main = catalog.join("main.srx");
-    let invoke_build = || {
-        Command::new(env!("CARGO_BIN_EXE_srx"))
-            .args(["build", "-f"])
-            .arg(&main)
-            .arg("--config")
-            .arg(&config)
-            .arg("--store")
-            .arg(&store)
-            .output()
-            .unwrap()
-    };
-    let invocation = |offline: bool, arguments: &[&str]| {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_srx"));
-        command
-            .args(["run", "-f"])
-            .arg(&main)
-            .arg("--config")
-            .arg(&config)
-            .arg("--store")
-            .arg(&store);
-        if offline {
-            command.arg("-o");
-        }
-        command.arg("--").args(arguments).output().unwrap()
-    };
-    let built = invoke_build();
-    assert!(
-        built.status.success(),
-        "{}",
-        String::from_utf8_lossy(&built.stderr)
-    );
-    let built = String::from_utf8(built.stdout).unwrap();
-    assert!(built.contains("built hello") && built.contains("runtime-provider glibc"));
-    assert_declared_development_action(&store, &built);
-    assert_eq!(
-        managed_roots(&store),
-        2,
-        "provider and application have separate roots"
-    );
-    let provider_root = independent_provider_root(&store, &built);
-    let first = invocation(true, &["--version"]);
-    assert!(
-        first.status.success(),
-        "{}",
-        String::from_utf8_lossy(&first.stderr)
-    );
-    assert!(String::from_utf8_lossy(&first.stdout).contains("GNU Hello"));
-    let cached = invocation(true, &["--greeting", "Olá"]);
-    assert!(
-        cached.status.success(),
-        "{}",
-        String::from_utf8_lossy(&cached.stderr)
-    );
-    assert_eq!(String::from_utf8(cached.stdout).unwrap().trim(), "Olá");
-    assert_eq!(managed_roots(&store), 2, "run must reuse the build action");
-    let reused = invoke_build();
-    assert!(
-        reused.status.success(),
-        "{}",
-        String::from_utf8_lossy(&reused.stderr)
-    );
-    assert!(String::from_utf8_lossy(&reused.stdout).contains("reused hello"));
-    let batch = Command::new(env!("CARGO_BIN_EXE_srx"))
-        .args(["build", "-A", "-j", "2", "-f"])
-        .arg(&main)
-        .arg("--config")
-        .arg(&config)
-        .arg("--store")
-        .arg(&store)
-        .arg("-o")
-        .output()
-        .unwrap();
-    assert!(
-        batch.status.success(),
-        "{}",
-        String::from_utf8_lossy(&batch.stderr)
-    );
-    assert_eq!(
-        managed_roots(&store),
-        3,
-        "batch build also includes the retained bootstrap compatibility export"
-    );
-    assert_offline_after_provider_gc(&store, &provider_root, || {
-        invocation(true, &["--greeting", "Olá"])
-    });
-    corrupt_provider_view(&store);
-    let corrupt = invocation(true, &["--version"]);
-    assert!(!corrupt.status.success());
-    assert!(
-        corrupt.stdout.is_empty(),
-        "tampered provider must not launch"
-    );
-}
-
-fn independent_provider_root(store: &Path, built: &str) -> RootName {
-    let application_root = built
-        .lines()
-        .find_map(|line| line.strip_prefix("root "))
-        .unwrap();
-    let provider_root = fs::read_dir(store.join("roots/retained"))
-        .unwrap()
-        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
-        .find(|name| name.starts_with("build_") && name != application_root)
-        .unwrap();
-    RootName::new(provider_root).unwrap()
-}
-
-fn assert_offline_after_provider_gc(
-    store: &Path,
-    provider_root: &RootName,
-    invoke: impl FnOnce() -> Output,
-) {
-    let report = Store::open(store)
-        .unwrap()
-        .maintenance()
-        .unwrap()
-        .garbage_collect(&syrox_engine::GcRequest {
-            collect: true,
-            remove_roots: vec![provider_root.clone()],
-            ..syrox_engine::GcRequest::default()
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with("build_")
         })
-        .unwrap();
-    assert!(report.removed_roots.contains(provider_root));
-    let after_gc = invoke();
-    assert!(
-        after_gc.status.success(),
-        "{}",
-        String::from_utf8_lossy(&after_gc.stderr)
-    );
-    assert_eq!(after_gc.stdout, "Olá\n".as_bytes());
-    assert_eq!(
-        managed_roots(store),
-        2,
-        "run after GC must use the retained closure"
-    );
-}
-
-fn assert_declared_development_action(store: &Path, built: &str) {
-    let action: ContentDigest = built
-        .lines()
-        .find_map(|line| line.strip_prefix("action "))
-        .expect("Hello action")
-        .parse()
-        .unwrap();
-    let retained = Store::open(store).unwrap();
-    let action_bytes = retained
-        .operation()
-        .unwrap()
-        .read_verified(action, 4096)
-        .unwrap()
-        .expect("retained action");
-    let record = std::str::from_utf8(action_bytes.as_bytes()).unwrap();
-    assert!(record.starts_with("syrox-build-action\n"));
-    assert!(
-        record
-            .lines()
-            .any(|line| line.starts_with("build-input dev "))
-    );
+        .count()
 }
 
 #[test]
 #[ignore = "builds a static application on a configured Linux host and runs its retained output rootless"]
 fn host_build_prefix_materializes_and_runs_at_its_action_path() {
-    let project_path = tempfile::tempdir().unwrap();
-    let store_path = tempfile::tempdir().unwrap();
+    let mut project_path = tempfile::tempdir().unwrap();
+    let mut store_path = tempfile::tempdir().unwrap();
+    if std::env::var_os("SYROX_MANAGED_WORKER").is_some() {
+        project_path.disable_cleanup(true);
+        store_path.disable_cleanup(true);
+        eprintln!(
+            "CLI gate project: {}; store: {}",
+            project_path.path().display(),
+            store_path.path().display()
+        );
+    }
     let store = Store::open(store_path.path()).unwrap();
     let configure = br#"set -eu
 cat > hello.c <<'END'
@@ -700,14 +488,18 @@ END
     project(project_path.path(), &store, configure, 60);
     let main = project_path.path().join("main.srx");
     let source = fs::read_to_string(&main).unwrap().replace(
-        "default_build: std::DefaultBuild",
-        "application: std::Application = std::Application { package = \"fixture\"; loader = []; libraries = []; }; default_application: std::DefaultApplication = std::DefaultApplication { package = \"fixture\"; }; default_build: std::DefaultBuild",
+        "commands = [];",
+        r#"commands = [std::Command { name = "main"; output = "out"; path = "usr/bin/hello"; }];"#,
     );
     fs::write(&main, source).unwrap();
     assert!(
-        run(&["project", "lock", project_path.path().to_str().unwrap()])
-            .status
-            .success()
+        run(&[
+            "project",
+            "lock",
+            project_path.path().to_str().unwrap()
+        ])
+        .status
+        .success()
     );
     let output = build(project_path.path(), store_path.path());
     assert!(
@@ -727,7 +519,14 @@ END
     let closure = verify_runtime(
         &store,
         &RuntimeRequest {
-            application: RuntimeOutput { root, receipt },
+            application: RuntimeFile {
+                output: RuntimeOutput {
+                    root,
+                    receipt,
+                    output: "out".into(),
+                },
+                path: "usr/bin/hello".into(),
+            },
             loader: None,
             libraries: vec![],
         },
@@ -741,10 +540,17 @@ END
     assert_eq!(status.code(), Some(37));
     let public = run(&[
         "run",
+        ".#package",
+        "--command",
+        "main",
         "-f",
         main.to_str().unwrap(),
         "--config",
-        project_path.path().join("config.toml").to_str().unwrap(),
+        project_path
+            .path()
+            .join("config.toml")
+            .to_str()
+            .unwrap(),
         "--store",
         store_path.path().to_str().unwrap(),
         "-o",
@@ -765,6 +571,9 @@ fn assert_runtime_signals(main: &Path, project: &Path, store: &Path) {
         let mut child = Command::new(env!("CARGO_BIN_EXE_srx"))
             .args([
                 "run",
+                ".#package",
+                "--command",
+                "main",
                 "-f",
                 main.to_str().unwrap(),
                 "--config",
@@ -790,7 +599,10 @@ fn assert_runtime_signals(main: &Path, project: &Path, store: &Path) {
         assert!(ready.exists(), "runtime did not start");
         assert!(
             Command::new("/usr/bin/kill")
-                .args([format!("-{signal}"), child.id().to_string()])
+                .args([
+                    format!("-{signal}"),
+                    child.id().to_string()
+                ])
                 .status()
                 .unwrap()
                 .success()
@@ -812,10 +624,8 @@ fn host_build_publishes_only_after_success_and_rejects_timeout_and_symlink_outpu
 test ! -e /home
 test ! -e /run/user
 if touch /usr/syrox-should-be-denied 2>/dev/null; then exit 71; fi
-python3 -c 'import socket
-try: socket.socket()
-except PermissionError: pass
-else: raise SystemExit(72)'
+/usr/bin/gcc -std=c11 -O2 -Wall -Wextra -Werror probe.c -o probe
+./probe network
 cat > Makefile <<'END'
 all:
 	/usr/bin/true
@@ -825,7 +635,8 @@ install:
 	chmod 755 $(DESTDIR)$(SYROX_OUTPUT_PREFIX)/bin/hello
 END
 ";
-    project(project_path.path(), &store, script, 30);
+    let script = build_probe_script(script);
+    project(project_path.path(), &store, &script, 30);
     let output = build(project_path.path(), store_path.path());
     assert!(
         output.status.success(),
@@ -852,7 +663,13 @@ END
         .find_map(|line| line.strip_prefix("root "))
         .unwrap();
     assert!(root.starts_with("build_"));
-    assert!(store_path.path().join("roots/retained").join(root).exists());
+    assert!(
+        store_path
+            .path()
+            .join("roots/retained")
+            .join(root)
+            .exists()
+    );
     let retained = fs::read_dir(store_path.path().join("roots/retained"))
         .unwrap()
         .count();
@@ -861,7 +678,12 @@ END
 
     // A lingering descendant must be terminated by the enclosing cgroup. No
     // root is created even though the initial script can spawn successfully.
-    project(project_path.path(), &store, b"sleep 30 &\nwait\n", 1);
+    project(
+        project_path.path(),
+        &store,
+        b"sleep 30 &\nwait\n",
+        1,
+    );
     let timeout = build(project_path.path(), store_path.path());
     assert!(!timeout.status.success());
     assert!(
@@ -894,7 +716,12 @@ END
         retained
     );
 
-    assert_outside_output_rejected(project_path.path(), store_path.path(), &store, retained);
+    assert_outside_output_rejected(
+        project_path.path(),
+        store_path.path(),
+        &store,
+        retained,
+    );
 }
 
 fn assert_outside_output_rejected(
@@ -932,7 +759,7 @@ fn assert_reuse_and_reindex(project: &Path, store: &Path, stdout: &str) {
     let reused = Command::new(env!("CARGO_BIN_EXE_srx"))
         .args([
             "build",
-            project.to_str().unwrap(),
+            &format!("{}#package", project.display()),
             "--config",
             project.join("config.toml").to_str().unwrap(),
             "--store",
@@ -971,10 +798,19 @@ fn assert_reuse_and_reindex(project: &Path, store: &Path, stdout: &str) {
         String::from_utf8_lossy(&selected.stderr)
     );
     assert!(String::from_utf8_lossy(&selected.stdout).starts_with("reused fixture\n"));
-    for prefix in ["action ", "artifact ", "receipt ", "root "] {
+    for prefix in [
+        "action ",
+        "artifact ",
+        "receipt ",
+        "root ",
+    ] {
         assert_eq!(
-            stdout.lines().find(|line| line.starts_with(prefix)),
-            reused.lines().find(|line| line.starts_with(prefix))
+            stdout
+                .lines()
+                .find(|line| line.starts_with(prefix)),
+            reused
+                .lines()
+                .find(|line| line.starts_with(prefix))
         );
     }
     assert_eq!(
@@ -1015,13 +851,18 @@ fn malformed_build_request_cannot_launch_or_publish() {
     );
     fs::write(&main, text).unwrap();
     assert!(
-        run(&["project", "lock", path.path().to_str().unwrap()])
-            .status
-            .success()
+        run(&[
+            "project",
+            "lock",
+            path.path().to_str().unwrap()
+        ])
+        .status
+        .success()
     );
     let invalid = build(path.path(), store_path.path());
     assert!(!invalid.status.success());
-    assert!(String::from_utf8_lossy(&invalid.stderr).contains("invalid build request"));
+    let error = String::from_utf8_lossy(&invalid.stderr);
+    assert!(error.contains("invalid build request"), "{error}");
     assert_eq!(
         fs::read_dir(store_path.path().join("roots/retained"))
             .unwrap()
@@ -1036,14 +877,7 @@ fn host_collection_waits_for_double_fork_and_rejects_late_failure_or_unsafe_outp
     let project_path = tempfile::tempdir().unwrap();
     let store_path = tempfile::tempdir().unwrap();
     let store = Store::open(store_path.path()).unwrap();
-    let configure = r"cat > late.py <<'PY'
-import os, time
-if os.fork(): os._exit(0)
-os.setsid()
-if os.fork(): os._exit(0)
-time.sleep(0.3)
-with open('/out' + os.environ['SYROX_OUTPUT_PREFIX'] + '/bin/hello', 'w') as output: output.write('stable after orphan')
-PY
+    let configure = r"/usr/bin/gcc -std=c11 -O2 -Wall -Wextra -Werror probe.c -o probe
 cat > Makefile <<'END'
 all:
 	true
@@ -1051,10 +885,16 @@ install:
 	mkdir -p $(DESTDIR)$(SYROX_OUTPUT_PREFIX)/bin
 	printf 'unstable before orphan' > $(DESTDIR)$(SYROX_OUTPUT_PREFIX)/bin/hello
 	chmod 755 $(DESTDIR)$(SYROX_OUTPUT_PREFIX)/bin/hello
-	python3 late.py
+	./probe stable
 END
 ";
-    project(project_path.path(), &store, configure.as_bytes(), 30);
+    let configure = String::from_utf8(build_probe_script(configure.as_bytes())).unwrap();
+    project(
+        project_path.path(),
+        &store,
+        configure.as_bytes(),
+        30,
+    );
     let result = build(project_path.path(), store_path.path());
     assert!(
         result.status.success(),
@@ -1090,15 +930,12 @@ END
         .unwrap()
         .count();
     for (replacement, diagnostic) in [
-        ("os._exit(42)", "background build descendant"),
-        (
-            "path = '/out' + os.environ['SYROX_OUTPUT_PREFIX'] + '/bin/hello'; os.unlink(path); os.symlink('/etc/passwd', path)",
-            "build output",
-        ),
+        ("failure", "background build descendant"),
+        ("symlink", "build output"),
     ] {
         let script = configure.replace(
-            "with open('/out' + os.environ['SYROX_OUTPUT_PREFIX'] + '/bin/hello', 'w') as output: output.write('stable after orphan')",
-            replacement,
+            "./probe stable",
+            &format!("./probe {replacement}"),
         );
         project(project_path.path(), &store, script.as_bytes(), 30);
         let result = build(project_path.path(), store_path.path());
@@ -1115,7 +952,10 @@ END
             roots
         );
     }
-    project(project_path.path(), &store, b"python3 -c 'import sys; sys.stderr.write(\"x\" * 1048576); sys.stderr.write(\"FINAL_FAILURE_MARKER\\n\"); sys.exit(19)'\n", 30);
+    let failure = build_probe_script(
+        b"/usr/bin/gcc -std=c11 -O2 -Wall -Wextra -Werror probe.c -o probe\n./probe log\n",
+    );
+    project(project_path.path(), &store, &failure, 30);
     let failed = build(project_path.path(), store_path.path());
     assert!(!failed.status.success());
     let diagnostic = String::from_utf8_lossy(&failed.stderr);
@@ -1145,7 +985,7 @@ impl RunningBuild {
     fn start(project: &Path, store: &Path) -> Self {
         let child = Command::new(env!("CARGO_BIN_EXE_srx"))
             .arg("build")
-            .arg(project)
+            .arg(format!("{}#package", project.display()))
             .arg("--config")
             .arg(project.join("config.toml"))
             .arg("--store")
@@ -1187,7 +1027,12 @@ impl RunningBuild {
                 });
             }
             if let Some(unit) = &self.unit {
-                let result = systemctl(&["show", unit, "--property=ControlGroup", "--value"]);
+                let result = systemctl(&[
+                    "show",
+                    unit,
+                    "--property=ControlGroup",
+                    "--value",
+                ]);
                 let group = String::from_utf8_lossy(&result.stdout);
                 let group = group.trim();
                 if result.status.success() && group.starts_with('/') && !group.contains("..") {
@@ -1204,8 +1049,20 @@ impl RunningBuild {
                     }
                 }
             }
-            if self.child.as_mut().unwrap().try_wait().unwrap().is_some() {
-                let output = self.child.take().unwrap().wait_with_output().unwrap();
+            if self
+                .child
+                .as_mut()
+                .unwrap()
+                .try_wait()
+                .unwrap()
+                .is_some()
+            {
+                let output = self
+                    .child
+                    .take()
+                    .unwrap()
+                    .wait_with_output()
+                    .unwrap();
                 panic!(
                     "build ended before payload readiness: {}",
                     String::from_utf8_lossy(&output.stderr)
@@ -1220,7 +1077,11 @@ impl RunningBuild {
         let child = self.child.as_mut().unwrap();
         assert!(
             Command::new("/usr/bin/kill")
-                .args(["--signal", signal, &child.id().to_string()])
+                .args([
+                    "--signal",
+                    signal,
+                    &child.id().to_string()
+                ])
                 .status()
                 .unwrap()
                 .success()
@@ -1233,7 +1094,11 @@ impl RunningBuild {
             );
             std::thread::sleep(Duration::from_millis(25));
         }
-        self.child.take().unwrap().wait_with_output().unwrap()
+        self.child
+            .take()
+            .unwrap()
+            .wait_with_output()
+            .unwrap()
     }
 
     fn wait_for_interest(&mut self, operation: &Path) {
@@ -1257,8 +1122,20 @@ impl RunningBuild {
             }) {
                 return;
             }
-            if self.child.as_mut().unwrap().try_wait().unwrap().is_some() {
-                let output = self.child.take().unwrap().wait_with_output().unwrap();
+            if self
+                .child
+                .as_mut()
+                .unwrap()
+                .try_wait()
+                .unwrap()
+                .is_some()
+            {
+                let output = self
+                    .child
+                    .take()
+                    .unwrap()
+                    .wait_with_output()
+                    .unwrap();
                 panic!(
                     "consumer ended before joining: {} {}",
                     String::from_utf8_lossy(&output.stdout),
@@ -1275,11 +1152,25 @@ impl RunningBuild {
 
     fn finish(&mut self) -> Output {
         let deadline = Instant::now() + Duration::from_secs(60);
-        while self.child.as_mut().unwrap().try_wait().unwrap().is_none() {
-            assert!(Instant::now() < deadline, "test build did not finish");
+        while self
+            .child
+            .as_mut()
+            .unwrap()
+            .try_wait()
+            .unwrap()
+            .is_none()
+        {
+            assert!(
+                Instant::now() < deadline,
+                "test build did not finish"
+            );
             std::thread::sleep(Duration::from_millis(25));
         }
-        self.child.take().unwrap().wait_with_output().unwrap()
+        self.child
+            .take()
+            .unwrap()
+            .wait_with_output()
+            .unwrap()
     }
 }
 
@@ -1330,13 +1221,13 @@ END
             "{}",
             String::from_utf8_lossy(&success.stderr)
         );
-        assert!(String::from_utf8_lossy(&success.stdout).starts_with(
-            if cancel_coordinator_consumer {
+        assert!(
+            String::from_utf8_lossy(&success.stdout).starts_with(if cancel_coordinator_consumer {
                 "shared fixture\n"
             } else {
                 "built fixture\n"
-            }
-        ));
+            })
+        );
         assert_eq!(
             fs::read_dir(store_path.path().join(".syrox-store/builds"))
                 .unwrap()
@@ -1392,7 +1283,12 @@ impl Drop for RunningBuild {
 
 fn systemctl(arguments: &[&str]) -> Output {
     Command::new("/usr/bin/timeout")
-        .args(["--kill-after=1", "5", "/usr/bin/systemctl", "--user"])
+        .args([
+            "--kill-after=1",
+            "5",
+            "/usr/bin/systemctl",
+            "--user",
+        ])
         .args(arguments)
         .output()
         .unwrap()
@@ -1421,12 +1317,20 @@ fn host_cancellation_cleans_up_and_coordinator_death_cannot_publish() {
     let project_path = tempfile::tempdir().unwrap();
     let store_path = tempfile::tempdir().unwrap();
     let store = Store::open(store_path.path()).unwrap();
-    for (signal, expected) in [("INT", Some(130)), ("TERM", Some(143)), ("KILL", None)] {
+    for (signal, expected) in [
+        ("INT", Some(130)),
+        ("TERM", Some(143)),
+        ("KILL", None),
+    ] {
         project(
             project_path.path(),
             &store,
             b"sleep 30 &\nwait\n",
-            if signal == "KILL" { 5 } else { 30 },
+            if signal == "KILL" {
+                5
+            } else {
+                30
+            },
         );
         let mut operation = RunningBuild::start(project_path.path(), store_path.path());
         let group = operation.wait_for_payload();
@@ -1502,7 +1406,12 @@ fn host_orphan_recovery_retains_on_manager_loss_then_stops_and_revokes_launch() 
     let project_path = tempfile::tempdir().unwrap();
     let store_path = tempfile::tempdir().unwrap();
     let store = Store::open(store_path.path()).unwrap();
-    project(project_path.path(), &store, b"sleep 30 &\nwait\n", 30);
+    project(
+        project_path.path(),
+        &store,
+        b"sleep 30 &\nwait\n",
+        30,
+    );
     let mut operation = RunningBuild::start(project_path.path(), store_path.path());
     let group = operation.wait_for_payload();
     let journal = operation.operation.clone().unwrap();
@@ -1539,7 +1448,11 @@ fn host_orphan_recovery_retains_on_manager_loss_then_stops_and_revokes_launch() 
     wait_for_empty_cgroup(&group);
     assert!(!journal.exists());
     let delayed = Command::new(env!("CARGO_BIN_EXE_syrox-worker"))
-        .args(["__build-gate", journal.to_str().unwrap(), "fixture"])
+        .args([
+            "__build-gate",
+            journal.to_str().unwrap(),
+            "fixture",
+        ])
         .output()
         .unwrap();
     assert!(!delayed.status.success());
@@ -1550,4 +1463,126 @@ fn host_orphan_recovery_retains_on_manager_loss_then_stops_and_revokes_launch() 
         0
     );
     operation.unit = None;
+}
+
+#[test]
+fn managed_profile_never_falls_back_to_host_or_initializes_a_store() {
+    let temporary = tempfile::tempdir().unwrap();
+    let project = temporary.path();
+    let source = b"managed source";
+    fs::write(project.join("source"), source).unwrap();
+    fs::write(project.join("main.srx"), format!(r#"
+        fn recipe() -> std::Recipe {{ std::Recipe {{
+            package = std::Package {{ id = "managed"; dependencies = []; }};
+            acquisition = std::Option::Some(std::Acquisition {{ sources = [std::source_request("project:source", "{}", 1024)]; }});
+            build = std::Option::Some(std::Build {{
+                profile = std::BuildProfile::Managed;
+                source_directory = "managed"; timeout_seconds = 30; source_format = std::BuildSourceFormat::Raw;
+                steps = [std::BuildStep::Write(std::BuildFile {{ path = std::BuildPath::Output("out", "data"); text = std::build_text("data"); }})];
+            }});
+        }} }}
+        mod factories::selected {{ pub fn recipe() -> std::Recipe {{ project::recipe() }} }}
+        pub publish(factories, recipe): std::Recipe;
+    "#, ContentDigest::sha256(source))).unwrap();
+    let locked = run(&[
+        "project",
+        "lock",
+        project.to_str().unwrap(),
+    ]);
+    assert!(
+        locked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&locked.stderr)
+    );
+    fs::remove_file(project.join("source")).unwrap();
+    let store = project.join("uncreated-store");
+    // A Managed request must reach its explicit configuration even when the
+    // optional HostBootstrap worker is absent beside this CLI installation.
+    let binary = Path::new(env!("CARGO_BIN_EXE_srx"));
+    let installation = tempfile::tempdir_in(binary.parent().unwrap()).unwrap();
+    let isolated_cli = installation.path().join("srx");
+    fs::hard_link(binary, &isolated_cli).unwrap();
+    assert!(!installation.path().join("syrox-worker").exists());
+    for configuration in ["", "[build]\nhost-toolchain = '/usr'\n"] {
+        fs::write(project.join("config.toml"), configuration).unwrap();
+        let result = Command::new(&isolated_cli)
+            .arg("build")
+            .arg(format!("{}#selected", project.display()))
+            .arg("--config")
+            .arg(project.join("config.toml"))
+            .arg("--store")
+            .arg(&store)
+            .arg("--offline")
+            .output()
+            .unwrap();
+        assert_eq!(result.status.code(), Some(1));
+        let error = String::from_utf8_lossy(&result.stderr);
+        assert!(
+            error.contains("managed build is not configured"),
+            "{error}"
+        );
+        assert!(!store.exists());
+    }
+}
+
+#[test]
+fn managed_worker_dispatch_rejects_unprepared_entries_without_output_or_files() {
+    let scratch = tempfile::tempdir().unwrap();
+    let pin = ContentDigest::sha256(b"unprepared action").to_string();
+    let endpoint = scratch.path().join("coordinator.sock");
+    let operation = scratch
+        .path()
+        .join("op-11111111111111111111111111111111");
+    let invalid = [
+        vec!["__managed-build".to_owned()],
+        vec![
+            "__managed-build".into(),
+            "relative-operation".into(),
+            pin.clone(),
+            "11111111111111111111111111111111".into(),
+            endpoint.to_str().unwrap().into(),
+        ],
+        vec![
+            "__managed-build".into(),
+            operation.to_str().unwrap().into(),
+            pin.clone(),
+            "invalid-nonce".into(),
+            endpoint.to_str().unwrap().into(),
+        ],
+        vec![
+            "__managed-build".into(),
+            operation.to_str().unwrap().into(),
+            pin.clone(),
+            "11111111111111111111111111111111".into(),
+            endpoint.to_str().unwrap().into(),
+            "extra".into(),
+        ],
+        vec![
+            "__build-managed-worker".into(),
+            "../source".into(),
+            pin.clone(),
+        ],
+        vec![
+            "__build-managed-worker".into(),
+            "source-1".into(),
+            pin,
+        ],
+    ];
+    for args in invalid {
+        let result = Command::new(env!("CARGO_BIN_EXE_syrox-worker"))
+            .args(&args)
+            .env_clear()
+            .current_dir(scratch.path())
+            .output()
+            .unwrap();
+        assert!(
+            !result.status.success(),
+            "unprepared entry succeeded: {args:?}"
+        );
+        assert!(
+            result.stdout.is_empty(),
+            "unprepared entry emitted artifact bytes"
+        );
+        assert_eq!(fs::read_dir(scratch.path()).unwrap().count(), 0);
+    }
 }

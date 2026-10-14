@@ -7,9 +7,11 @@ use std::{
 
 use super::SemanticAnalysis;
 use crate::{
-    AnalysisCancellation, AnalysisCancelled, CanonicalItemIdentity, CheckPolicy, ItemKind,
-    NamespaceDependency, NamespaceOutcome, OutputKind, OwnerReferenceTarget, OwnerResolution,
-    ResolutionOwnerKey, ResolutionOwnerPart, ResolvedItemKind, Span,
+    analysis::AnalysisCancellation, analysis::AnalysisCancelled, checker::CanonicalItemIdentity,
+    checker::CheckPolicy, resolver::NamespaceDependency, resolver::NamespaceOutcome,
+    resolver::OwnerReferenceTarget, resolver::OwnerResolution, resolver::ResolutionOwnerKey,
+    resolver::ResolutionOwnerPart, resolver::ResolvedItemKind, source::Span, syntax::ItemKind,
+    syntax::OutputKind,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -80,7 +82,10 @@ impl Budget {
         true
     }
     fn identity(&mut self, id: &CanonicalItemIdentity) -> bool {
-        self.reserve(1 + id.path().len(), id.path().iter().map(String::len).sum())
+        self.reserve(
+            1 + id.path().len(),
+            id.path().iter().map(String::len).sum(),
+        )
     }
 }
 
@@ -183,7 +188,10 @@ impl SemanticAnalysis {
         let index = self.build_interfaces(Limits::default(), cancel)?;
         cancel.check()?;
         let _ = self.interfaces.set(index);
-        Ok(self.interfaces.get().expect("interface index initialized"))
+        Ok(self
+            .interfaces
+            .get()
+            .expect("interface index initialized"))
     }
 
     fn build_interfaces(
@@ -246,9 +254,11 @@ impl SemanticAnalysis {
                         pending.extend(&module.items);
                         continue;
                     }
-                    ItemKind::Function(function) => {
-                        (function.name.span, function.body.span.start(), Vec::new())
-                    }
+                    ItemKind::Function(function) => (
+                        function.name.span,
+                        function.body.span.start(),
+                        Vec::new(),
+                    ),
                     ItemKind::Struct(structure) => {
                         let mut defaults = Vec::new();
                         for field in &structure.fields {
@@ -275,12 +285,20 @@ impl SemanticAnalysis {
                             if !budget.reserve(1, 0) {
                                 return Ok(Vec::new());
                             }
-                            if let OutputKind::Value { value, .. } = &output.kind
+                            if let OutputKind::Value {
+                                value,
+                                ..
+                            } = &output.kind
                                 && let Some(resolved) = locations.get(&output.span)
                             {
                                 if !budget.reserve(
                                     1 + resolved.path().segments().len(),
-                                    resolved.path().segments().iter().map(String::len).sum(),
+                                    resolved
+                                        .path()
+                                        .segments()
+                                        .iter()
+                                        .map(String::len)
+                                        .sum(),
                                 ) {
                                     return Ok(Vec::new());
                                 }
@@ -304,7 +322,12 @@ impl SemanticAnalysis {
                 if let Some(resolved) = locations.get(&name) {
                     if !budget.reserve(
                         1 + resolved.path().segments().len(),
-                        resolved.path().segments().iter().map(String::len).sum(),
+                        resolved
+                            .path()
+                            .segments()
+                            .iter()
+                            .map(String::len)
+                            .sum(),
                     ) {
                         return Ok(Vec::new());
                     }
@@ -358,7 +381,13 @@ impl SemanticAnalysis {
             dependencies: BTreeSet::new(),
             namespace_dependencies: Vec::new(),
         };
-        if !extend_interface(&mut interface, &owner, Some(header.end), budget, cancel)? {
+        if !extend_interface(
+            &mut interface,
+            &owner,
+            Some(header.end),
+            budget,
+            cancel,
+        )? {
             return Ok(None);
         }
         for field in &descriptor.defaults {
@@ -387,7 +416,13 @@ fn extend_interface(
     budget: &mut Budget,
     cancel: &AnalysisCancellation,
 ) -> Result<bool, AnalysisCancelled> {
-    if !collect_targets(owner, end, &mut interface.dependencies, budget, cancel)? {
+    if !collect_targets(
+        owner,
+        end,
+        &mut interface.dependencies,
+        budget,
+        cancel,
+    )? {
         return Ok(false);
     }
     for observation in owner
@@ -399,7 +434,9 @@ fn extend_interface(
         let (units, bytes) = observation_cost(observation);
         let part_bytes = match &owner.key.part {
             ResolutionOwnerPart::Declaration => 0,
-            ResolutionOwnerPart::FieldDefault(name) => name.len(),
+            ResolutionOwnerPart::FieldDefault(name) | ResolutionOwnerPart::Publication(name) => {
+                name.len()
+            }
         };
         if !budget.reserve(units, bytes.saturating_add(part_bytes)) {
             return Ok(false);
@@ -423,9 +460,19 @@ fn collect_targets(
 ) -> Result<bool, AnalysisCancelled> {
     let mut insert = |target: &OwnerReferenceTarget| {
         let (domain, path) = match target {
-            OwnerReferenceTarget::Item { domain, path }
-            | OwnerReferenceTarget::EnumVariant { domain, path, .. } => (*domain, path),
-            OwnerReferenceTarget::Local { owner, .. } => (owner.domain, &owner.path),
+            OwnerReferenceTarget::Item {
+                domain,
+                path,
+            }
+            | OwnerReferenceTarget::EnumVariant {
+                domain,
+                path,
+                ..
+            } => (*domain, path),
+            OwnerReferenceTarget::Local {
+                owner,
+                ..
+            } => (owner.domain, &owner.path),
             _ => return true,
         };
         if !budget.reserve(1 + path.len(), path.iter().map(String::len).sum()) {
@@ -479,23 +526,42 @@ fn collect_targets(
 fn observation_cost(observation: &NamespaceDependency) -> (usize, usize) {
     fn target_cost(target: &OwnerReferenceTarget) -> (usize, usize) {
         let path = match target {
-            OwnerReferenceTarget::Item { path, .. }
-            | OwnerReferenceTarget::Module { path, .. }
-            | OwnerReferenceTarget::EnumVariant { path, .. } => path,
-            OwnerReferenceTarget::Local { owner, .. } => &owner.path,
+            OwnerReferenceTarget::Item {
+                path,
+                ..
+            }
+            | OwnerReferenceTarget::Module {
+                path,
+                ..
+            }
+            | OwnerReferenceTarget::EnumVariant {
+                path,
+                ..
+            } => path,
+            OwnerReferenceTarget::Local {
+                owner,
+                ..
+            } => &owner.path,
             OwnerReferenceTarget::ContextualEnumVariant => return (1, 0),
         };
         (1 + path.len(), path.iter().map(String::len).sum())
     }
     let (mut units, mut bytes) = target_cost(&observation.requester);
     units += 1 + observation.path.len() + observation.diagnostics.len();
-    bytes += observation.path.iter().map(String::len).sum::<usize>()
+    bytes += observation
+        .path
+        .iter()
+        .map(String::len)
+        .sum::<usize>()
         + observation
             .diagnostics
             .iter()
             .map(|diagnostic| diagnostic.message.len())
             .sum::<usize>();
-    if let crate::NamespaceQuery::ModuleExports { export } = &observation.query {
+    if let crate::resolver::NamespaceQuery::ModuleExports {
+        export,
+    } = &observation.query
+    {
         bytes += export.len();
     }
     let mut add = |target: &OwnerReferenceTarget| {
@@ -505,7 +571,10 @@ fn observation_cost(observation: &NamespaceDependency) -> (usize, usize) {
     };
     match &observation.outcome {
         NamespaceOutcome::Target(Some(target)) => add(&target.identity),
-        NamespaceOutcome::Exports { root, entries } => {
+        NamespaceOutcome::Exports {
+            root,
+            entries,
+        } => {
             if let Some(root) = root {
                 add(&root.identity);
             }
@@ -524,4 +593,368 @@ fn observation_cost(observation: &NamespaceDependency) -> (usize, usize) {
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::{analysis::AnalysisHost, source::SourceDomainId, source::SourceSet};
+
+    fn analyze(files: &[(&str, &str)], policy: &CheckPolicy) -> SemanticAnalysis {
+        let mut sources = SourceSet::new();
+        for (path, text) in files {
+            sources.add(*path, *text).unwrap();
+        }
+        AnalysisHost::default()
+            .snapshot()
+            .analyze_project(
+                &sources,
+                &BTreeMap::new(),
+                policy,
+                &AnalysisCancellation::default(),
+            )
+            .unwrap()
+    }
+
+    fn manifest(analysis: &SemanticAnalysis, name: &str) -> OwnerTypeDependencies {
+        analysis
+            .owner_type_dependencies(
+                &ResolutionOwnerKey {
+                    domain: SourceDomainId::project(),
+                    path: vec![name.into()],
+                    part: ResolutionOwnerPart::Declaration,
+                },
+                &AnalysisCancellation::default(),
+            )
+            .unwrap()
+            .unwrap()
+    }
+
+    #[test]
+    fn signatures_change_dependencies_but_other_bodies_and_offsets_do_not() {
+        let text =
+            "value I(int); value S(str); fn target() -> I { I(1) } fn inspect() -> I { target() }";
+        let before = analyze(&[("main.srx", text)], &CheckPolicy::default());
+        assert!(
+            before.diagnostics().is_empty(),
+            "{:?}",
+            before.diagnostics()
+        );
+        let baseline = manifest(&before, "inspect");
+        for changed in [
+            text.replace("I(1)", "I(234)"),
+            format!("// é\nfn earlier() {{}} {text}"),
+        ] {
+            let after = analyze(&[("main.srx", &changed)], &CheckPolicy::default());
+            assert_eq!(baseline, manifest(&after, "inspect"));
+        }
+        let changed = text.replace(
+            "fn target() -> I { I(1) }",
+            "fn target() -> S { S(\"changed\") }",
+        );
+        let after = analyze(&[("main.srx", &changed)], &CheckPolicy::default());
+        assert!(!after.diagnostics().is_empty());
+        assert_ne!(baseline, manifest(&after, "inspect"));
+    }
+
+    #[test]
+    fn transitive_payload_changes_detect_affinity_through_aliases_and_generics() {
+        let text = "value I(int); enum E<T> { Wrap(T) } type Alias = E<I>; struct Box { payload: Alias; } fn inspect(x: Box) { let a = x; let b = x; }";
+        let before = analyze(&[("main.srx", text)], &CheckPolicy::default());
+        assert!(
+            before.diagnostics().is_empty(),
+            "{:?}",
+            before.diagnostics()
+        );
+        let baseline = manifest(&before, "inspect");
+        assert!(
+            baseline
+                .interfaces
+                .keys()
+                .any(|id| id.path() == ["I"])
+        );
+        let changed = text.replace("value I", "resource I");
+        let after = analyze(&[("main.srx", &changed)], &CheckPolicy::default());
+        assert!(
+            after
+                .diagnostics()
+                .iter()
+                .any(|d| d.code == crate::diagnostic::DiagnosticCode::MovedValue)
+        );
+        assert_ne!(baseline, manifest(&after, "inspect"));
+    }
+
+    #[test]
+    fn defaults_are_subowners_and_part_of_the_declared_interface() {
+        let text = "value I(int); fn seed() -> I { I(1) } struct Box { payload: I = seed(); } fn inspect() -> Box { Box {} }";
+        let before = analyze(&[("main.srx", text)], &CheckPolicy::default());
+        assert!(
+            before.diagnostics().is_empty(),
+            "{:?}",
+            before.diagnostics()
+        );
+        let baseline = manifest(&before, "inspect");
+        assert!(
+            baseline
+                .interfaces
+                .keys()
+                .any(|id| id.path() == ["seed"])
+        );
+        let changed = text.replace("= seed()", "= I(2)");
+        assert_ne!(
+            baseline,
+            manifest(
+                &analyze(&[("main.srx", &changed)], &CheckPolicy::default()),
+                "inspect"
+            )
+        );
+        let key = ResolutionOwnerKey {
+            domain: SourceDomainId::project(),
+            path: vec!["Box".into()],
+            part: ResolutionOwnerPart::FieldDefault("payload".into()),
+        };
+        assert!(
+            before
+                .owner_type_dependencies(&key, &AnalysisCancellation::default())
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn output_initializers_are_excluded_and_recursive_interfaces_terminate() {
+        let text = "value I(int); struct Node { next: Node; } fn inspect(x: Node) -> Node { x } outputs { number: I = I(1); }";
+        let before = analyze(&[("main.srx", text)], &CheckPolicy::default());
+        assert_eq!(manifest(&before, "inspect").interfaces.len(), 2);
+        let changed = text.replace("I(1)", "I(987)");
+        assert_eq!(
+            manifest(&before, "number"),
+            manifest(
+                &analyze(&[("main.srx", &changed)], &CheckPolicy::default()),
+                "number"
+            )
+        );
+    }
+
+    #[test]
+    fn policy_rules_participate_even_when_policy_names_are_identical() {
+        let text = "value I(int); fn inspect(x: I) -> I { x }";
+        let first = CheckPolicy::new("same").unwrap();
+        let second = first.clone().with_scope("scope").unwrap();
+        assert_ne!(
+            manifest(&analyze(&[("main.srx", text)], &first), "inspect"),
+            manifest(
+                &analyze(&[("main.srx", text)], &second),
+                "inspect"
+            )
+        );
+    }
+
+    #[test]
+    fn reexports_change_interface_bindings_even_with_identical_spelling() {
+        let text = "mod a { pub value I(int); } mod b { pub value I(int); } mod api { pub use a::I; pub fn target(x: I) -> I { x } } fn inspect() { let f = api::target; }";
+        let before = analyze(&[("main.srx", text)], &CheckPolicy::default());
+        assert!(
+            before.diagnostics().is_empty(),
+            "{:?}",
+            before.diagnostics()
+        );
+        let changed = text.replace("use a::I", "use b::I");
+        let after = analyze(&[("main.srx", &changed)], &CheckPolicy::default());
+        assert!(
+            after.diagnostics().is_empty(),
+            "{:?}",
+            after.diagnostics()
+        );
+        assert_ne!(
+            manifest(&before, "inspect"),
+            manifest(&after, "inspect")
+        );
+    }
+
+    #[test]
+    fn opaque_owner_refinement_and_scope_are_interface_inputs() {
+        let cases = [
+            (
+                "value I(int); mod vault { pub struct Secret { payload: I; } } fn inspect(x: vault::Secret) -> I { x.payload }",
+                "pub struct Secret",
+                "pub opaque struct Secret",
+            ),
+            (
+                "value I(int); struct Agent {} mod vault { pub opaque struct Secret<owner O> { payload: I; } } fn inspect(x: vault::Secret<Agent>) -> I { x.payload }",
+                "<owner O>",
+                "<O>",
+            ),
+            (
+                "value I(int) where 1..3; fn inspect(x: I) -> I { x }",
+                "1..3",
+                "1..4",
+            ),
+            (
+                "resource R(int) in net; fn inspect(x: R) -> R { x }",
+                "in net",
+                "in local",
+            ),
+        ];
+        let policy = CheckPolicy::default()
+            .with_scope("net")
+            .unwrap()
+            .with_scope("local")
+            .unwrap();
+        for (text, old, new) in cases {
+            let before = analyze(&[("main.srx", text)], &policy);
+            assert!(
+                before.diagnostics().is_empty(),
+                "{:?}",
+                before.diagnostics()
+            );
+            let changed = text.replace(old, new);
+            let after = analyze(&[("main.srx", &changed)], &policy);
+            assert_ne!(
+                manifest(&before, "inspect"),
+                manifest(&after, "inspect"),
+                "{old}"
+            );
+            if old.starts_with("pub") || old.starts_with('<') {
+                assert!(!after.diagnostics().is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn policy_erasure_targets_and_discovered_functions_enter_the_closure() {
+        let text = "value I(int); struct Raw<T> { payload: T; } struct Erased { payload: I; } fn inspect() {}";
+        let identity =
+            |name| CanonicalItemIdentity::new(SourceDomainId::project(), [name]).unwrap();
+        let policy = CheckPolicy::default()
+            .with_erasure(identity("Raw"), identity("Erased"))
+            .unwrap();
+        let before = analyze(&[("main.srx", text)], &policy);
+        let changed = text.replace(
+            "struct Erased { payload: I; }",
+            "struct Erased { payload: I; extra: I; }",
+        );
+        assert_ne!(
+            manifest(&before, "inspect"),
+            manifest(
+                &analyze(&[("main.srx", &changed)], &policy),
+                "inspect"
+            )
+        );
+
+        let text = "value I(int); mod recipes { mod a { pub fn recipe() -> I { I(1) } } } fn mapper() {} fn inspect() { module_exports(recipes, recipe, mapper); }";
+        let before = analyze(&[("main.srx", text)], &CheckPolicy::default());
+        let closure = manifest(&before, "inspect");
+        assert!(
+            closure
+                .interfaces
+                .keys()
+                .any(|id| id.path() == ["recipes", "a", "recipe"])
+        );
+        let changed = text.replace("-> I { I(1) }", "{ }");
+        assert_ne!(
+            closure,
+            manifest(
+                &analyze(&[("main.srx", &changed)], &CheckPolicy::default()),
+                "inspect"
+            )
+        );
+    }
+
+    #[test]
+    fn source_reordering_and_same_text_revalidation_preserve_manifests() {
+        let main = "fn inspect(x: model::I) -> model::I { x }";
+        let model = "mod model { pub value I(int); }";
+        let before = analyze(
+            &[("main.srx", main), ("model.srx", model)],
+            &CheckPolicy::default(),
+        );
+        let after = analyze(
+            &[("model.srx", model), ("main.srx", main)],
+            &CheckPolicy::default(),
+        );
+        assert_eq!(
+            manifest(&before, "inspect"),
+            manifest(&after, "inspect")
+        );
+        assert!(before.diagnostics().is_empty() && after.diagnostics().is_empty());
+        assert!(
+            manifest(&before, "inspect")
+                .interfaces
+                .keys()
+                .any(|id| id.path() == ["model", "I"])
+        );
+        let cancel = AnalysisCancellation::default();
+        let revalidated = AnalysisHost::default()
+            .snapshot()
+            .revalidate_project_analysis(&before, &cancel)
+            .unwrap()
+            .unwrap();
+        assert!(Arc::ptr_eq(
+            &before.interfaces,
+            &revalidated.interfaces
+        ));
+        assert!(Arc::ptr_eq(&before.policy, &revalidated.policy));
+        assert_eq!(
+            manifest(&before, "inspect"),
+            manifest(&revalidated, "inspect")
+        );
+    }
+
+    #[test]
+    fn duplicates_limits_and_cancellation_never_publish_partial_manifests() {
+        let analysis = analyze(
+            &[(
+                "main.srx",
+                "value I(int); value I(int); fn inspect(x: I) {}",
+            )],
+            &CheckPolicy::default(),
+        );
+        let key = ResolutionOwnerKey {
+            domain: SourceDomainId::project(),
+            path: vec!["inspect".into()],
+            part: ResolutionOwnerPart::Declaration,
+        };
+        assert!(
+            analysis
+                .owner_type_dependencies(&key, &AnalysisCancellation::default())
+                .unwrap()
+                .is_none()
+        );
+        let analysis = analyze(
+            &[("main.srx", "value I(int); fn inspect(x: I) {}")],
+            &CheckPolicy::default(),
+        );
+        for limits in [
+            Limits {
+                units: 0,
+                bytes: usize::MAX,
+            },
+            Limits {
+                units: usize::MAX,
+                bytes: 0,
+            },
+        ] {
+            let index = analysis
+                .build_interfaces(limits, &AnalysisCancellation::default())
+                .unwrap();
+            assert!(index.truncated && index.entries.is_empty());
+        }
+        let cancelled = AnalysisCancellation::default();
+        cancelled.cancel();
+        assert!(
+            analysis
+                .owner_type_dependencies(&key, &cancelled)
+                .is_err()
+        );
+        assert!(analysis.interfaces.get().is_none());
+        assert!(
+            analysis
+                .owner_type_dependencies(&key, &AnalysisCancellation::default())
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            analysis
+                .owner_type_dependencies(&key, &cancelled)
+                .is_err()
+        );
+    }
+}

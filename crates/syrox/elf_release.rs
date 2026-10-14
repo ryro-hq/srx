@@ -1,4 +1,8 @@
-//! Minimal bounded `ELF64/x86_64` validation for distribution executables.
+//! Checking that a release image is static `ELF64/x86_64`.
+//!
+//! Reading bounds table and segment sizes. An external loader or dynamic dependency
+//! causes the image to be rejected for distribution.
+
 fn number(bytes: &[u8], start: usize, size: usize) -> Option<u64> {
     let slice = bytes.get(start..start.checked_add(size)?)?;
     let mut padded = [0_u8; 8];
@@ -28,10 +32,16 @@ pub(crate) fn static_x86_64(bytes: &[u8]) -> bool {
     }
     let mut load = false;
     for index in 0..count {
-        let Some(offset) = index.checked_mul(stride).and_then(|n| start.checked_add(n)) else {
+        let Some(offset) = index
+            .checked_mul(stride)
+            .and_then(|n| start.checked_add(n))
+        else {
             return false;
         };
-        if bytes.get(offset..offset.saturating_add(56)).is_none() {
+        if bytes
+            .get(offset..offset.saturating_add(56))
+            .is_none()
+        {
             return false;
         }
         match number(bytes, offset, 4) {

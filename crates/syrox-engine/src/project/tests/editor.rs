@@ -1,5 +1,171 @@
 use super::*;
-use syrox_lang::{AnalysisCancellation, DiagnosticCode, Ty};
+use syrox_lang::{analysis::AnalysisCancellation, checker::Ty, diagnostic::DiagnosticCode};
+
+#[test]
+fn publication_invalidation_crosses_factory_signatures_imports_and_reexports() {
+    let workspace = TempProject::new();
+    let config = package_configuration();
+    let factory = r#"pub fn recipe() -> std::Recipe { std::Recipe { package = std::Package { id = "one"; dependencies = []; }; } }"#;
+    workspace.write("catalog/collection/factories/one.srx", factory);
+    workspace.write(
+        "catalog/collection/factories/two.srx",
+        &factory.replace("\"one\"", "\"two\""),
+    );
+    workspace.write(
+        "catalog/collection/item.srx",
+        "pub use factories::one::recipe;",
+    );
+    workspace.write(
+        "catalog/main.srx",
+        r#"inputs { recipes = "modules:collection"; } pub publish(recipes, recipe): std::Recipe;"#,
+    );
+    lock_project_with(&workspace.0.join("catalog"), &config).unwrap();
+    workspace.write(
+        "facade/main.srx",
+        r#"inputs { catalog = "path:../catalog"; } pub use catalog::item;"#,
+    );
+    lock_project_with(&workspace.0.join("facade"), &config).unwrap();
+    let consumer = r#"inputs { facade = "path:../facade"; } outputs { selected: std::Recipe = std::recipe_value(facade::item); }"#;
+    workspace.write("consumer/main.srx", consumer);
+    let mut editor = open_project_analysis_with(&workspace.0.join("consumer"), &config).unwrap();
+    let snapshot = editor.snapshot();
+    let source = |suffix: &str| {
+        *snapshot
+            .source_paths()
+            .iter()
+            .find(|(_, path)| path.ends_with(suffix))
+            .unwrap()
+            .0
+    };
+    let main = source("consumer/main.srx");
+    let one = source("factories/one.srx");
+    let two = source("factories/two.srx");
+    let reexport = source("collection/item.srx");
+    let facade = source("facade/main.srx");
+    let position = u32::try_from(consumer.rfind("item").unwrap()).unwrap();
+    let cancellation = AnalysisCancellation::default();
+    let original = snapshot.analyze(&cancellation).unwrap();
+    assert!(
+        original.diagnostics().is_empty(),
+        "{:?}",
+        original.diagnostics()
+    );
+    assert_eq!(
+        original
+            .definition_at(main, position)
+            .unwrap()
+            .source_id(),
+        one
+    );
+    for (id, text) in [
+        (one, factory.replace("id = \"one\"", "id = 1")),
+        (one, "pub fn recipe() -> std::Package { std::Package { id = \"changed\"; dependencies = []; } }".into()),
+        (reexport, "pub use factories::two::recipe;".into()),
+        (facade, "inputs { catalog = \"path:../catalog\"; } pub use catalog::absent;".into()),
+    ] {
+        editor.set_overlay(id, 1, &text).unwrap();
+        let warm = editor.snapshot().analyze(&cancellation).unwrap();
+        let mut cold_editor = open_project_analysis_with(&workspace.0.join("consumer"), &config).unwrap();
+        cold_editor.set_overlay(id, 1, &text).unwrap();
+        let cold = cold_editor.snapshot().analyze(&cancellation).unwrap();
+        assert_eq!(warm.diagnostics(), cold.diagnostics());
+        assert_eq!(warm.definition_at(main, position), cold.definition_at(main, position));
+        if id == reexport {
+            assert!(warm.diagnostics().is_empty(), "{:?}", warm.diagnostics());
+            assert_eq!(warm.definition_at(main, position).unwrap().source_id(), two);
+        } else { assert!(!warm.diagnostics().is_empty()); }
+        assert!(original.diagnostics().is_empty());
+        assert_eq!(original.definition_at(main, position).unwrap().source_id(), one);
+        editor.close_overlay(id).unwrap();
+    }
+}
+
+#[test]
+fn project_completion_in_imported_modules_keeps_its_owner_after_publication_changes() {
+    let workspace = TempProject::new();
+    let config = package_configuration();
+    for name in ["left", "right"] {
+        workspace.write(
+            &format!("{name}/main.srx"),
+            r#"
+            inputs { recipes = "modules:recipes"; }
+            pub publish(recipes, recipe): std::Recipe;
+        "#,
+        );
+        workspace.write(
+            &format!("{name}/recipes/only_{name}.srx"),
+            &format!(
+                "pub fn recipe() -> std::Recipe {{ std::recipe_value(project::only_{name}) }}"
+            ),
+        );
+        lock_project_with(&workspace.0.join(name), &config).unwrap();
+    }
+    workspace.write(
+        "consumer/main.srx",
+        r#"
+        inputs { left = "path:../left"; right = "path:../right"; }
+        outputs { consumer_only: std::RecipeRef<std::Recipe> = left::only_left; }
+    "#,
+    );
+    let mut editor = open_project_analysis_with(&workspace.0.join("consumer"), &config).unwrap();
+    let snapshot = editor.snapshot();
+    let cancellation = AnalysisCancellation::default();
+    let original = snapshot.analyze(&cancellation).unwrap();
+    assert!(
+        original.diagnostics().is_empty(),
+        "{:?}",
+        original.diagnostics()
+    );
+    for name in ["left", "right"] {
+        let (source, file) = snapshot
+            .sources()
+            .iter()
+            .find(|(_, file)| file.name().ends_with(&format!("only_{name}.srx")))
+            .unwrap();
+        let offset =
+            u32::try_from(file.text().find("project::").unwrap() + "project::".len()).unwrap();
+        let completions = original.complete_path(source, offset, &["project".into()], "");
+        assert!(
+            completions
+                .iter()
+                .any(|(label, _)| label == &format!("only_{name}"))
+        );
+        assert!(
+            !completions
+                .iter()
+                .any(|(label, _)| label == "consumer_only"
+                    || label
+                        == if name == "left" {
+                            "only_right"
+                        } else {
+                            "only_left"
+                        })
+        );
+        editor
+            .set_overlay(
+                source,
+                1,
+                &file
+                    .text()
+                    .replace("pub fn recipe", "pub fn renamed"),
+            )
+            .unwrap();
+        let changed = editor.snapshot().analyze(&cancellation).unwrap();
+        assert!(
+            !changed
+                .complete_path(source, offset, &["project".into()], "")
+                .iter()
+                .any(|(label, _)| label == &format!("only_{name}"))
+        );
+        assert!(
+            original
+                .complete_path(source, offset, &["project".into()], "")
+                .iter()
+                .any(|(label, _)| label == &format!("only_{name}"))
+        );
+        editor.close_overlay(source).unwrap();
+    }
+}
 
 #[test]
 fn standard_library_authoring_loads_all_files_and_maps_physical_definitions() {
@@ -16,8 +182,14 @@ fn standard_library_authoring_loads_all_files_and_maps_physical_definitions() {
         open_standard_library_analysis_with(&workspace.0.join("std"), &config).unwrap();
     let snapshot = editor.snapshot();
     assert_eq!(snapshot.sources().len(), standard.sources().len());
-    assert_eq!(snapshot.source_paths().len(), snapshot.sources().len());
-    assert_eq!(snapshot.lock_status(), ProjectAnalysisLockStatus::Unchecked);
+    assert_eq!(
+        snapshot.source_paths().len(),
+        snapshot.sources().len()
+    );
+    assert_eq!(
+        snapshot.lock_status(),
+        ProjectAnalysisLockStatus::Unchecked
+    );
     let cancel = AnalysisCancellation::default();
     let result = snapshot.analyze(&cancel).unwrap();
     assert!(
@@ -33,12 +205,17 @@ fn standard_library_authoring_loads_all_files_and_maps_physical_definitions() {
     let offset = u32::try_from(main.1.text().find("PackageId").unwrap()).unwrap();
     let definition = result.definition_at(main.0, offset).unwrap();
     assert!(snapshot.source_paths()[&definition.source_id()].ends_with("std/package.srx"));
-    let package = snapshot.sources().get(definition.source_id()).unwrap();
+    let package = snapshot
+        .sources()
+        .get(definition.source_id())
+        .unwrap();
     editor
         .set_overlay(
             definition.source_id(),
             1,
-            &package.text().replace("mod std::pkg", "mod std::other"),
+            &package
+                .text()
+                .replace("mod std::pkg", "mod std::other"),
         )
         .unwrap();
     let changed = editor.snapshot().analyze(&cancel).unwrap();
@@ -49,7 +226,9 @@ fn standard_library_authoring_loads_all_files_and_maps_physical_definitions() {
             .any(|error| error.span.source_id() == main.0)
     );
     assert!(result.diagnostics().is_empty());
-    editor.close_overlay(definition.source_id()).unwrap();
+    editor
+        .close_overlay(definition.source_id())
+        .unwrap();
     assert!(
         editor
             .snapshot()
@@ -119,7 +298,10 @@ fn editor_maps_homonymous_child_modules_to_their_physical_files() {
             &format!("{name}/main.srx"),
             "inputs { lib = \"modules:recipes\"; } pub fn call() { lib::one::run(); }",
         );
-        workspace.write(&format!("{name}/recipes/one.srx"), "pub fn run() {}");
+        workspace.write(
+            &format!("{name}/recipes/one.srx"),
+            "pub fn run() {}",
+        );
         lock_project_with(&workspace.0.join(name), &config).unwrap();
     }
     workspace.write("consumer/main.srx", "inputs { left = \"path:../left\"; right = \"path:../right\"; } fn run() { left::call(); right::call(); }");
@@ -161,7 +343,10 @@ fn editor_uses_loaded_module_and_std_domains_with_incomplete_imported_bodies() {
     lock_project_with(&project.0, &config).unwrap();
     let mut editor = open_project_analysis_with(&project.0, &config).unwrap();
     let before = editor.snapshot();
-    assert_eq!(before.lock_status(), ProjectAnalysisLockStatus::Current);
+    assert_eq!(
+        before.lock_status(),
+        ProjectAnalysisLockStatus::Current
+    );
     let main = before
         .sources()
         .iter()
@@ -187,7 +372,10 @@ fn editor_uses_loaded_module_and_std_domains_with_incomplete_imported_bodies() {
     ));
     let offset = u32::try_from(main_text.find("recipes::one::recipe").unwrap()).unwrap();
     assert_eq!(
-        result.definition_at(main, offset).unwrap().source_id(),
+        result
+            .definition_at(main, offset)
+            .unwrap()
+            .source_id(),
         recipe
     );
     editor
@@ -229,7 +417,10 @@ fn editor_uses_loaded_module_and_std_domains_with_incomplete_imported_bodies() {
 #[test]
 fn root_lock_drift_does_not_prevent_editor_queries_or_make_execution_current() {
     let project = TempProject::new();
-    project.write("main.srx", "value I(int); fn good() -> I { I(1) }");
+    project.write(
+        "main.srx",
+        "value I(int); fn good() -> I { I(1) }",
+    );
     let config = CheckConfiguration::default();
     let editor = open_project_analysis_with(&project.0, &config).unwrap();
     assert_eq!(
@@ -237,7 +428,10 @@ fn root_lock_drift_does_not_prevent_editor_queries_or_make_execution_current() {
         ProjectAnalysisLockStatus::Missing
     );
     lock_project_with(&project.0, &config).unwrap();
-    project.write("main.srx", "value I(int); fn good() -> I { I(2) }");
+    project.write(
+        "main.srx",
+        "value I(int); fn good() -> I { I(2) }",
+    );
     let editor = open_project_analysis_with(&project.0, &config).unwrap();
     assert_eq!(
         editor.snapshot().lock_status(),
@@ -292,7 +486,9 @@ fn input_edits_require_topology_reload_and_cached_queries_honor_cancellation() {
             .parsed(&cancellation)
             .is_ok()
     );
-    editor.set_overlay(id, 2, "inputs { dep = ").unwrap();
+    editor
+        .set_overlay(id, 2, "inputs { dep = ")
+        .unwrap();
     assert!(matches!(
         editor.snapshot().analyze(&cancellation),
         Err(ProjectAnalysisError::TopologyChanged)

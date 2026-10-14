@@ -45,7 +45,10 @@ fn hints_negotiate_resolution_reject_old_revisions_and_hide_invalid_inference() 
         let response = client.request("textDocument/inlayHint", query.clone());
         let hints = response["result"].as_array().unwrap();
         assert_eq!(hints.len(), 2, "{response}");
-        let hint = hints.iter().find(|hint| hint["label"] == ": I").unwrap();
+        let hint = hints
+            .iter()
+            .find(|hint| hint["label"] == ": I")
+            .unwrap();
         assert_eq!(hint.get("tooltip").is_none(), lazy);
         let byte = text.find("valid =").unwrap() + "valid".len();
         let expected = if encoding == "utf-8" {
@@ -90,9 +93,15 @@ fn hints_tokens_navigation_and_function_value_signatures_use_checked_facts() {
     let mut client = Client::new(temp.path(), "utf-16");
     client.open(&document, text);
     let hints = client.request("textDocument/inlayHint",json!({"textDocument":{"uri":document},"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":text.len()}}}));
-    let hints = hints["result"].as_array().expect("inlay hint list");
+    let hints = hints["result"]
+        .as_array()
+        .expect("inlay hint list");
     assert!(hints.iter().any(|hint| hint["label"] == ": I"));
-    assert!(hints.iter().any(|hint| hint["label"] == ": fn(I) -> I"));
+    assert!(
+        hints
+            .iter()
+            .any(|hint| hint["label"] == ": fn(I) -> I")
+    );
     assert!(
         hints
             .iter()
@@ -175,7 +184,10 @@ fn incomplete_bodies_keep_local_hints_and_opaque_fields_are_not_suggested() {
     let document = uri(&path);
     let mut client = Client::new(temp.path(), "utf-16");
     client.open(&document, original);
-    let changed = original.replace("let previous = I(1);", "let previous = I(1); secret.");
+    let changed = original.replace(
+        "let previous = I(1);",
+        "let previous = I(1); secret.",
+    );
     client.notify(
         "textDocument/didChange",
         json!({"textDocument":{"uri":document,"version":2},"contentChanges":[{"text":changed}]}),

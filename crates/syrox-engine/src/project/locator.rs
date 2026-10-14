@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
 
-use syrox_lang::{ItemKind, ParsedSources, StringPart};
+use syrox_lang::{syntax::ItemKind, syntax::ParsedSources, syntax::StringPart};
 
 use super::CheckFailure;
 
@@ -10,6 +10,7 @@ pub(super) struct InputLocator {
     pub(super) relative: PathBuf,
     pub(super) modules: bool,
     pub(super) child: bool,
+    pub(super) github: Option<crate::acquire::github::GithubLocator>,
 }
 
 pub(super) fn root_input_locators(
@@ -38,6 +39,18 @@ pub(super) fn root_input_locators(
                     locator: input.value.source.clone(),
                 }
             })?;
+            if locator.starts_with("github:") {
+                locators.push(InputLocator {
+                    name: input.name.text.clone(),
+                    relative: PathBuf::new(),
+                    modules: false,
+                    child: true,
+                    github: Some(crate::acquire::github::GithubLocator::parse(
+                        &locator,
+                    )?),
+                });
+                continue;
+            }
             let (relative, modules, child) =
                 if let Some(relative) = locator.strip_prefix("path:../") {
                     (relative, false, true)
@@ -70,16 +83,21 @@ pub(super) fn root_input_locators(
                 relative,
                 modules,
                 child,
+                github: None,
             });
         }
     }
     Ok(locators)
 }
 
-fn decode_plain_string(value: &syrox_lang::StringLiteral) -> Option<String> {
+fn decode_plain_string(value: &syrox_lang::syntax::StringLiteral) -> Option<String> {
     let mut decoded = String::new();
     for part in &value.parts {
-        let StringPart::Text { source, .. } = part else {
+        let StringPart::Text {
+            source,
+            ..
+        } = part
+        else {
             return None;
         };
         let mut chars = source.chars();

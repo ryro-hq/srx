@@ -1,112 +1,122 @@
-//! Effect boundaries and validated operations for Syrox.
+//! From a `.srx` project to builds, running programs and installations.
+//!
+//! Start with [`project`] for loading and evaluation, then follow the topic your
+//! change affects. Each operation owns the resources it opens through settlement.
+//!
+//! # From projects to builds
+//!
+//! [`project`] loads sources, checks the lock and prepares a [`project::PreparedPlan`].
+//! [`plan`] describes acquisition, builds and consumers before host effects begin.
+//! [`realize`] resolves a selection and realizes its dependencies using [`acquire`]
+//! and [`build`]. A prepared plan carries input origins so realization uses the
+//! same project preparation.
+//!
+//! # Keeping outputs alive
+//!
+//! [`store`] keeps objects by digest and provides leases for access and retention.
+//! [`result`] groups admitted outputs and their references. [`runtime`] checks the
+//! application, loader and libraries before execution. Its handles keep those
+//! files alive until the processes that can use them have settled.
+//!
+//! # Shell sessions and Os generations
+//!
+//! [`deployment::shell`] owns temporary sessions and their commands, configuration
+//! and secrets. [`deployment::os`] owns persistent generations and records the
+//! effects of applying them. Both use [`execution`] for admission and process
+//! observations, [`systemd`] for manager communication and [`platform`] for Linux
+//! handles. Follow these modules for the contracts behind each handoff.
+//!
+//! # Cancellation and recovery
+//!
+//! [`cancellation`] provides cooperative cancellation; each transport also needs
+//! its own way to bound a blocked read. [Build cancellation] tracks interest in
+//! shared producers, so cancelling one consumer need not cancel another's build.
+//!
+//! Recovery reconciles durable records with observed execution before releasing
+//! resources. Start with the [build journal] for interrupted builds or
+//! [Os recovery] for installations. A missing reply can leave
+//! an effect unresolved; neither cancellation nor reading a journal proves that
+//! execution has ended.
+//!
+//! [Build cancellation]: ../src/syrox_engine/build/cancellation/mod.rs.html
+//! [build journal]: ../src/syrox_engine/build/journal/mod.rs.html
+//! [Os recovery]: ../src/syrox_engine/deployment/os/apply/recovery/mod.rs.html
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-compile_error!("syrox-engine supports Linux; macOS support is planned but not implemented yet");
+#[cfg(not(target_os = "linux"))]
+compile_error!("syrox-engine supports Linux only");
+pub mod acquire;
+pub mod build;
+pub mod bundle;
+pub mod cancellation;
+pub mod config;
+pub mod deployment;
+pub mod execution;
+pub mod plan;
+pub mod platform;
+pub mod project;
+pub mod realize;
+pub mod result;
+pub mod runtime;
+pub mod store;
+pub mod systemd;
+pub mod worker;
 
-#[cfg_attr(
-    not(all(target_os = "linux", target_arch = "x86_64")),
-    allow(dead_code)
-)]
-mod build;
-mod config;
-mod host;
-mod https_source;
-#[cfg(target_os = "linux")]
-#[allow(unsafe_code)]
-mod linux_fd;
-mod local_source;
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-mod lock;
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-mod plan;
-mod project;
-mod realize;
-#[cfg(target_os = "linux")]
-mod runtime;
-#[cfg(target_os = "linux")]
-#[allow(unsafe_code)]
-mod runtime_native;
-#[cfg(target_os = "linux")]
-pub use runtime_native::runtime_helper;
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-mod source_archive;
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-mod store;
+#[cfg(test)]
+pub(crate) fn reexec_test_executable(test: &str, ignored: bool) -> std::path::PathBuf {
+    let executable = std::env::current_exe().unwrap();
+    let expected = format!("{test}: test");
+    let list = |only_ignored: bool| {
+        let mut command = std::process::Command::new(&executable);
+        command.args(["--list", "--exact", test]);
+        if only_ignored {
+            command.arg("--ignored");
+        }
+        let output = command.output().expect("list reexec fixture");
+        assert!(
+            output.status.success(),
+            "cannot list reexec fixture {test}"
+        );
+        String::from_utf8(output.stdout).expect("UTF-8 harness listing")
+    };
+    assert_eq!(
+        list(false)
+            .lines()
+            .filter(|line| *line == expected)
+            .count(),
+        1,
+        "reexec fixture must exist exactly once: {test}"
+    );
+    let is_ignored = list(true).lines().any(|line| line == expected);
+    assert!(
+        !is_ignored || ignored,
+        "reexec fixture is ignored but was not selected: {test}"
+    );
+    executable
+}
 
-pub use build::{
-    BuildCancellation, BuildError, BuildExecution, BuildIndexReport, BuildMode, BuildProtocol,
-    BuildProvider, BuildRecoveryEntry, BuildRecoveryReport, BuildRecoveryState, BuildResult,
-    BuildSpecification, build_autotools, build_autotools_with_cancellation, check_build_host,
-    rebuild_build_index, recover_builds, run_build_gate, run_build_worker,
-};
-#[cfg(target_os = "linux")]
-pub use build::{
-    MaterializationError, MaterializedArtifact, clear_materializations, materialize_artifact,
-    materialize_named_artifact, recover_materializations,
-};
-pub use config::{ConfigurationError, LocalCatalog, UserConfiguration};
-pub use host::{
-    HostCapability, HostCapabilityStatus, HostInspectError, HostInspection, inspect_host_with_probe,
-};
-pub use https_source::{
-    HttpsAcquisition, HttpsError, HttpsSourceRequest, HttpsTransportPolicy,
-    MAX_HTTPS_DEADLINE_SECONDS, MAX_HTTPS_HEADER_BYTES, MAX_HTTPS_REDIRECTS, MAX_HTTPS_URL_BYTES,
-    acquire_https, acquire_https_with_cancellation,
-};
-pub use local_source::{
-    AuthorizedLocalDirectory, LocalAcquisition, LocalSourceError, LocalSourceRequest,
-    MAX_LOCAL_SOURCE_URL_BYTES, acquire_local, acquire_local_with_cancellation,
-};
-pub use lock::{LOCK_FILE_NAME, LockFormatError, LockStatus, MAX_LOCK_BYTES};
-pub use plan::{
-    MAX_PACKAGE_ID_BYTES, MAX_PLAN_DISPLAY_BYTES, MAX_PLAN_PACKAGE_EDGES, MAX_PLAN_PACKAGE_NODES,
-    MAX_PLAN_PACKAGE_WORK, MAX_PLAN_PROJECTION_WORK, MAX_PLAN_RETAINED_BYTES,
-    MAX_PLAN_SOURCE_REQUESTS, Plan, PlanAcquisition, PlanApplication, PlanBuild, PlanClaim,
-    PlanError, PlanPackage, PlanPackageId, PlanRoot, PlanSourceRequest, PlanStandardLibrary,
-    PlanType, PlanValue,
-};
-pub use project::{
-    AuthenticatedStandardLibrary, AuthenticatedStandardSource, CheckConfiguration, CheckFailure,
-    CheckReport, LoadedProject, LoadedProjectInput, LoadedProjectSource, LockCleanupError,
-    LockPublicationError, LockReport, MAX_DIRECTORY_DEPTH, MAX_DIRECTORY_ENTRIES,
-    MAX_PROJECT_BYTES, MAX_PROJECT_WORK, ProjectAnalysis, ProjectAnalysisError,
-    ProjectAnalysisLockStatus, ProjectAnalysisSnapshot, ProjectLimits, ProjectOperationError,
-    StandardLibraryError, ValidatedProject, check_path_with, check_project, check_project_lock,
-    check_project_lock_with, check_project_with, lock_project, lock_project_with, plan_project,
-    plan_project_outputs_with, plan_project_package_with, plan_project_with, validate_project_with,
-};
-#[cfg(target_os = "linux")]
-pub use project::{
-    LockedProject, ProjectEvaluation, open_locked_project_with, open_project_analysis_with,
-    open_standard_library_analysis_with,
-};
-#[cfg(target_os = "linux")]
-pub use realize::{
-    ApplicationError, ResolvedApplication, realize_application, resolve_application,
-};
-pub use realize::{
-    BuildProgress, RealizeError, ResolvedBuild, realize_build_with_cancellation,
-    realize_builds_with_cancellation, resolve_build, resolve_builds, search_build_exports,
-    search_project_build_exports,
-};
-#[cfg(target_os = "linux")]
-pub use runtime::{
-    RuntimeClosure, RuntimeError, RuntimeMount, RuntimeOutput, RuntimeRequest, run_runtime,
-    run_runtime_with_cancellation, verify_runtime, verify_runtime_with_cancellation,
-};
-pub use source_archive::{
-    ArchiveError, ArchiveFormat, ArchiveInventory, ArchiveLimits,
-    DEFAULT_LARGE_ARCHIVE_COMPRESSED_BYTES, DEFAULT_LARGE_ARCHIVE_EXPANDED_BYTES,
-    MAX_ARCHIVE_DEPTH, MAX_ARCHIVE_ENTRIES, MAX_ARCHIVE_EXPANDED_BYTES, MAX_ARCHIVE_FILE_BYTES,
-    MAX_ARCHIVE_PATH_BYTES, MAX_LARGE_ARCHIVE_ENTRIES, MAX_XZ_DECODER_MEMORY_BYTES,
-    inspect_archive, inspect_archive_with_cancellation, inspect_source_archive,
-};
-pub use store::{
-    ContentDigest, DigestParseError, GcCandidate, GcLimits, GcReport, GcRequest, MAX_GC_CANDIDATES,
-    MAX_GC_OBJECT_BYTES, MAX_GC_OBJECTS, MAX_GC_REFERENCES, MAX_GC_ROOT_BYTES, MAX_GC_ROOTS,
-    MAX_GC_WORK, MAX_RECOVERY_CANDIDATES, MAX_RECOVERY_ENTRIES, MAX_RECOVERY_WORK, MAX_ROOT_BYTES,
-    MAX_ROOT_NAME_BYTES, MAX_ROOT_REFERENCES, MAX_STORE_BLOB_BYTES, MaintenanceFailure,
-    MaintenanceFailureOperation, MaintenanceLease, OperationLease, RecoveryLimits, RecoveryReport,
-    RootName, RootNameError, RootPublicationState, Store, StoreCleanupError, StoreError,
-    StoreObject, StoreObjectState, StoreStaging, VerifiedBytes, VerifiedReader,
-};
+#[cfg(test)]
+pub(crate) fn assert_reexec_result(stdout: &[u8], test: &str) {
+    let output = String::from_utf8_lossy(stdout);
+    assert!(
+        output.contains("running 1 test") && output.contains("1 passed; 0 failed"),
+        "reexec must report one executed fixture: {test}\n{output}"
+    );
+}
+
+#[cfg(test)]
+mod reexec_tests {
+    //! Reject stale harness filters before child setup can produce a false pass.
+    #[test]
+    #[should_panic(expected = "reexec fixture must exist exactly once")]
+    fn missing_fixture_is_rejected_before_reexec() {
+        super::reexec_test_executable("missing::stale::fixture", false);
+    }
+    #[test]
+    #[should_panic(expected = "reexec must report one executed fixture")]
+    fn zero_test_success_is_rejected() {
+        super::assert_reexec_result(
+            b"running 0 tests\ntest result: ok. 0 passed; 0 failed",
+            "stale",
+        );
+    }
+}

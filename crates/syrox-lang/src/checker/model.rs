@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 
-use crate::{Diagnostic, ItemId, LocalId, ResolvedProgram, Span};
+use crate::{
+    diagnostic::Diagnostic, resolver::ItemId, resolver::LocalId, resolver::ResolvedProgram,
+    source::Span,
+};
 
 use super::{
     CheckPolicy, Checker, MAX_ALIAS_DEPTH, MAX_CHECK_WORK, MAX_GENERIC_INSTANCES,
@@ -50,6 +53,18 @@ pub enum Ty {
 }
 
 impl Ty {
+    /// Project nominal identity without changing checked arguments or authority.
+    pub(crate) const fn nominal_head(&self) -> Option<ItemId> {
+        match self {
+            Self::Nominal(item) => Some(*item),
+            Self::Specialization {
+                template,
+                ..
+            } => Some(*template),
+            _ => None,
+        }
+    }
+
     pub(super) fn compatible(&self, other: &Self) -> bool {
         self == other || matches!(self, Self::Error) || matches!(other, Self::Error)
     }
@@ -99,9 +114,14 @@ impl Ty {
         match self {
             Self::Error => false,
             Self::List(inner) => inner.is_known(),
-            Self::Specialization { arguments, .. } => arguments.iter().all(Self::is_known),
+            Self::Specialization {
+                arguments,
+                ..
+            } => arguments.iter().all(Self::is_known),
             Self::Function {
-                parameters, result, ..
+                parameters,
+                result,
+                ..
             } => parameters.iter().all(Self::is_known) && result.is_known(),
             _ => true,
         }
@@ -226,6 +246,7 @@ pub struct PolicyMismatch {
 /// Successful checking output. Its constructor is private to this crate.
 #[derive(Clone, Debug)]
 pub struct CheckedProgram {
+    pub(super) published_types: BTreeMap<ItemId, Ty>,
     pub(super) resolved: ResolvedProgram,
     pub(super) policy: CheckPolicy,
     pub(super) policy_identity: String,
@@ -237,6 +258,10 @@ pub struct CheckedProgram {
 }
 
 impl CheckedProgram {
+    pub fn published_type(&self, item: ItemId) -> Option<&Ty> {
+        self.resolved.published_member(item)?;
+        self.published_types.get(&item)
+    }
     pub const fn resolved(&self) -> &ResolvedProgram {
         &self.resolved
     }
@@ -316,7 +341,9 @@ pub fn check_with_limits(
             .enumerate()
             .map(|(index, pattern)| (span_key(pattern.span), index))
             .collect();
+        let published_types = std::mem::take(&mut checker.published_types);
         Ok(CheckedProgram {
+            published_types,
             resolved,
             policy: policy.clone(),
             policy_identity: policy.identity.clone(),

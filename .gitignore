@@ -1,5 +1,10 @@
 /target/
+/.syrox/
 *.swp
 *.tmp
-*.md
-!/README.md
+__pycache__/
+*.py[cod]
+/nvim.log
+
+# Developer-specific Cargo limits do not constrain CI or other checkouts.
+/.cargo/config.toml

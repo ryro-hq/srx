@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{CanonicalItemIdentity, Diagnostic, Span};
+use crate::{checker::CanonicalItemIdentity, diagnostic::Diagnostic, source::Span};
 
 pub const MAX_EVALUATION_STEPS: usize = 5_000_000;
 pub const MAX_EVALUATION_TOTAL_STEPS: usize = 5_000_000;
@@ -86,18 +86,18 @@ pub enum Value {
         index: u32,
     },
     Function {
-        item: crate::ItemId,
+        item: crate::resolver::ItemId,
         ty: Arc<CanonicalType>,
-        substitutions: std::collections::BTreeMap<crate::LocalId, crate::Ty>,
+        substitutions: std::collections::BTreeMap<crate::resolver::LocalId, crate::checker::Ty>,
     },
     Closure {
         ty: Arc<CanonicalType>,
         once: bool,
-        owner: crate::SourceDomainId,
-        body: Arc<crate::Block>,
-        parameters: Vec<crate::LocalId>,
-        captures: Vec<(crate::LocalId, Value)>,
-        substitutions: std::collections::BTreeMap<crate::LocalId, crate::Ty>,
+        owner: crate::source::SourceDomainId,
+        body: Arc<crate::syntax::Block>,
+        parameters: Vec<crate::resolver::LocalId>,
+        captures: Vec<(crate::resolver::LocalId, Value)>,
+        substitutions: std::collections::BTreeMap<crate::resolver::LocalId, crate::checker::Ty>,
     },
     Unit,
     Int(i64),
@@ -114,7 +114,7 @@ pub enum Value {
     Struct {
         ty: Arc<CanonicalType>,
         fields: Vec<(String, Value)>,
-        owner: Option<crate::SourceDomainId>,
+        owner: Option<crate::source::SourceDomainId>,
     },
     Variant {
         ty: Arc<CanonicalType>,
@@ -129,32 +129,76 @@ impl Value {
             Self::Unit => Arc::new(CanonicalType::Unit),
             Self::Int(_) => Arc::new(CanonicalType::Int),
             Self::Str(_) => Arc::new(CanonicalType::Str),
-            Self::Nominal { ty, .. }
-            | Self::Struct { ty, .. }
-            | Self::Variant { ty, .. }
-            | Self::List { ty, .. }
-            | Self::Function { ty, .. }
-            | Self::MemoizedFunction { ty, .. }
-            | Self::VariantConstructor { ty, .. }
-            | Self::Closure { ty, .. } => ty.clone(),
+            Self::Nominal {
+                ty,
+                ..
+            }
+            | Self::Struct {
+                ty,
+                ..
+            }
+            | Self::Variant {
+                ty,
+                ..
+            }
+            | Self::List {
+                ty,
+                ..
+            }
+            | Self::Function {
+                ty,
+                ..
+            }
+            | Self::MemoizedFunction {
+                ty,
+                ..
+            }
+            | Self::VariantConstructor {
+                ty,
+                ..
+            }
+            | Self::Closure {
+                ty,
+                ..
+            } => ty.clone(),
         }
     }
 
     pub(super) fn affine(&self) -> bool {
         match self {
-            Self::Nominal { resource, .. } => *resource,
-            Self::List { items, .. } => items.iter().any(Self::affine),
-            Self::Struct { fields, .. } => fields.iter().any(|(_, value)| value.affine()),
-            Self::Variant { payload, .. } => payload.iter().any(Self::affine),
-            Self::Closure { once, captures, .. } => {
-                *once || captures.iter().any(|(_, value)| value.affine())
-            }
+            Self::Nominal {
+                resource,
+                ..
+            } => *resource,
+            Self::List {
+                items,
+                ..
+            } => items.iter().any(Self::affine),
+            Self::Struct {
+                fields,
+                ..
+            } => fields.iter().any(|(_, value)| value.affine()),
+            Self::Variant {
+                payload,
+                ..
+            } => payload.iter().any(Self::affine),
+            Self::Closure {
+                once,
+                captures,
+                ..
+            } => *once || captures.iter().any(|(_, value)| value.affine()),
             Self::Unit
             | Self::Int(_)
             | Self::Str(_)
-            | Self::VariantConstructor { .. }
-            | Self::Function { .. }
-            | Self::MemoizedFunction { .. } => false,
+            | Self::VariantConstructor {
+                ..
+            }
+            | Self::Function {
+                ..
+            }
+            | Self::MemoizedFunction {
+                ..
+            } => false,
         }
     }
 }
@@ -193,9 +237,18 @@ pub struct RealizedRoot {
     pub(super) outcome: RealizedRootOutcome,
     pub(super) claims: Vec<ResourceClaim>,
     pub(super) selected: bool,
+    pub(super) reference: Option<super::MemoId>,
+    pub(super) aliases: Vec<String>,
 }
 
 impl RealizedRoot {
+    pub fn aliases(&self) -> impl ExactSizeIterator<Item = &str> {
+        self.aliases.iter().map(String::as_str)
+    }
+
+    pub fn selected_reference(&self) -> Option<&super::MemoId> {
+        self.reference.as_ref()
+    }
     pub fn is_selected(&self) -> bool {
         self.selected
     }
@@ -245,7 +298,9 @@ impl RealizedProgram {
     }
 
     pub fn diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
-        self.roots.iter().flat_map(RealizedRoot::diagnostics)
+        self.roots
+            .iter()
+            .flat_map(RealizedRoot::diagnostics)
     }
 
     pub fn is_success(&self) -> bool {

@@ -4,7 +4,10 @@ use super::{
     CanonicalType,
     runtime::{Eval, Evaluator, Halt},
 };
-use crate::{CanonicalItemIdentity, Expression, ItemId, LocalId, Span, Ty};
+use crate::{
+    checker::CanonicalItemIdentity, checker::Ty, resolver::ItemId, resolver::LocalId, source::Span,
+    syntax::Expression,
+};
 
 impl Evaluator<'_> {
     pub(super) fn substitute_bindings(
@@ -14,7 +17,9 @@ impl Evaluator<'_> {
         span: Span,
     ) -> Eval<BTreeMap<LocalId, Ty>> {
         self.expand(
-            bindings.len().saturating_mul(size_of::<(LocalId, Ty)>()),
+            bindings
+                .len()
+                .saturating_mul(size_of::<(LocalId, Ty)>()),
             span,
         )?;
         bindings
@@ -44,11 +49,21 @@ impl Evaluator<'_> {
         if declaration.type_parameters.is_empty() {
             return Ok(BTreeMap::new());
         }
-        let Ty::Specialization { arguments, .. } = ty else {
-            return self.fail(span, "generic default has no concrete specialization");
+        let Ty::Specialization {
+            arguments,
+            ..
+        } = ty
+        else {
+            return self.fail(
+                span,
+                "generic default has no concrete specialization",
+            );
         };
         if arguments.len() != declaration.type_parameters.len() {
-            return self.fail(span, "generic default substitution arity mismatch");
+            return self.fail(
+                span,
+                "generic default substitution arity mismatch",
+            );
         }
         let mut result = BTreeMap::new();
         for (parameter, argument) in declaration.type_parameters.iter().zip(arguments) {
@@ -82,7 +97,10 @@ impl Evaluator<'_> {
         depth: usize,
     ) -> Eval<Ty> {
         if depth >= self.limits.max_depth {
-            return self.fail(span, "generic default substitution depth limit reached");
+            return self.fail(
+                span,
+                "generic default substitution depth limit reached",
+            );
         }
         match ty {
             Ty::Parameter(parameter) => {
@@ -96,7 +114,10 @@ impl Evaluator<'_> {
                 template,
                 arguments,
             } => {
-                self.expand(arguments.len().saturating_mul(size_of::<Ty>()), span)?;
+                self.expand(
+                    arguments.len().saturating_mul(size_of::<Ty>()),
+                    span,
+                )?;
                 let arguments = arguments
                     .iter()
                     .map(|argument| {
@@ -122,7 +143,10 @@ impl Evaluator<'_> {
                 result,
                 once,
             } => {
-                self.expand(parameters.len().saturating_mul(size_of::<Ty>()), span)?;
+                self.expand(
+                    parameters.len().saturating_mul(size_of::<Ty>()),
+                    span,
+                )?;
                 Ok(Ty::Function {
                     once: *once,
                     parameters: parameters
@@ -235,10 +259,14 @@ impl Evaluator<'_> {
                     span,
                 )
             }
-            Ty::Parameter(_) => {
-                self.fail(span, "canonical type contains an unsubstituted parameter")
-            }
-            Ty::Error => self.fail(span, "canonical type contains checked error metadata"),
+            Ty::Parameter(_) => self.fail(
+                span,
+                "canonical type contains an unsubstituted parameter",
+            ),
+            Ty::Error => self.fail(
+                span,
+                "canonical type contains checked error metadata",
+            ),
         }
     }
 
@@ -255,27 +283,34 @@ impl Evaluator<'_> {
     }
 }
 
-pub(super) fn nominal_head(ty: &Ty) -> Option<ItemId> {
-    match ty {
-        Ty::Nominal(item) => Some(*item),
-        Ty::Specialization { template, .. } => Some(*template),
-        _ => None,
-    }
-}
-
 pub(super) fn type_allocation_bytes(ty: &Ty) -> usize {
     match ty {
-        Ty::Specialization { arguments, .. } => arguments
+        Ty::Specialization {
+            arguments,
+            ..
+        } => arguments
             .len()
             .saturating_mul(size_of::<Ty>())
-            .saturating_add(arguments.iter().map(type_allocation_bytes).sum::<usize>()),
+            .saturating_add(
+                arguments
+                    .iter()
+                    .map(type_allocation_bytes)
+                    .sum::<usize>(),
+            ),
         Ty::List(element) => size_of::<Ty>().saturating_add(type_allocation_bytes(element)),
         Ty::Function {
-            parameters, result, ..
+            parameters,
+            result,
+            ..
         } => parameters
             .len()
             .saturating_mul(size_of::<Ty>())
-            .saturating_add(parameters.iter().map(type_allocation_bytes).sum::<usize>())
+            .saturating_add(
+                parameters
+                    .iter()
+                    .map(type_allocation_bytes)
+                    .sum::<usize>(),
+            )
             .saturating_add(type_allocation_bytes(result)),
         Ty::Unit | Ty::Int | Ty::Str | Ty::Parameter(_) | Ty::Nominal(_) | Ty::Error => 0,
     }

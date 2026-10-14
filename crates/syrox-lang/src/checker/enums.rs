@@ -10,7 +10,10 @@ impl Checker<'_> {
     ) {
         let payload = self.variant_payload(scrutinee, index);
         let bindings = match pattern {
-            Pattern::Variant { bindings, .. } => bindings.as_slice(),
+            Pattern::Variant {
+                bindings,
+                ..
+            } => bindings.as_slice(),
             _ => &[],
         };
         if bindings.len() != payload.len() {
@@ -36,7 +39,11 @@ impl Checker<'_> {
     }
 
     pub(super) fn validate_enums(&mut self) {
-        let enums: Vec<_> = self.enums.iter().map(|(&id, &item)| (id, item)).collect();
+        let enums: Vec<_> = self
+            .enums
+            .iter()
+            .map(|(&id, &item)| (id, item))
+            .collect();
         for (id, item) in enums {
             let params = self
                 .nominal_parameters(id)
@@ -64,7 +71,7 @@ impl Checker<'_> {
     }
 
     pub(super) fn variant_payload(&mut self, ty: &Ty, index: u32) -> Vec<Ty> {
-        let Some(item) = super::types::nominal_head(ty) else {
+        let Some(item) = Ty::nominal_head(ty) else {
             return Vec::new();
         };
         let Some(declaration) = self.enums.get(&item).copied() else {
@@ -102,7 +109,9 @@ impl Checker<'_> {
         self.validate_concrete_type(&ty, span);
         self.track_generic_instances(&ty, span);
         let parameters = self.variant_payload(&ty, index);
-        *elaboration = Some(Elaboration::VariantConstructor { index });
+        *elaboration = Some(Elaboration::VariantConstructor {
+            index,
+        });
         Ty::Function {
             parameters,
             result: Box::new(ty),
@@ -118,7 +127,7 @@ impl Checker<'_> {
         span: Span,
     ) -> Ty {
         let ty = match expected {
-            Some(ty) if super::types::nominal_head(ty) == Some(enumeration) => ty.clone(),
+            Some(ty) if Ty::nominal_head(ty) == Some(enumeration) => ty.clone(),
             _ if self.nominal_parameters(enumeration).is_empty() => Ty::Nominal(enumeration),
             _ => {
                 self.error(
@@ -129,7 +138,10 @@ impl Checker<'_> {
             }
         };
         if !self.variant_payload(&ty, index).is_empty() {
-            self.error("enum variant payload requires a constructor call", span);
+            self.error(
+                "enum variant payload requires a constructor call",
+                span,
+            );
         }
         ty
     }

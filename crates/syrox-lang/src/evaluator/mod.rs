@@ -1,4 +1,13 @@
-//! Pure, bounded evaluation of checked Syrox programs.
+//! Evaluating a program that passed checking.
+//!
+//! Evaluation uses the same policy and an explicit environment. Work, expansion
+//! and retained data have separate limits. Values describe recipes and their
+//! resources; acquiring files and executing builds belong to the engine.
+//!
+//! [`evaluate`] evaluates everything. [`EvaluationSession`] selects publications
+//! on demand, keeping the environment and shared values between queries. See
+//! [`session`](../../src/syrox_lang/evaluator/session/mod.rs.html) for the lifetime of its budget and [`calls`](../../src/syrox_lang/evaluator/runtime/calls.rs.html) for restoring
+//! local bindings when a function call fails.
 
 mod environment;
 mod index;
@@ -10,7 +19,7 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-use crate::{CheckPolicy, CheckedProgram, Span};
+use crate::{checker::CheckPolicy, checker::CheckedProgram, source::Span};
 
 pub use environment::{EnvironmentError, EvaluationEnvironment, EvaluationSetupError};
 pub use model::{
@@ -21,14 +30,19 @@ pub use model::{
 };
 
 pub use runtime::MemoId;
-pub use session::{EvaluationQueryError, EvaluationSession};
+pub use session::{EvaluationQueryError, EvaluationSession, PublishedRoot};
 
 pub fn evaluate(
     program: &CheckedProgram,
     policy: &CheckPolicy,
     environment: &EvaluationEnvironment,
 ) -> Result<RealizedProgram, EvaluationSetupError> {
-    evaluate_with_limits(program, policy, environment, EvaluationLimits::default())
+    evaluate_with_limits(
+        program,
+        policy,
+        environment,
+        EvaluationLimits::default(),
+    )
 }
 
 pub fn evaluate_with_limits(

@@ -1,7 +1,9 @@
 use ariadne::{Config, Label, Report, ReportKind};
 use thiserror::Error;
 
-use crate::{Source, SourceId, SourceSet, Span, SyntaxTokenKind};
+use crate::{
+    source::Source, source::SourceId, source::SourceSet, source::Span, syntax::SyntaxTokenKind,
+};
 
 /// Stable diagnostic categories. Specific rules can acquire narrower codes
 /// without requiring clients to parse human-readable messages.
@@ -116,7 +118,9 @@ impl Diagnostic {
     }
 
     pub fn render(&self, source: &Source) -> String {
-        self.render_resolved(source, |id| (id == self.span.source_id()).then_some(source))
+        self.render_resolved(source, |id| {
+            (id == self.span.source_id()).then_some(source)
+        })
     }
 
     pub fn render_from(&self, sources: &SourceSet) -> Option<String> {
@@ -198,7 +202,7 @@ mod tests {
     #[test]
     fn render_translates_byte_spans_after_multibyte_text() {
         let source = Source::new("unicode.srx", "é @").unwrap();
-        let errors = crate::analyze(&source).unwrap_err();
+        let errors = crate::syntax::analyze(&source).unwrap_err();
         let rendered = errors[1].render(&source);
 
         assert!(rendered.contains("unicode.srx:1:3"));
@@ -208,9 +212,11 @@ mod tests {
     #[test]
     fn source_set_rendering_selects_the_span_source() {
         let mut sources = SourceSet::new();
-        sources.add("valid.srx", "type Good = T;").unwrap();
+        sources
+            .add("valid.srx", "type Good = T;")
+            .unwrap();
         let invalid = sources.add("invalid.srx", "type Bad T;").unwrap();
-        let errors = crate::parse_sources(&sources).unwrap_err();
+        let errors = crate::syntax::parse_sources(&sources).unwrap_err();
         let error = errors
             .iter()
             .find(|error| error.span.source_id() == invalid)
@@ -225,13 +231,16 @@ mod tests {
     #[test]
     fn syntax_diagnostics_expose_codes_and_expectations_without_message_parsing() {
         let source = Source::new("buffer.srx", "outputs { item: I = ; } type T I;").unwrap();
-        let parsed = crate::parse_file(&source);
+        let parsed = crate::syntax::parse_file(&source);
         let expression = parsed
             .diagnostics()
             .iter()
             .find(|error| error.code == DiagnosticCode::ExpectedExpression)
             .unwrap();
-        assert_eq!(expression.expected, Some(SyntaxExpectation::Expression));
+        assert_eq!(
+            expression.expected,
+            Some(SyntaxExpectation::Expression)
+        );
         assert_eq!(&source.text()[expression.span.range()], ";");
         let token = parsed
             .diagnostics()
@@ -239,7 +248,11 @@ mod tests {
             .find(|error| error.expected == Some(SyntaxExpectation::Token(SyntaxTokenKind::Equal)))
             .unwrap();
         assert_eq!(token.code.as_str(), "srx.syntax.expected-token");
-        assert!(token.render(&source).contains("srx.syntax.expected-token"));
+        assert!(
+            token
+                .render(&source)
+                .contains("srx.syntax.expected-token")
+        );
     }
 
     #[test]
@@ -252,7 +265,10 @@ mod tests {
         let rendered = diagnostic.render_from(&sources).unwrap();
         assert!(rendered.contains("é first"), "{rendered}");
         assert!(rendered.contains("😀 second"), "{rendered}");
-        assert!(rendered.contains("related declaration"), "{rendered}");
+        assert!(
+            rendered.contains("related declaration"),
+            "{rendered}"
+        );
         assert_eq!(diagnostic.related[0].span.source_id(), second);
     }
 
@@ -261,8 +277,10 @@ mod tests {
         let text = "resource R(int); fn f(x: R) { x; x; }";
         let mut sources = SourceSet::new();
         sources.add("ownership.srx", text).unwrap();
-        let resolved = crate::resolve(crate::parse_sources(&sources).unwrap()).unwrap();
-        let diagnostics = crate::check(resolved, &crate::CheckPolicy::default()).unwrap_err();
+        let resolved =
+            crate::resolver::resolve(crate::syntax::parse_sources(&sources).unwrap()).unwrap();
+        let diagnostics =
+            crate::checker::check(resolved, &crate::checker::CheckPolicy::default()).unwrap_err();
         let diagnostic = diagnostics
             .iter()
             .find(|error| error.code == DiagnosticCode::MovedValue)
@@ -276,7 +294,10 @@ mod tests {
             diagnostic.related[1].span.start() as usize,
             text.find("x:").unwrap()
         );
-        assert_eq!(diagnostic.span.start() as usize, text.rfind("x;").unwrap());
+        assert_eq!(
+            diagnostic.span.start() as usize,
+            text.rfind("x;").unwrap()
+        );
         let rendered = diagnostic.render_from(&sources).unwrap();
         assert!(rendered.contains("first moved here"));
         assert!(rendered.contains("declared here"));

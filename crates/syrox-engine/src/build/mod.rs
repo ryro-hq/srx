@@ -1,65 +1,67 @@
-//! The first concrete build consumer. The package graph itself carries no build semantics.
+//! Executing builds and publishing their outputs.
+//!
+//! # Choosing an execution backend
+//!
+//! [`BuildProfile::HostBootstrap`] uses the host toolchain selected by the user.
+//! [`BuildProfile::Managed`] receives inputs and a worker verified through
+//! descriptors. Each backend performs preflight, consults the cache and prepares
+//! execution. See [`bootstrap`] for toolchain identity and [`managed`] for worker
+//! admission.
+//!
+//! # Publishing after settlement
+//!
+//! Results are published only after the execution that could still modify them
+//! has ended. Cancellation also passes through settlement before releasing files
+//! retained by the build. [`publication`](../../src/syrox_engine/build/publication.rs.html) validates outputs after the backend has
+//! checked settlement; [`journal`](../../src/syrox_engine/build/journal/mod.rs.html) retains the state needed for recovery.
+//!
+//! [`shared`](../../src/syrox_engine/build/shared.rs.html) coordinates requests for the same producer. [`cancellation`](../../src/syrox_engine/build/cancellation/mod.rs.html) tracks
+//! each consumer's interest, and [`records`](../../src/syrox_engine/build/records.rs.html) owns the bytes used for build identity.
 
-use std::path::{Path, PathBuf};
-
-use thiserror::Error;
-
-use crate::{ContentDigest, Plan, RootName, Store, StoreError};
-
-#[cfg(target_os = "linux")]
-pub(crate) mod artifact;
-#[cfg(target_os = "linux")]
-pub(crate) mod cache;
-mod cancellation;
-#[cfg(target_os = "linux")]
-mod capture;
-#[cfg(target_os = "linux")]
-mod group;
-#[cfg(target_os = "linux")]
-mod journal;
-#[cfg(target_os = "linux")]
-mod linux;
-#[cfg(target_os = "linux")]
-pub(crate) use linux::retained_application;
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-pub(crate) use linux::{PreparedLookup, build_prepared, prepare_managed};
-#[cfg(target_os = "linux")]
-pub(crate) mod materialize;
-#[cfg(target_os = "linux")]
-#[allow(unsafe_code)] // getrusage writes one rusage per checked syscall in the opt-in profiler.
-pub(crate) mod profile;
-#[cfg(target_os = "linux")]
-pub(crate) mod records;
-mod recovery;
-mod reindex;
-#[cfg(target_os = "linux")]
-mod sandbox;
-#[cfg(target_os = "linux")]
-mod shared;
-#[cfg(target_os = "linux")]
-mod worker;
-
-pub use cancellation::BuildCancellation;
-pub(crate) use cancellation::{cancellation_io, is_cancellation_io};
-#[cfg(target_os = "linux")]
-pub use materialize::{
-    MaterializationError, MaterializedArtifact, clear_materializations, materialize_artifact,
-    materialize_named_artifact, recover_materializations,
+use crate::{
+    plan::Plan,
+    store::{ContentDigest, RootName, Store, StoreError},
 };
-pub use recovery::{BuildRecoveryEntry, BuildRecoveryReport, BuildRecoveryState, recover_builds};
-pub use reindex::{BuildIndexReport, rebuild_build_index};
+use std::path::{Path, PathBuf};
+use thiserror::Error;
+pub mod bootstrap;
+pub(crate) mod cache;
+pub(crate) mod cancellation;
+pub(crate) mod journal;
+pub mod maintenance;
+pub mod managed;
+pub(crate) mod policy;
+#[allow(unsafe_code)]
+pub(crate) mod profile;
+mod program;
+pub(crate) mod publication;
+pub(crate) mod records;
+pub(crate) mod shared;
+use crate::cancellation::Cancellation;
+pub(crate) use bootstrap::linux::retained_build_with_inputs;
+#[cfg(target_arch = "x86_64")]
+pub(crate) use bootstrap::linux::{PreparedLookup, build_prepared, prepare_managed};
+use bootstrap::{linux, sandbox};
+pub use maintenance::{
+    BuildIndexReport, BuildRecoveryEntry, BuildRecoveryReport, BuildRecoveryState,
+    rebuild_build_index, recover_builds,
+};
+pub use program::{
+    BuildPart, BuildPath, BuildProcess, BuildProfile, BuildProgram, BuildSourceFormat, BuildStep,
+    BuildText, MAX_BUILD_PROGRAM_BYTES,
+};
 
-pub(crate) const MAX_OUTPUT_BYTES: u64 = 128 * 1024 * 1024;
-pub(crate) const MAX_AUTOTOOLS_OUTPUT_BYTES: u64 = 64 * 1024 * 1024;
+pub(crate) use crate::result::artifact::MAX_OUTPUT_BYTES;
+pub(crate) const MAX_STANDARD_OUTPUT_BYTES: u64 = 64 * 1024 * 1024;
 pub(crate) const MAX_SOURCE_BYTES: u64 = 16 * 1024 * 1024;
 pub(crate) const MAX_LARGE_SOURCE_BYTES: u64 = 32 * 1024 * 1024;
-pub(crate) const PROFILE: &str = "syrox-host-autotools-x86_64";
-pub(crate) const GLIBC_PROFILE: &str = "syrox-host-glibc-x86_64";
+pub(crate) const MANAGED_PROFILE: &str = "syrox-managed-program-x86_64-v2";
+pub(crate) const PROFILE: &str = "syrox-host-program-x86_64-v3";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BuildProtocol {
-    Autotools,
-    Glibc,
+pub enum BuildResources {
+    Standard,
+    Large,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -73,26 +75,29 @@ struct ResourceEnvelope {
     output_tmpfs: u64,
 }
 
-impl BuildProtocol {
+impl BuildResources {
+    pub(crate) const fn output_limit(self) -> u64 {
+        self.envelope().output_bytes
+    }
     const fn envelope(self) -> ResourceEnvelope {
         match self {
-            Self::Autotools => ResourceEnvelope {
+            Self::Standard => ResourceEnvelope {
                 memory: 805_306_368,
                 tasks: 64,
                 cpu_percent: 100,
                 nofile: 256,
-                output_bytes: MAX_AUTOTOOLS_OUTPUT_BYTES,
+                output_bytes: MAX_STANDARD_OUTPUT_BYTES,
                 work_tmpfs: 402_653_184,
                 output_tmpfs: 67_108_864,
             },
-            Self::Glibc => ResourceEnvelope {
-                memory: 3_221_225_472,
+            Self::Large => ResourceEnvelope {
+                memory: 1_073_741_824,
                 tasks: 256,
-                cpu_percent: 200,
+                cpu_percent: 100,
                 nofile: 4096,
                 output_bytes: MAX_OUTPUT_BYTES,
-                work_tmpfs: 1_610_612_736,
-                output_tmpfs: 402_653_184,
+                work_tmpfs: 536_870_912,
+                output_tmpfs: 134_217_728,
             },
         }
     }
@@ -102,54 +107,28 @@ impl BuildProtocol {
 /// against the locked Plan before any effects.
 #[derive(Clone, Debug)]
 pub struct BuildSpecification {
-    pub package: String,
+    pub package: crate::plan::PlanPackageId,
     pub source_directory: String,
-    pub entry: String,
     pub timeout_seconds: u32,
-    pub mode: BuildMode,
+    pub program: BuildProgram,
+    pub inputs: Vec<BuildInput>,
 }
 
 #[derive(Clone, Debug)]
-pub enum BuildMode {
-    Glibc,
-    Autotools { provider: Option<BuildProvider> },
-}
-
-#[derive(Clone, Debug)]
-pub struct BuildProvider {
-    pub root: RootName,
-    pub receipt: ContentDigest,
-    /// Whether the consumer explicitly selects the provider's `dev` output.
-    pub development: bool,
+pub struct BuildInput {
+    pub output: crate::result::RetainedOutput,
 }
 
 impl BuildSpecification {
-    pub const fn protocol(&self) -> BuildProtocol {
-        match self.mode {
-            BuildMode::Glibc => BuildProtocol::Glibc,
-            BuildMode::Autotools { .. } => BuildProtocol::Autotools,
-        }
-    }
-
-    pub const fn provider(&self) -> Option<&BuildProvider> {
-        match &self.mode {
-            BuildMode::Glibc => None,
-            BuildMode::Autotools { provider } => provider.as_ref(),
-        }
+    pub const fn resources(&self) -> BuildResources {
+        self.program.resources
     }
 
     fn validate(&self) -> Result<(), BuildError> {
+        self.program.validate()?;
         if !relative_path(&self.source_directory)
             || self.source_directory.contains('/')
-            || !relative_path(&self.entry)
-            || !(1..=if self.protocol() == BuildProtocol::Glibc {
-                1800
-            } else {
-                300
-            })
-                .contains(&self.timeout_seconds)
-            || (self.protocol() == BuildProtocol::Glibc
-                && self.entry != "usr/lib/ld-linux-x86-64.so.2")
+            || !(1..=1800).contains(&self.timeout_seconds)
         {
             return Err(BuildError::InvalidRequest);
         }
@@ -157,51 +136,52 @@ impl BuildSpecification {
     }
 }
 
-pub(crate) fn relative_path(path: &str) -> bool {
-    !path.is_empty()
-        && path.len() <= 255
-        && path.split('/').count() <= 32
-        && path.split('/').all(|part| {
-            !part.is_empty()
-                && !matches!(part, "." | "..")
-                && part
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b"._+-@,".contains(&b))
-        })
-}
+pub(crate) use crate::result::artifact::relative_path;
 
 #[derive(Clone, Debug)]
 pub enum BuildExecution {
-    Built { operation: String },
-    Shared { operation: String },
+    Built {
+        operation: String,
+    },
+    Shared {
+        operation: String,
+    },
     Cached,
 }
 
+/// An admitted result with live custody of its authenticated object closure.
+/// Clones share granular retention without holding a global Store barrier.
+/// Removing a durable root does not collect these bytes while a handle lives;
+/// the handle does not grant new execution or publication authority.
 #[derive(Clone, Debug)]
 pub struct BuildResult {
+    /// Complete authenticated object closure, held independently of durable roots.
+    pub(crate) retention: crate::store::ObjectLease,
     /// Cache hits have no new operation. Shared consumers name their producer.
     pub execution: BuildExecution,
     pub action: ContentDigest,
     pub artifact: ContentDigest,
     pub receipt: ContentDigest,
-    pub toolchain: ContentDigest,
+    pub toolchain: Option<ContentDigest>,
     pub files: usize,
     pub root: RootName,
 }
 
 #[derive(Debug, Error)]
 pub enum BuildError {
+    #[error("managed build executor is unavailable")]
+    UnsupportedProfile,
     #[error(
         "build requires Linux x86_64 with systemd user services, Bubblewrap and setpriv Landlock support"
     )]
     UnsupportedPlatform,
     #[error(
-        "invalid build request: canonical relative paths and a deadline within the selected protocol are required"
+        "invalid build request: a bounded program, declared paths and a valid deadline are required"
     )]
     InvalidRequest,
-    #[error("host build requires an existing package with no dependencies and exactly one source")]
+    #[error("build inputs or instruction program do not match the selected Plan")]
     UnsupportedInputs,
-    #[error("build source is absent or exceeds the selected protocol's compressed source limit")]
+    #[error("build source is absent or exceeds the selected resource limit")]
     MissingSource,
     #[error("host build requires the explicitly selected /usr toolchain")]
     Toolchain,
@@ -245,7 +225,10 @@ pub enum BuildError {
     #[error(
         "build result was published under {root}, but its operation journal update failed: {journal}"
     )]
-    PublishedAndJournal { root: RootName, journal: String },
+    PublishedAndJournal {
+        root: RootName,
+        journal: String,
+    },
     #[error("build action index refused: {0}")]
     Cache(String),
     #[error("divergent build results for action {action}: receipts {first} and {second}")]
@@ -260,12 +243,21 @@ pub enum BuildError {
         #[source]
         source: Box<BuildError>,
     },
+    #[error("build result was published under {root}, but live retention failed: {source}")]
+    PublishedAndRetention {
+        root: RootName,
+        #[source]
+        source: StoreError,
+    },
     #[error("shared build producer {operation}: {reason}")]
-    SharedProducer { operation: String, reason: String },
+    SharedProducer {
+        operation: String,
+        reason: String,
+    },
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
-    Archive(#[from] crate::ArchiveError),
+    Archive(#[from] crate::acquire::archive::ArchiveError),
     #[error(transparent)]
     Store(#[from] StoreError),
 }
@@ -274,7 +266,7 @@ pub enum BuildError {
 /// srx executable implementing the internal worker dispatch. Publication is last,
 /// after payload quiescence, unit finalization, artifact validation, input recheck
 /// and staging cleanup.
-pub fn build_autotools(
+pub fn execute_build(
     plan: &Plan,
     request: &BuildSpecification,
     store: &Store,
@@ -282,31 +274,31 @@ pub fn build_autotools(
     toolchain: &Path,
     worker: &Path,
 ) -> Result<BuildResult, BuildError> {
-    build_autotools_with_cancellation(
+    execute_build_with_cancellation(
         plan,
         request,
         store,
         root,
         toolchain,
         worker,
-        &BuildCancellation::default(),
+        &Cancellation::default(),
     )
 }
 
-/// Cancellable form of [`build_autotools`]. Concurrent consumers share a producer
+/// Cancellable form of [`execute_build`]. Concurrent consumers share a producer
 /// with independent interests. A cancelled caller gets no new custom root, while
 /// the shared managed result may still be published for another caller. The first
 /// caller continues coordinating that producer until completion. Cancellation of
 /// the last interest before commit prevents publication; a commit already in
 /// progress finishes with its actual durable/uncertain outcome.
-pub fn build_autotools_with_cancellation(
+pub fn execute_build_with_cancellation(
     plan: &Plan,
     request: &BuildSpecification,
     store: &Store,
     root: &RootName,
     toolchain: &Path,
     worker: &Path,
-    cancellation: &BuildCancellation,
+    cancellation: &Cancellation,
 ) -> Result<BuildResult, BuildError> {
     request.validate()?;
     cancellation.check()?;
@@ -329,13 +321,15 @@ pub fn build_autotools_with_cancellation(
     }
 }
 
-pub(crate) fn preflight(toolchain: &Path) -> Result<(), BuildError> {
+/// Check whether this host can start a new build with the configured bootstrap
+/// toolchain. Existing cached results can remain usable when this check fails.
+pub fn check_build_host(toolchain: &Path) -> Result<(), BuildError> {
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     {
         if toolchain != Path::new("/usr") {
             return Err(BuildError::Toolchain);
         }
-        crate::linux_fd::require_build_landlock()?;
+        crate::platform::linux::fd::require_build_landlock()?;
         sandbox::preflight()
     }
     #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
@@ -345,25 +339,27 @@ pub(crate) fn preflight(toolchain: &Path) -> Result<(), BuildError> {
     }
 }
 
-/// Check whether this host can start a new build with the configured bootstrap
-/// toolchain. Existing cached results can remain usable when this check fails.
-pub fn check_build_host(toolchain: &Path) -> Result<(), BuildError> {
-    preflight(toolchain)
-}
-
 pub(crate) fn build_managed(
     plan: &Plan,
     request: &BuildSpecification,
     store: &Store,
     toolchain: &Path,
     worker: &Path,
-    cancellation: &BuildCancellation,
+    cancellation: &Cancellation,
 ) -> Result<BuildResult, BuildError> {
     request.validate()?;
     cancellation.check()?;
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     {
-        linux::build(plan, request, store, None, toolchain, worker, cancellation)
+        linux::build(
+            plan,
+            request,
+            store,
+            None,
+            toolchain,
+            worker,
+            cancellation,
+        )
     }
     #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
     {
@@ -372,34 +368,24 @@ pub(crate) fn build_managed(
     }
 }
 
-/// Internal subprocess entry; requires the sandbox's private mount layout.
-/// Calling this function does not confer build or Store publication authority.
-pub fn run_build_worker(source_directory: &str, action: &str) -> Result<(), BuildError> {
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    {
-        worker::run(source_directory, action)
-    }
-    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-    {
-        let _ = (source_directory, action);
-        Err(BuildError::UnsupportedPlatform)
+impl From<crate::result::artifact::ArtifactError> for BuildError {
+    fn from(error: crate::result::artifact::ArtifactError) -> Self {
+        match error {
+            crate::result::artifact::ArtifactError::Output => Self::Output,
+            crate::result::artifact::ArtifactError::Cancelled => Self::Cancelled,
+            crate::result::artifact::ArtifactError::Io(error) => Self::Io(error),
+        }
     }
 }
 
-/// Internal trusted service entry. The persistent launch authorization is checked
-/// under its own lock before any payload is started. This is not a recipe API.
-pub fn run_build_gate(
-    operation: &Path,
-    source_directory: &str,
-    blocked: &[PathBuf],
-) -> Result<(), BuildError> {
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    {
-        sandbox::run_gate(operation, source_directory, blocked)
-    }
-    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-    {
-        let _ = (operation, source_directory, blocked);
-        Err(BuildError::UnsupportedPlatform)
+// Cancellation remains distinguishable; materialization failures do not imply settlement.
+fn materialization_error(error: &crate::result::MaterializationError) -> BuildError {
+    if matches!(
+        error,
+        crate::result::MaterializationError::Cancelled
+    ) {
+        BuildError::Cancelled
+    } else {
+        BuildError::Cache(error.to_string())
     }
 }

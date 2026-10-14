@@ -1,21 +1,16 @@
-//! Reproducible editor-query corpus. Run with --release; numbers are observations,
-//! not timing assertions. Optional arguments: module count, functions per module.
-
 #[cfg(target_os = "linux")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     linux::run()
 }
 
-#[cfg(not(target_os = "linux"))]
-fn main() {
-    eprintln!("editor_profile requires Linux project loading");
-}
-
 #[cfg(target_os = "linux")]
 mod linux {
     use std::{fmt::Write as _, hint::black_box, time::Instant};
-    use syrox_engine::{CheckConfiguration, open_project_analysis_with};
-    use syrox_lang::{AnalysisCancellation, AnalysisHost, SemanticAnalysis, SourceId};
+    use syrox_engine::{project::CheckConfiguration, project::open_project_analysis_with};
+    use syrox_lang::{
+        analysis::AnalysisCancellation, analysis::AnalysisHost, analysis::SemanticAnalysis,
+        source::SourceId,
+    };
 
     fn measure(mut query: impl FnMut(), count: usize) -> (u128, u128, u128) {
         let mut times = Vec::with_capacity(count);
@@ -98,15 +93,24 @@ mod linux {
             .unwrap()
             .0;
         report("owner_resolution_query", 100, || {
-            black_box(analysis.owner_resolution(owner, cancel).unwrap().unwrap());
+            black_box(
+                analysis
+                    .owner_resolution(owner, cancel)
+                    .unwrap()
+                    .unwrap(),
+            );
         });
         let start = Instant::now();
-        let dependencies = analysis.owner_type_dependencies(owner, cancel).unwrap();
+        let dependencies = analysis
+            .owner_type_dependencies(owner, cancel)
+            .unwrap();
         println!(
             "owner_type_dependencies_cold_us={} available={} interfaces_truncated={}",
             start.elapsed().as_micros(),
             dependencies.is_some(),
-            analysis.type_interfaces_truncated(cancel).unwrap(),
+            analysis
+                .type_interfaces_truncated(cancel)
+                .unwrap(),
         );
         if dependencies.is_some() {
             report("owner_type_dependencies_query", 100, || {
@@ -129,7 +133,10 @@ mod linux {
                 .remap_body_effects_from(analysis, owner, cancel)
                 .unwrap()
             {
-                println!("owner_effect_observations={}", journal.observation_count());
+                println!(
+                    "owner_effect_observations={}",
+                    journal.observation_count()
+                );
                 report("owner_body_effects_remap", 30, || {
                     black_box(
                         analysis
@@ -139,13 +146,17 @@ mod linux {
                     );
                 });
                 assert_eq!(journal.entry().generic_instances, 0);
-                let input = syrox_lang::BodyReplayState {
+                let input = syrox_lang::checker::BodyReplayState {
                     budget: journal.entry(),
                     instances: std::collections::BTreeSet::new(),
                 };
                 report("owner_body_effects_replay", 100, || {
                     let result = journal
-                        .replay(&input, syrox_lang::CheckLimits::default(), cancel)
+                        .replay(
+                            &input,
+                            syrox_lang::checker::CheckLimits::default(),
+                            cancel,
+                        )
                         .unwrap()
                         .unwrap();
                     assert_eq!(result.budget, journal.exit());
@@ -159,8 +170,12 @@ mod linux {
 
     pub(super) fn run() -> Result<(), Box<dyn std::error::Error>> {
         let arguments: Vec<_> = std::env::args().skip(1).collect();
-        let modules: usize = arguments.first().map_or(Ok(64), |value| value.parse())?;
-        let functions: usize = arguments.get(1).map_or(Ok(16), |value| value.parse())?;
+        let modules: usize = arguments
+            .first()
+            .map_or(Ok(64), |value| value.parse())?;
+        let functions: usize = arguments
+            .get(1)
+            .map_or(Ok(16), |value| value.parse())?;
         if !(1..=256).contains(&modules) || !(1..=64).contains(&functions) {
             return Err("corpus bounds: 1..256 modules, 1..64 functions".into());
         }
@@ -174,7 +189,11 @@ mod linux {
             writeln!(body, "pub fn f{index:02}() -> I {{ I(1) }}")?;
         }
         for index in 0..modules {
-            std::fs::write(root.path().join(format!("recipes/m{index:03}.srx")), &body)?;
+            std::fs::write(
+                root.path()
+                    .join(format!("recipes/m{index:03}.srx")),
+                &body,
+            )?;
         }
         println!(
             "profile={} modules={modules} functions_per_module={functions} sources={} bytes={}",
@@ -225,7 +244,9 @@ mod linux {
         let mut version = 0;
         report("semantic_same_text_revision", 30, || {
             version += 1;
-            project.set_overlay(edited_id, version, &body).unwrap();
+            project
+                .set_overlay(edited_id, version, &body)
+                .unwrap();
             let result = project.snapshot().analyze(&cancel).unwrap();
             assert!(std::ptr::eq(analysis.sources(), result.sources()));
             black_box(result);
@@ -242,8 +263,17 @@ mod linux {
         });
         report("semantic_body_edit", 10, || {
             version += 1;
-            let changed = body.replace("I(1)", if version % 2 == 0 { "I(2)" } else { "I(3)" });
-            project.set_overlay(edited_id, version, &changed).unwrap();
+            let changed = body.replace(
+                "I(1)",
+                if version % 2 == 0 {
+                    "I(2)"
+                } else {
+                    "I(3)"
+                },
+            );
+            project
+                .set_overlay(edited_id, version, &changed)
+                .unwrap();
             let result = black_box(project.snapshot().analyze(&cancel).unwrap());
             assert!(result.diagnostics().is_empty());
         });

@@ -70,8 +70,13 @@ mod tests {
         let message = serde_json::json!({"text": "é 😀"});
         let mut bytes = Vec::new();
         write_message(&mut bytes, &message).unwrap();
-        let body = read_frame(&mut bytes.as_slice()).unwrap().unwrap();
-        assert_eq!(serde_json::from_slice::<Value>(&body).unwrap(), message);
+        let body = read_frame(&mut bytes.as_slice())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            message
+        );
         for invalid in [
             "Content-Length: 999999999\r\n\r\n",
             "Content-Length: 1\r\nContent-Length: 1\r\n\r\nx",

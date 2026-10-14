@@ -1,0 +1,85 @@
+{
+  "platform::linux::fd::persisted_namespace::tests::parent::launcher_entry": [
+    "platform::linux::fd::persisted_namespace::tests::parent::remote_parent_is_pinned_and_wrong_or_exited_parents_are_rejected"
+  ],
+  "deployment::shell::terminal::tests::prepared_terminal_child": [
+    "deployment::shell::terminal::tests::foreground_preparation_preserves_flags_and_restores_after_relay"
+  ],
+  "runtime::terminal_custody::tests::dropped_request_monitor_fixture": [
+    "runtime::terminal_custody::tests::request_drop_waits_for_monitor_even_during_unwind"
+  ],
+  "interactive::stop_exit::tracer::stopping_child": [
+    "interactive::stop_exit::tracer::detach_preserves_real_stopped_state_without_a_waker"
+  ],
+  "execution::native::terminal_tests::background::background_fixture": [
+    "execution::native::terminal_tests::background::existing_monitor_spawn_preserves_tty_observation_and_background_restore"
+  ],
+  "execution::native::terminal_tests::background::session_fixture": [
+    "execution::native::terminal_tests::background::existing_monitor_spawn_preserves_tty_observation_and_background_restore"
+  ],
+  "platform::linux::fd::terminal::tests::controlling_terminal_and_restore_child": [
+    "platform::linux::fd::terminal::tests::dedicated_child_establishes_controlling_tty_and_restores_raw_mode"
+  ],
+  "platform::linux::fd::terminal::tests::observed_pause_root_child": [
+    "platform::linux::fd::terminal::tests::exited_root_abandons_pause_without_foreground_or_terminal_access"
+  ],
+  "execution::native::command_exit::tests::signal_exit_child": [
+    "execution::native::command_exit::tests::preserves_signal_kind_after_cleanup_boundary"
+  ],
+  "execution::native::terminal_tests::managed_terminal_child_has_session_foreground_and_restored_mask": [
+    "execution::native::terminal_tests::managed_terminal_setup_executes_without_reassigning_session_leader_group"
+  ],
+  "execution::native::proxy::tests::isolated_fixture": [
+    "execution::native::proxy::tests::exit_137_is_reported_as_exit_not_signal",
+    "execution::native::proxy::tests::stopped_continued_and_signal_exit_are_distinct_events",
+    "execution::native::proxy::tests::channel_eof_kills_and_reaps_the_principal"
+  ],
+  "execution::native::proxy::custodian::tests::isolated_fixture": [
+    "execution::native::proxy::custodian::tests::crash_before_registration_reaps_live_adopted_siblings",
+    "execution::native::proxy::custodian::tests::live_monitor_is_not_settlement_and_explicit_abort_collects_it",
+    "execution::native::proxy::custodian::tests::preexisting_child_is_rejected_without_reaping_or_killing_it",
+    "execution::native::proxy::custodian::tests::monitor_capability_is_invalid_in_forked_init_copy",
+    "execution::native::proxy::custodian::tests::successful_monitor_exit_keeps_its_status_separate_from_settlement",
+    "execution::native::proxy::custodian::tests::authenticated_guardian_settlement_finishes_journal_and_releases_gc_hold"
+  ],
+  "execution::native::terminal_custody::tests::monitor_fixture": [
+    "execution::native::terminal_custody::tests::abort_crossing_namespace_settled_still_requires_restore_request",
+    "execution::native::terminal_custody::tests::eof_after_raw_before_activation_restores",
+    "execution::native::terminal_custody::tests::eof_after_activation_restores",
+    "execution::native::terminal_custody::tests::disarmed_init_copy_does_not_restore",
+    "execution::native::terminal_custody::tests::frontend_death_between_raw_and_activation_restores_in_surviving_session"
+  ],
+  "execution::native::terminal_custody::tests::session_fixture": [
+    "execution::native::terminal_custody::tests::abort_crossing_namespace_settled_still_requires_restore_request",
+    "execution::native::terminal_custody::tests::eof_after_raw_before_activation_restores",
+    "execution::native::terminal_custody::tests::eof_after_activation_restores",
+    "execution::native::terminal_custody::tests::disarmed_init_copy_does_not_restore",
+    "execution::native::terminal_custody::tests::frontend_death_between_raw_and_activation_restores_in_surviving_session"
+  ],
+  "execution::native::terminal_custody::tests::dying_frontend_fixture": [
+    "execution::native::terminal_custody::tests::frontend_death_between_raw_and_activation_restores_in_surviving_session"
+  ],
+  "execution::launcher::coordinator::tests::owner_coordinator_child_fixture": [
+    "execution::launcher::coordinator::tests::coordinator_death_closes_owner_and_recovery_does_not_restart_it"
+  ],
+  "store::retention::tests::process_interest_child": [
+    "store::retention::tests::process_interest_survives_coordinator_handles"
+  ],
+  "systemd::notify::tests::manager_fixture": [
+    "systemd::notify::tests::manager_fd_store_retains_lease_until_stop_and_zero_capacity_rejects"
+  ],
+  "systemd::notify::tests::descendant_fixture": [
+    "systemd::notify::tests::manager_fd_store_retains_lease_until_stop_and_zero_capacity_rejects"
+  ],
+  "systemd::quiescence::tests::retirement::gated_child": [
+    "systemd::quiescence::tests::retirement::pinned_core_events_observe_populated_empty_removed_and_refuse_replacement"
+  ],
+  "interactive::anchor_process": [
+    "interactive::interactive_literal_resize_exit_and_restore",
+    "interactive::interactive_ctrl_c_status_and_restore",
+    "interactive::interactive_cli_sigkill_restores_and_settles_pinned_processes"
+  ],
+  "interactive::stop_exit::anchor_process": [
+    "interactive::stop_exit::root_exit_between_protocol_pause_and_frontend_sigstop_restores_terminal"
+  ]
+}

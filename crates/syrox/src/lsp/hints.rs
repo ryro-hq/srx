@@ -1,5 +1,5 @@
 use serde_json::{Value, json};
-use syrox_lang::LineIndex;
+use syrox_lang::line_index::LineIndex;
 
 use super::{Server, actions::ActionError, worker::ResultSet};
 
@@ -17,9 +17,16 @@ impl Server {
             .and_then(|uri| self.host.snapshot().document(uri))
             .and_then(|document| document.overlay_version());
         for hint in hints {
-            hint["data"] = json!({"uri":uri,"version":version,"generation":result.generation,"process":std::process::id()});
+            hint["data"] = json!({
+                "uri": uri,
+                "version": version,
+                "generation": result.generation,
+                "process": std::process::id(),
+            });
             if self.hint_resolve_tooltip && !resolved {
-                hint.as_object_mut().expect("hint object").remove("tooltip");
+                hint.as_object_mut()
+                    .expect("hint object")
+                    .remove("tooltip");
             }
         }
     }
@@ -55,7 +62,10 @@ impl Server {
         if data["version"] != json!(version) {
             return Err(stale());
         }
-        let query = json!({"textDocument":{"uri":uri},"range":{"start":params["position"],"end":params["position"]}});
+        let query = json!({
+            "textDocument": { "uri": uri },
+            "range": { "start": params["position"], "end": params["position"] },
+        });
         let hints = self.inlay_hints(
             &query,
             result,

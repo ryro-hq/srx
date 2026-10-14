@@ -1,8 +1,8 @@
-use syrox_lang::RealizedRoot;
+use syrox_lang::evaluator::RealizedRoot;
 
 use super::{
     AuthenticatedStandardLibrary, CanonicalItemIdentity, CanonicalType, PlanError,
-    ProjectionBudget, RealizedProgram, Value, decode_package_id, exact_nominal,
+    ProjectionBudget, RealizedProgram, Value, exact_nominal,
 };
 
 /// A borrowed contract value from a root or one of its recipe fields. All
@@ -22,6 +22,18 @@ impl Component<'_> {
     }
     pub(super) fn is_selected(&self) -> bool {
         self.root.is_selected()
+    }
+    /// Explicit selection retains the member's original library domain. Merely
+    /// importing a library does not admit its unselected value roots.
+    pub(super) fn belongs_to_plan(&self) -> bool {
+        self.is_selected()
+            || self.identity().domain() == syrox_lang::source::SourceDomainId::project()
+    }
+    pub(super) fn reference(&self) -> Option<&syrox_lang::evaluator::MemoId> {
+        self.root.selected_reference()
+    }
+    pub(super) fn aliases(&self) -> impl ExactSizeIterator<Item = &str> {
+        self.root.aliases()
     }
     pub(super) const fn ty(&self) -> &CanonicalType {
         self.ty
@@ -43,52 +55,31 @@ pub(super) fn components<'a>(
                 root: budget.string(root.name())?,
             });
         };
-        if standard_library.is_some() && recipe_kind(ty).is_some() {
-            recipe_components(root, ty, value, &mut result, budget)?;
+        if standard_library.is_some() && is_recipe(ty) {
+            recipe_components(root, value, &mut result, budget)?;
         } else {
-            push(&mut result, Component { root, ty, value }, budget)?;
+            push(
+                &mut result,
+                Component {
+                    root,
+                    ty,
+                    value,
+                },
+                budget,
+            )?;
         }
     }
     Ok(result)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum RecipeKind {
-    Basic,
-    Application,
-    Catalog,
-}
-
-fn recipe_kind(ty: &CanonicalType) -> Option<RecipeKind> {
-    match ty {
-        CanonicalType::Specialization {
-            template,
-            arguments,
-        } if template.domain() == syrox_lang::SourceDomainId::standard_library()
-            && arguments.len() == 1 =>
-        {
-            match template.path() {
-                [std, pkg, name] if std == "std" && pkg == "pkg" => match name.as_str() {
-                    "Recipe" => Some(RecipeKind::Basic),
-                    "ApplicationRecipe" => Some(RecipeKind::Application),
-                    _ => None,
-                },
-                _ => None,
-            }
-        }
-        CanonicalType::Nominal(identity)
-            if identity.domain() == syrox_lang::SourceDomainId::standard_library()
-                && identity.path() == ["std", "pkg", "CatalogRecipe"] =>
-        {
-            Some(RecipeKind::Catalog)
-        }
-        _ => None,
-    }
+fn is_recipe(ty: &CanonicalType) -> bool {
+    matches!(ty, CanonicalType::Nominal(identity)
+        if identity.domain() == syrox_lang::source::SourceDomainId::standard_library()
+            && identity.path() == ["std", "pkg", "Recipe"])
 }
 
 fn recipe_components<'a>(
     root: &'a RealizedRoot,
-    ty: &'a CanonicalType,
     value: &'a Value,
     result: &mut Vec<Component<'a>>,
     budget: &mut ProjectionBudget,
@@ -98,21 +89,21 @@ fn recipe_components<'a>(
         root: name.clone(),
         reason,
     };
-    let Value::Struct { fields, .. } = value else {
+    let Value::Struct {
+        fields,
+        ..
+    } = value
+    else {
         return Err(invalid("expected a recipe struct"));
     };
-    let kind = recipe_kind(ty);
-    let names: &[&str] = if kind == Some(RecipeKind::Basic) {
-        &["package", "acquisition", "build"]
-    } else {
-        &[
-            "package",
-            "acquisition",
-            "build",
-            "build_inputs",
-            "application",
-        ]
-    };
+    let names: &[&str] = &[
+        "package",
+        "acquisition",
+        "build",
+        "build_inputs",
+        "commands",
+        "imported",
+    ];
     if fields.len() != names.len()
         || !fields
             .iter()
@@ -121,24 +112,53 @@ fn recipe_components<'a>(
     {
         return Err(invalid("unexpected recipe fields"));
     }
+    if matches!(
+        unwrap_optional(&fields[5].1, "ImportedResult"),
+        OptionalComponent::Present(_)
+    ) && fields[1..4]
+        .iter()
+        .zip(["Acquisition", "Build", "BuildInputs"])
+        .any(|((_, value), contract)| {
+            !matches!(
+                unwrap_optional(value, contract),
+                OptionalComponent::Absent
+            )
+        })
+    {
+        return Err(invalid(
+            "imported result cannot declare acquisition, build or build inputs",
+        ));
+    }
+    // Preserve the complete recipe as the owner of its named command list.
     let Value::Struct {
-        fields: package_fields,
+        ty,
         ..
-    } = &fields[0].1
+    } = value
     else {
-        return Err(invalid("expected Package"));
+        unreachable!()
     };
-    let package = package_fields
-        .first()
-        .and_then(|(_, value)| decode_package_id(value))
-        .ok_or_else(|| invalid("recipe package has no PackageId"))?;
-    for (index, (field, value)) in fields.iter().enumerate() {
+    push(
+        result,
+        Component {
+            root,
+            ty,
+            value,
+        },
+        budget,
+    )?;
+    for (index, (_, value)) in fields
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| *index != 4)
+    {
         budget.charge_work()?;
-        let value = if kind == Some(RecipeKind::Catalog) && index >= 3 {
-            let contract = if index == 3 {
-                "BuildInputs"
-            } else {
-                "Application"
+        let value = if index > 0 {
+            let contract = match index {
+                1 => "Acquisition",
+                2 => "Build",
+                3 => "BuildInputs",
+                5 => "ImportedResult",
+                _ => unreachable!(),
             };
             match unwrap_optional(value, contract) {
                 OptionalComponent::Present(value) => value,
@@ -150,36 +170,41 @@ fn recipe_components<'a>(
         } else {
             value
         };
-        let value = if index == 2 {
-            unwrap_build(value)
-                .ok_or_else(|| invalid("recipe build has no supported build contract"))?
-        } else {
-            value
-        };
-        let Value::Struct { ty, fields, .. } = value else {
-            return Err(invalid("recipe component must be a contract struct"));
+        let Value::Struct {
+            ty,
+            ..
+        } = value
+        else {
+            return Err(invalid(
+                "recipe component must be a contract struct",
+            ));
         };
         let contract = match index {
             0 => "Package",
             1 => "Acquisition",
+            2 => "Build",
             3 => "BuildInputs",
-            4 => "Application",
-            _ if exact_nominal(ty, &["std", "pkg", "AutotoolsBuild"]) => "AutotoolsBuild",
-            _ if exact_nominal(ty, &["std", "pkg", "GlibcBuild"]) => "GlibcBuild",
-            _ => return Err(invalid("recipe build has no supported build contract")),
+            5 => "ImportedResult",
+            _ => {
+                return Err(invalid(
+                    "recipe build has no supported build contract",
+                ));
+            }
         };
         if !exact_nominal(ty, &["std", "pkg", contract]) {
-            return Err(invalid("recipe component has the wrong nominal contract"));
+            return Err(invalid(
+                "recipe component has the wrong nominal contract",
+            ));
         }
-        if field != "package"
-            && fields
-                .first()
-                .and_then(|(_, value)| decode_package_id(value))
-                != Some(package)
-        {
-            return Err(invalid("recipe components must refer to the same package"));
-        }
-        push(result, Component { root, ty, value }, budget)?;
+        push(
+            result,
+            Component {
+                root,
+                ty,
+                value,
+            },
+            budget,
+        )?;
     }
     Ok(())
 }
@@ -191,7 +216,12 @@ enum OptionalComponent<'a> {
 }
 
 fn unwrap_optional<'a>(value: &'a Value, contract: &str) -> OptionalComponent<'a> {
-    let Value::Variant { ty, index, payload } = value else {
+    let Value::Variant {
+        ty,
+        index,
+        payload,
+    } = value
+    else {
         return OptionalComponent::Invalid;
     };
     let CanonicalType::Specialization {
@@ -201,7 +231,7 @@ fn unwrap_optional<'a>(value: &'a Value, contract: &str) -> OptionalComponent<'a
     else {
         return OptionalComponent::Invalid;
     };
-    if template.domain() != syrox_lang::SourceDomainId::standard_library()
+    if template.domain() != syrox_lang::source::SourceDomainId::standard_library()
         || template.path() != ["std", "option", "Option"]
         || arguments.len() != 1
         || !exact_nominal(&arguments[0], &["std", "pkg", contract])
@@ -213,24 +243,6 @@ fn unwrap_optional<'a>(value: &'a Value, contract: &str) -> OptionalComponent<'a
         (1, [value]) => OptionalComponent::Present(value),
         _ => OptionalComponent::Invalid,
     }
-}
-
-fn unwrap_build(value: &Value) -> Option<&Value> {
-    let Value::Variant { ty, index, payload } = value else {
-        return Some(value);
-    };
-    if !exact_nominal(ty, &["std", "pkg", "Build"]) {
-        return None;
-    }
-    let [build @ Value::Struct { ty: backend, .. }] = payload.as_slice() else {
-        return None;
-    };
-    let path = match index {
-        0 => &["std", "pkg", "AutotoolsBuild"][..],
-        1 => &["std", "pkg", "GlibcBuild"][..],
-        _ => return None,
-    };
-    exact_nominal(backend, path).then_some(build)
 }
 
 fn push<'a>(

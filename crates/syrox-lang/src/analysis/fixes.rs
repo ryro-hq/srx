@@ -1,7 +1,9 @@
 use super::{AnalysisCancellation, AnalysisCancelled, DocumentSnapshot};
 #[cfg(test)]
-use crate::parse_file;
-use crate::{Source, Span, SyntaxExpectation, SyntaxTokenKind as Token};
+use crate::syntax::parse_file;
+use crate::{
+    diagnostic::SyntaxExpectation, source::Source, source::Span, syntax::SyntaxTokenKind as Token,
+};
 
 /// An insertion proven to remove a syntax error by reparsing this document's
 /// text. Its span is local; consumers must retain the document's revision/version.
@@ -51,8 +53,8 @@ impl DocumentSnapshot {
             let Ok(source) = Source::new(self.source().name(), repaired) else {
                 continue;
             };
-            let after = crate::parser::parse_file_cancellable(
-                crate::SourceId::SINGLE,
+            let after = crate::syntax::parser::parse_file_cancellable(
+                crate::source::SourceId::SINGLE,
                 &source,
                 Some(cancellation),
             )?;
@@ -85,7 +87,7 @@ impl DocumentSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::AnalysisHost;
+    use crate::analysis::AnalysisHost;
 
     #[test]
     fn repairs_are_syntax_proven_and_cached_by_effective_text() {
@@ -107,7 +109,10 @@ mod tests {
         host.set_overlay("main", 2, text).unwrap();
         let next = host.snapshot().document("main").unwrap();
         assert_ne!(first.revision(), next.revision());
-        assert!(std::ptr::eq(fixes, next.syntax_fixes(&cancel).unwrap()));
+        assert!(std::ptr::eq(
+            fixes,
+            next.syntax_fixes(&cancel).unwrap()
+        ));
         cancel.cancel();
         assert!(next.syntax_fixes(&cancel).is_err());
     }

@@ -1,3 +1,10 @@
+//! Semantic analysis of a snapshot, including incomplete sources.
+//!
+//! Source preparation, resolution and checking contribute to the same diagnostic
+//! limit, in that order. Publication keeps the sources and the facts that became
+//! available. A new revision does not make old text current: revalidating a result
+//! requires the effective text of every binding to match.
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -5,12 +12,14 @@ use thiserror::Error;
 
 use super::{AnalysisCancellation, AnalysisCancelled, AnalysisRevision, AnalysisSnapshot};
 use crate::{
-    CheckPolicy, CheckedExpression, Diagnostic, ItemId, MAX_DIAGNOSTICS, ParsedSource,
-    ParsedSources, ResolvedItem, ResolvedProgram, ResolvedReference, ResolvedTarget, SourceError,
-    SourceId, SourceSet, Span, Ty,
+    MAX_DIAGNOSTICS, checker::CheckPolicy, checker::CheckedExpression, checker::Ty,
+    diagnostic::Diagnostic, resolver::ItemId, resolver::ResolvedItem, resolver::ResolvedProgram,
+    resolver::ResolvedReference, resolver::ResolvedTarget, source::SourceError, source::SourceId,
+    source::SourceSet, source::Span, syntax::ParsedSource, syntax::ParsedSources,
 };
 
 #[cfg(test)]
+#[path = "tests/semantic.rs"]
 mod tests;
 
 #[derive(Debug, Error)]
@@ -43,13 +52,11 @@ pub struct SemanticAnalysis {
 }
 
 impl SemanticAnalysis {
-    #[cfg(test)]
-    pub(crate) fn test_resolved(&self) -> &ResolvedProgram {
-        &self.resolved
-    }
     /// Structural resolution owners in this topology. Ambiguous declarations
     /// and truncated owner metadata are not returned.
-    pub fn resolution_owners(&self) -> impl Iterator<Item = (&crate::ResolutionOwnerKey, Span)> {
+    pub fn resolution_owners(
+        &self,
+    ) -> impl Iterator<Item = (&crate::resolver::ResolutionOwnerKey, Span)> {
         self.resolved.resolution_owners()
     }
 
@@ -61,9 +68,9 @@ impl SemanticAnalysis {
     /// not validate namespace/interface dependencies for cross-revision reuse.
     pub fn owner_resolution(
         &self,
-        key: &crate::ResolutionOwnerKey,
+        key: &crate::resolver::ResolutionOwnerKey,
         cancel: &AnalysisCancellation,
-    ) -> Result<Option<crate::OwnerResolution>, AnalysisCancelled> {
+    ) -> Result<Option<crate::resolver::OwnerResolution>, AnalysisCancelled> {
         self.resolved.owner_resolution(key, cancel)
     }
     pub fn complete_type_path(
@@ -84,26 +91,26 @@ impl SemanticAnalysis {
         self.resolved.display_type(ty)
     }
 
-    pub fn locals(&self) -> impl Iterator<Item = &crate::ResolvedLocal> {
+    pub fn locals(&self) -> impl Iterator<Item = &crate::resolver::ResolvedLocal> {
         self.resolved.locals()
     }
 
-    pub fn local_type(&self, id: crate::LocalId) -> Option<&Ty> {
+    pub fn local_type(&self, id: crate::resolver::LocalId) -> Option<&Ty> {
         self.editor.locals.get(&id).map(|local| &local.ty)
     }
 
-    pub fn checked_locals(&self) -> impl Iterator<Item = &crate::CheckedLocal> {
+    pub fn checked_locals(&self) -> impl Iterator<Item = &crate::checker::CheckedLocal> {
         self.editor.locals.values()
     }
 
-    pub fn ownership_uses(&self) -> &[crate::OwnershipUse] {
+    pub fn ownership_uses(&self) -> &[crate::checker::OwnershipUse] {
         &self.editor.uses
     }
-    pub fn parameter_hints(&self) -> &[crate::ParameterHint] {
+    pub fn parameter_hints(&self) -> &[crate::checker::ParameterHint] {
         &self.editor.arguments
     }
 
-    pub fn local_at(&self, source: SourceId, offset: u32) -> Option<&crate::CheckedLocal> {
+    pub fn local_at(&self, source: SourceId, offset: u32) -> Option<&crate::checker::CheckedLocal> {
         if let Some(local) = self
             .editor
             .locals
@@ -138,7 +145,8 @@ impl SemanticAnalysis {
     }
 
     pub fn expected_type_at(&self, source: SourceId, offset: u32) -> Option<&Ty> {
-        self.expression_at(source, offset)?.expected_type()
+        self.expression_at(source, offset)?
+            .expected_type()
     }
     /// Bounded namespace completion. Every spelling is checked by the resolver,
     /// including imports, reexports and closed module interfaces.
@@ -220,7 +228,7 @@ impl SemanticAnalysis {
     }
     /// Syntactic parameter labels for a resolved function identity, including a
     /// function reached through a reexport. Does not imply a valid body.
-    pub fn function_parameters(&self, item: ItemId) -> Option<&[crate::Parameter]> {
+    pub fn function_parameters(&self, item: ItemId) -> Option<&[crate::syntax::Parameter]> {
         let span = self
             .resolved
             .items()
@@ -234,8 +242,8 @@ impl SemanticAnalysis {
         let mut pending: Vec<_> = file.program().items.iter().collect();
         while let Some(item) = pending.pop() {
             match &item.kind {
-                crate::ItemKind::Module(module) => pending.extend(&module.items),
-                crate::ItemKind::Function(function) if function.name.span == span => {
+                crate::syntax::ItemKind::Module(module) => pending.extend(&module.items),
+                crate::syntax::ItemKind::Function(function) if function.name.span == span => {
                     return Some(&function.parameters);
                 }
                 _ => {}
@@ -258,9 +266,16 @@ impl SemanticAnalysis {
             .filter(|reference| contains(reference.span(), source, offset))
             .min_by_key(|reference| reference.span().end() - reference.span().start())?;
         match reference.target() {
+            ResolvedTarget::Item(id) if self.resolved.published_member(*id).is_some() => {
+                let factory = self.resolved.published_member(*id)?.factory();
+                self.items()
+                    .find(|item| item.id() == factory)
+                    .map(ResolvedItem::span)
+            }
             ResolvedTarget::Item(id)
             | ResolvedTarget::EnumVariant {
-                enumeration: id, ..
+                enumeration: id,
+                ..
             } => self
                 .items()
                 .find(|item| item.id() == *id)
@@ -269,7 +284,7 @@ impl SemanticAnalysis {
                 .resolved
                 .locals()
                 .find(|local| local.id() == *id)
-                .map(crate::ResolvedLocal::span),
+                .map(crate::resolver::ResolvedLocal::span),
             _ => None,
         }
     }
@@ -335,26 +350,44 @@ impl AnalysisSnapshot {
             bindings,
             policy,
             cancellation,
-            crate::CheckLimits::default(),
+            crate::checker::CheckLimits::default(),
         )
     }
 
-    #[allow(clippy::too_many_lines)]
+    /// Prepare effective documents, resolve their topology, check recovered
+    /// bodies, then publish one bounded snapshot. Cancellation remains control
+    /// flow between every phase and before cache/publication commits.
     pub(crate) fn analyze_project_with_limits(
         &self,
         topology: &SourceSet,
         bindings: &BTreeMap<SourceId, String>,
         policy: &CheckPolicy,
         cancellation: &AnalysisCancellation,
-        limits: crate::CheckLimits,
+        limits: crate::checker::CheckLimits,
     ) -> Result<SemanticAnalysis, SemanticAnalysisError> {
+        let prepared = self.prepare_project_sources(topology, bindings, cancellation)?;
+        let resolved = prepared.resolve(cancellation)?;
+        let checked = resolved.check(policy, cancellation, limits)?;
         cancellation.check()?;
-        if bindings.keys().any(|id| topology.get(*id).is_none()) {
+        Ok(checked.publish(self.revision(), bindings, policy))
+    }
+
+    fn prepare_project_sources(
+        &self,
+        topology: &SourceSet,
+        bindings: &BTreeMap<SourceId, String>,
+        cancellation: &AnalysisCancellation,
+    ) -> Result<PreparedProjectSources, SemanticAnalysisError> {
+        cancellation.check()?;
+        if bindings
+            .keys()
+            .any(|id| topology.get(*id).is_none())
+        {
             return Err(SemanticAnalysisError::InvalidBinding);
         }
         let mut sources = topology.clone();
         let mut parsed = Vec::with_capacity(sources.len());
-        let mut diagnostics = Vec::new();
+        let mut diagnostics = ProjectDiagnostics::default();
         let mut incomplete = BTreeSet::new();
         for (id, original) in topology.iter() {
             cancellation.check()?;
@@ -363,48 +396,19 @@ impl AnalysisSnapshot {
                     .document(key)
                     .ok_or(SemanticAnalysisError::InvalidBinding)?;
                 sources.replace_text(id, document.source().text())?;
-                let cache = document
+                document
                     .document
                     .analysis
-                    .bound
-                    .lock()
-                    .expect("file cache lock is not poisoned");
-                let cached = cache
-                    .as_ref()
-                    .filter(|(bound, _)| *bound == id)
-                    .map(|(_, file)| file.clone());
-                drop(cache);
-                if let Some(file) = cached {
-                    file
-                } else {
-                    let file = Arc::new(crate::parser::parse_file_cancellable(
-                        id,
-                        document.source(),
-                        Some(cancellation),
-                    )?);
-                    cancellation.check()?;
-                    *document
-                        .document
-                        .analysis
-                        .bound
-                        .lock()
-                        .expect("file cache lock is not poisoned") = Some((id, file.clone()));
-                    file
-                }
+                    .parse_bound(id, cancellation)?
             } else {
-                Arc::new(crate::parser::parse_file_cancellable(
+                Arc::new(crate::syntax::parser::parse_file_cancellable(
                     id,
                     original,
                     Some(cancellation),
                 )?)
             };
             cancellation.check()?;
-            diagnostics.extend(
-                file.diagnostics()
-                    .iter()
-                    .take(MAX_DIAGNOSTICS.saturating_sub(diagnostics.len()))
-                    .cloned(),
-            );
+            diagnostics.extend(file.diagnostics().iter().cloned());
             incomplete.extend(file.incomplete_bodies.iter().map(|span| {
                 (
                     u32::try_from(span.source_id().index()).expect("bounded source id"),
@@ -415,74 +419,156 @@ impl AnalysisSnapshot {
             parsed.push(ParsedSource {
                 source_id: id,
                 domain: sources.domain(id).expect("registered domain"),
-                module: sources.module(id).expect("registered module").to_vec(),
+                module: sources
+                    .module(id)
+                    .expect("registered module")
+                    .to_vec(),
                 program: file.recovered_program().clone(),
             });
         }
         let parsed = ParsedSources {
             sources: parsed,
-            input_domains: topology.input_domains().cloned().unwrap_or_default(),
+            input_domains: topology
+                .input_domains()
+                .cloned()
+                .unwrap_or_default(),
             project_roots: topology.project_roots().clone(),
         };
-        let (resolved, errors, exhausted) =
-            crate::resolver::resolve_partial(parsed, Some(cancellation));
-        cancellation.check()?;
-        diagnostics.extend(
-            errors
-                .into_iter()
-                .take(MAX_DIAGNOSTICS.saturating_sub(diagnostics.len())),
-        );
-        let (expressions, functions, editor, bodies, body_diagnostics) = if exhausted {
-            (
-                Vec::new(),
-                BTreeMap::new(),
-                crate::checker::EditorFacts::default(),
-                crate::checker::BodyPublications {
-                    truncated: true,
-                    ..Default::default()
-                },
-                Vec::new(),
-            )
-        } else {
-            let checked =
-                crate::checker::check_partial(&resolved, policy, incomplete, cancellation, limits);
-            cancellation.check()?;
-            diagnostics.extend(
-                checked
-                    .diagnostics
-                    .iter()
-                    .take(MAX_DIAGNOSTICS.saturating_sub(diagnostics.len()))
-                    .cloned(),
-            );
-            (
-                checked.expressions,
-                checked.functions,
-                checked.editor,
-                checked.bodies,
-                checked.diagnostics,
-            )
-        };
-        diagnostics.sort_by_key(|diagnostic| {
+        Ok(PreparedProjectSources {
+            sources,
+            parsed,
+            incomplete,
+            diagnostics,
+        })
+    }
+}
+
+/// Preserve phase precedence under the diagnostic cap; sorting happens only
+/// after every phase has contributed, without changing which errors survive.
+#[derive(Default)]
+struct ProjectDiagnostics(Vec<Diagnostic>);
+
+impl ProjectDiagnostics {
+    fn extend(&mut self, diagnostics: impl IntoIterator<Item = Diagnostic>) {
+        let remaining = MAX_DIAGNOSTICS.saturating_sub(self.0.len());
+        self.0
+            .extend(diagnostics.into_iter().take(remaining));
+    }
+    fn publish(mut self) -> Arc<[Diagnostic]> {
+        self.0.sort_by_key(|diagnostic| {
             (
                 diagnostic.span.source_id(),
                 diagnostic.span.start(),
                 diagnostic.message.clone(),
             )
         });
-        Ok(SemanticAnalysis {
-            revision: self.revision(),
+        self.0.into()
+    }
+}
+
+struct PreparedProjectSources {
+    sources: SourceSet,
+    parsed: ParsedSources,
+    incomplete: BTreeSet<(u32, u32, u32)>,
+    diagnostics: ProjectDiagnostics,
+}
+
+impl PreparedProjectSources {
+    fn resolve(
+        mut self,
+        cancellation: &AnalysisCancellation,
+    ) -> Result<ResolvedProjectAnalysis, AnalysisCancelled> {
+        let (resolved, errors, exhausted) =
+            crate::resolver::resolve_partial(self.parsed, Some(cancellation));
+        cancellation.check()?;
+        self.diagnostics.extend(errors);
+        Ok(ResolvedProjectAnalysis {
+            sources: self.sources,
+            resolved,
+            incomplete: self.incomplete,
+            diagnostics: self.diagnostics,
+            exhausted,
+        })
+    }
+}
+
+struct ResolvedProjectAnalysis {
+    sources: SourceSet,
+    resolved: ResolvedProgram,
+    incomplete: BTreeSet<(u32, u32, u32)>,
+    diagnostics: ProjectDiagnostics,
+    exhausted: bool,
+}
+
+impl ResolvedProjectAnalysis {
+    fn check(
+        mut self,
+        policy: &CheckPolicy,
+        cancellation: &AnalysisCancellation,
+        limits: crate::checker::CheckLimits,
+    ) -> Result<CheckedProjectAnalysis, AnalysisCancelled> {
+        let checked = if self.exhausted {
+            // Incomplete resolution publishes inspected declarations, never
+            // checked bodies. Retention truncation stays visible to consumers.
+            crate::checker::PartialCheck {
+                diagnostics: Vec::new(),
+                expressions: Vec::new(),
+                functions: BTreeMap::new(),
+                editor: crate::checker::EditorFacts::default(),
+                bodies: crate::checker::BodyPublications {
+                    truncated: true,
+                    ..Default::default()
+                },
+            }
+        } else {
+            crate::checker::check_partial(
+                &self.resolved,
+                policy,
+                self.incomplete,
+                cancellation,
+                limits,
+            )
+        };
+        cancellation.check()?;
+        self.diagnostics
+            .extend(checked.diagnostics.iter().cloned());
+        Ok(CheckedProjectAnalysis {
+            sources: self.sources,
+            resolved: self.resolved,
+            diagnostics: self.diagnostics,
+            checked,
+        })
+    }
+}
+
+struct CheckedProjectAnalysis {
+    sources: SourceSet,
+    resolved: ResolvedProgram,
+    diagnostics: ProjectDiagnostics,
+    checked: crate::checker::PartialCheck,
+}
+
+impl CheckedProjectAnalysis {
+    fn publish(
+        self,
+        revision: AnalysisRevision,
+        bindings: &BTreeMap<SourceId, String>,
+        policy: &CheckPolicy,
+    ) -> SemanticAnalysis {
+        SemanticAnalysis {
+            revision,
             bindings: Arc::new(bindings.clone()),
-            sources: Arc::new(sources),
-            resolved: Arc::new(resolved),
-            diagnostics: diagnostics.into(),
-            expressions: expressions.into(),
-            functions: Arc::new(functions),
-            editor: Arc::new(editor),
+            sources: Arc::new(self.sources),
+            resolved: Arc::new(self.resolved),
+            diagnostics: self.diagnostics.publish(),
+            expressions: self.checked.expressions.into(),
+            functions: Arc::new(self.checked.functions),
+            editor: Arc::new(self.checked.editor),
             symbols: Arc::new(std::sync::OnceLock::new()),
             interfaces: Arc::new(std::sync::OnceLock::new()),
             policy: Arc::new(policy.clone()),
-            bodies: Arc::new(bodies),
-            body_diagnostics: body_diagnostics.into(),
-        })
+            bodies: Arc::new(self.checked.bodies),
+            body_diagnostics: self.checked.diagnostics.into(),
+        }
     }
 }

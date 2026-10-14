@@ -1,17 +1,17 @@
 use super::*;
 use crate::{
-    AnalysisCancellation, CheckLimits, CheckPolicy, DiagnosticCode, SourceSet, parse_sources,
-    resolve,
+    analysis::AnalysisCancellation, checker::CheckLimits, checker::CheckPolicy,
+    diagnostic::DiagnosticCode, resolver::resolve, source::SourceSet, syntax::parse_sources,
 };
 use std::fmt::Write;
 
-fn resolved(text: &str) -> crate::ResolvedProgram {
+fn resolved(text: &str) -> crate::resolver::ResolvedProgram {
     let mut sources = SourceSet::new();
     sources.add("main.srx", text).unwrap();
     resolve(parse_sources(&sources).unwrap()).unwrap()
 }
 
-fn assert_parity(program: &crate::ResolvedProgram, limits: CheckLimits, editor: bool) {
+fn assert_parity(program: &crate::resolver::ResolvedProgram, limits: CheckLimits, editor: bool) {
     let policy = CheckPolicy::default();
     let cancellation = AnalysisCancellation::default();
     let mut flat = Checker::new(program, &policy, limits);
@@ -21,12 +21,24 @@ fn assert_parity(program: &crate::ResolvedProgram, limits: CheckLimits, editor: 
     let mut partitioned = Checker::new(program, &policy, limits);
     partitioned.cancellation = editor.then_some(&cancellation);
     partitioned.run();
-    assert_eq!(partitioned.diagnostics, flat.diagnostics, "{limits:?}");
-    assert_eq!(partitioned.expressions, flat.expressions, "{limits:?}");
+    assert_eq!(
+        partitioned.diagnostics, flat.diagnostics,
+        "{limits:?}"
+    );
+    assert_eq!(
+        partitioned.expressions, flat.expressions,
+        "{limits:?}"
+    );
     assert_eq!(partitioned.patterns, flat.patterns);
     assert_eq!(partitioned.editor, flat.editor, "{limits:?}");
-    assert_eq!(partitioned.generic_instances, flat.generic_instances);
-    assert_eq!(partitioned.budget_position(), flat.budget_position());
+    assert_eq!(
+        partitioned.generic_instances,
+        flat.generic_instances
+    );
+    assert_eq!(
+        partitioned.budget_position(),
+        flat.budget_position()
+    );
     assert!(partitioned.body.bindings.is_empty());
     assert!(!partitioned.body.active);
 }
@@ -114,13 +126,13 @@ fn partitioned_functions_defaults_and_outputs_match_flat_checking_and_global_lim
 #[test]
 fn recovered_body_regions_and_later_bodies_match_flat_editor_analysis() {
     let text = "value I(int); resource R(int); struct Box<T> { first: T; second: T; } fn broken(r: R) { let local = I(1); let local: I = ; let b = Box<R> { bad = ; first = r; second = r; }; let captured = once fn() -> R { r.; r }; } fn later(r: R) -> R { r } outputs { item: I = I(2); }";
-    let source = crate::Source::new("main.srx", text).unwrap();
-    let parsed = crate::parse_file(&source);
+    let source = crate::source::Source::new("main.srx", text).unwrap();
+    let parsed = crate::syntax::parse_file(&source);
     assert!(!parsed.diagnostics().is_empty());
-    let sources = crate::ParsedSources {
-        sources: vec![crate::ParsedSource {
-            source_id: crate::SourceId::SINGLE,
-            domain: crate::SourceDomainId::project(),
+    let sources = crate::syntax::ParsedSources {
+        sources: vec![crate::syntax::ParsedSource {
+            source_id: crate::source::SourceId::SINGLE,
+            domain: crate::source::SourceDomainId::project(),
             module: Vec::new(),
             program: parsed.recovered_program().clone(),
         }],

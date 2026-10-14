@@ -1,6 +1,9 @@
 use std::{collections::BTreeMap, fmt};
 
-use crate::{CheckPolicy, EvaluationLimit, PolicyFingerprint, PrimitiveType};
+use crate::{
+    checker::CheckPolicy, checker::PolicyFingerprint, checker::PrimitiveType,
+    evaluator::EvaluationLimit,
+};
 
 #[derive(Clone, Copy)]
 pub(super) enum PredicateCallback {
@@ -74,7 +77,9 @@ impl EvaluationEnvironment {
             .find(|rule| rule.name == name)
             .map(|rule| rule.input);
         if declared != Some(kind) {
-            return Err(EnvironmentError::UnknownOrWrongPredicate { name });
+            return Err(EnvironmentError::UnknownOrWrongPredicate {
+                name,
+            });
         }
         self.predicates.insert(name, callback);
         Ok(())
@@ -83,13 +88,17 @@ impl EvaluationEnvironment {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EnvironmentError {
-    UnknownOrWrongPredicate { name: String },
+    UnknownOrWrongPredicate {
+        name: String,
+    },
 }
 
 impl fmt::Display for EnvironmentError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::UnknownOrWrongPredicate { name } => {
+            Self::UnknownOrWrongPredicate {
+                name,
+            } => {
                 write!(
                     formatter,
                     "predicate `{name}` is absent or has a different input type"
@@ -132,9 +141,9 @@ impl fmt::Display for EvaluationSetupError {
                 formatter,
                 "evaluation limit {limit:?} is {configured}, above the hard maximum of {maximum}"
             ),
-            Self::PolicyMismatch { .. } => {
-                formatter.write_str("evaluation policy does not match checking policy")
-            }
+            Self::PolicyMismatch {
+                ..
+            } => formatter.write_str("evaluation policy does not match checking policy"),
             Self::EnvironmentPolicyMismatch => {
                 formatter.write_str("evaluation environment does not match the supplied policy")
             }

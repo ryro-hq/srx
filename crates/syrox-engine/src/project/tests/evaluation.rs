@@ -6,11 +6,11 @@ fn lock_and_enumeration_do_not_evaluate_roots_and_selected_plan_omits_disconnect
     project.write(
         "main.srx",
         r#"
-        fn broken() -> std::Package { broken() }
-        outputs {
-            hello: std::Package = std::Package { id = "hello"; dependencies = []; };
-            disconnected: std::Package = broken();
+        mod factories {
+            mod hello { pub fn recipe() -> std::Recipe { std::Recipe { package = std::Package { id = "hello"; dependencies = []; }; } } }
+            mod disconnected { pub fn recipe() -> std::Recipe { recipe() } }
         }
+        pub publish(factories, recipe): std::Recipe;
     "#,
     );
     let config = package_configuration();
@@ -26,18 +26,26 @@ fn lock_and_enumeration_do_not_evaluate_roots_and_selected_plan_omits_disconnect
     let locked = open_locked_project_with(&project.0, &config).unwrap();
     let mut session = locked.evaluation().unwrap();
     assert_eq!(
-        session.root_names().collect::<Vec<_>>(),
+        session.catalog_names().unwrap().unwrap(),
         ["disconnected", "hello"]
     );
-    assert!(session.root_type("hello").is_some());
+    assert!(
+        session
+            .catalog_reference("hello")
+            .unwrap()
+            .is_some()
+    );
     assert!(
         matches!(session.evaluate_root("missing"), Err(ProjectOperationError::MissingOutput { name }) if name == "missing")
     );
-    session.evaluate_root("hello").unwrap();
-    session.evaluate_root("hello").unwrap();
-    let plan = session.into_plan().unwrap();
+    session.select_package("hello").unwrap();
+    session.select_package("hello").unwrap();
+    let plan = session.into_selected_plan().unwrap();
     assert_eq!(plan.roots().len(), 1);
-    assert_eq!(plan.packages().next().unwrap().export(), Some("hello"));
+    assert_eq!(
+        plan.packages().next().unwrap().export(),
+        Some("hello")
+    );
     assert!(matches!(
         plan_project_with(&project.0, &config),
         Err(ProjectOperationError::Check(
@@ -45,11 +53,11 @@ fn lock_and_enumeration_do_not_evaluate_roots_and_selected_plan_omits_disconnect
         ))
     ));
     assert!(
-        matches!(plan_project_outputs_with(&project.0, &config, &["disconnected"]), Err(ProjectOperationError::Check(CheckFailure::Evaluation { failed_roots, .. })) if failed_roots == ["disconnected"])
+        matches!(plan_project_package_with(&project.0, &config, "disconnected"), Err(ProjectOperationError::Check(CheckFailure::Evaluation { failed_roots, .. })) if failed_roots == ["disconnected"])
     );
     assert_eq!(
         plan.to_string(),
-        plan_project_outputs_with(&project.0, &config, &["hello", "hello"])
+        plan_project_package_with(&project.0, &config, "hello")
             .unwrap()
             .to_string()
     );
@@ -60,19 +68,22 @@ fn locked_query_retains_its_source_snapshot_and_reopening_detects_drift_before_e
     let project = TempProject::new();
     project.write(
         "main.srx",
-        r#"outputs { app: std::Package = std::Package { id = "original"; dependencies = []; }; }"#,
+        r#"mod factories { mod app { pub fn recipe() -> std::Recipe { std::Recipe { package = std::Package { id = "original"; dependencies = []; }; } } } } pub publish(factories, recipe): std::Recipe;"#,
     );
     let config = package_configuration();
     lock_project_with(&project.0, &config).unwrap();
     let locked = open_locked_project_with(&project.0, &config).unwrap();
     project.write(
         "main.srx",
-        "fn diverge() -> std::Package { diverge() } outputs { app: std::Package = diverge(); }",
+        "mod factories { mod app { pub fn recipe() -> std::Recipe { recipe() } } } pub publish(factories, recipe): std::Recipe;",
     );
     let mut session = locked.evaluation().unwrap();
-    session.evaluate_root("app").unwrap();
-    let plan = session.into_plan().unwrap();
-    assert_eq!(plan.packages().next().unwrap().id().as_str(), "original");
+    session.select_package("app").unwrap();
+    let plan = session.into_selected_plan().unwrap();
+    assert_eq!(
+        plan.packages().next().unwrap().id().as_str(),
+        "original"
+    );
     assert_eq!(plan.lock_digest(), locked.lock_digest());
     assert!(matches!(
         open_locked_project_with(&project.0, &config),
@@ -88,31 +99,42 @@ fn locked_query_retains_its_source_snapshot_and_reopening_detects_drift_before_e
 fn selected_composite_recipe_keeps_child_asset_authority_and_verifies_unselected_sources() {
     let workspace = TempProject::new();
     workspace.write("child/main.srx", r#"
-        pub fn recipe() -> std::Recipe<std::AutotoolsBuild> {
-            std::Recipe<std::AutotoolsBuild> {
+        pub fn recipe() -> std::Recipe {
+            std::Recipe {
                 package = std::Package { id = "hello"; dependencies = []; };
-                acquisition = std::Acquisition { package = "hello"; sources = [std::source_request(
+                acquisition = std::Option::Some(std::Acquisition { sources = [std::source_request(
                     "project:assets/source", "ddc9e669194254cef019a29d3619a2c16592e5d52e1a81e98b01bd52319149a3", 100
-                )]; };
-                build = std::AutotoolsBuild { package = "hello"; source_directory = "hello-1";
-                    entry = "usr/bin/hello"; timeout_seconds = 120; };
+                )]; });
+                build = std::Option::Some(std::autotools(std::BuildOptions { source_directory = "hello-1"; timeout_seconds = 120; }));
+                build_inputs = std::Option::None;
+                commands = [];
             }
         }
     "#);
     workspace.write("child/assets/source", "child");
     workspace.write("child/assets/unused", "unused");
     workspace.write("consumer/assets/source", "consumer");
-    workspace.write("consumer/main.srx", r#"
+    workspace.write(
+        "consumer/main.srx",
+        r#"
         inputs { child = "path:../child"; }
-        fn diverge() -> std::Package { diverge() }
-        outputs { hello: std::Recipe<std::AutotoolsBuild> = child::recipe(); broken: std::Package = diverge(); }
-    "#);
+        mod factories {
+            mod hello { pub fn recipe() -> std::Recipe { child::recipe() } }
+            mod broken { pub fn recipe() -> std::Recipe { recipe() } }
+        }
+        pub publish(factories, recipe): std::Recipe;
+    "#,
+    );
     let config = package_configuration();
     let child = workspace.0.join("child");
     let consumer = workspace.0.join("consumer");
     lock_project_with(&child, &config).unwrap();
     lock_project_with(&consumer, &config).unwrap();
-    let plan = plan_project_outputs_with(&consumer, &config, &["hello"]).unwrap();
+    let locked = open_locked_project_with(&consumer, &config).unwrap();
+    let mut evaluation = locked.evaluation().unwrap();
+    evaluation.select_package("hello").unwrap();
+    let prepared = evaluation.into_selected_prepared_plan().unwrap();
+    let plan = prepared.plan();
     assert_eq!(plan.builds().len(), 1);
     let source = plan
         .acquisitions()
@@ -122,19 +144,24 @@ fn selected_composite_recipe_keeps_child_asset_authority_and_verifies_unselected
         .next()
         .unwrap();
     assert_eq!(
-        fs::canonicalize(plan.project_root(source.owner().unwrap()).unwrap()).unwrap(),
+        fs::canonicalize(
+            prepared
+                .project_root(source.owner().unwrap())
+                .unwrap()
+        )
+        .unwrap(),
         fs::canonicalize(&child).unwrap()
     );
     workspace.write("child/assets/unused", "changed");
     assert!(matches!(
-        plan_project_outputs_with(&consumer, &config, &["hello"]),
+        plan_project_package_with(&consumer, &config, "hello"),
         Err(ProjectOperationError::Check(
             CheckFailure::InvalidChildLock { .. }
         ))
     ));
     lock_project_with(&child, &config).unwrap();
     assert!(matches!(
-        plan_project_outputs_with(&consumer, &config, &["hello"]),
+        plan_project_package_with(&consumer, &config, "hello"),
         Err(ProjectOperationError::GraphDrift)
     ));
 }
@@ -142,10 +169,13 @@ fn selected_composite_recipe_keeps_child_asset_authority_and_verifies_unselected
 #[test]
 fn locking_still_typechecks_every_factory_before_publishing() {
     let project = TempProject::new();
-    project.write("main.srx", "value I(int); outputs { good: I = 1; }");
+    project.write(
+        "main.srx",
+        "value I(int); outputs { good: I = 1; }",
+    );
     let config = package_configuration();
     lock_project_with(&project.0, &config).unwrap();
-    let previous = fs::read(project.0.join(crate::LOCK_FILE_NAME)).unwrap();
+    let previous = fs::read(project.0.join(lock::LOCK_FILE_NAME)).unwrap();
     project.write(
         "main.srx",
         r#"value I(int); value S(str); fn broken() -> I { S("wrong") } outputs { good: I = 1; }"#,
@@ -157,7 +187,7 @@ fn locking_still_typechecks_every_factory_before_publishing() {
         ))
     ));
     assert_eq!(
-        fs::read(project.0.join(crate::LOCK_FILE_NAME)).unwrap(),
+        fs::read(project.0.join(lock::LOCK_FILE_NAME)).unwrap(),
         previous
     );
 }

@@ -1,5 +1,51 @@
 use super::*;
-use crate::{SourceId, SourceSet, parse_sources};
+use crate::{source::SourceId, source::SourceSet, syntax::parse_sources};
+
+#[test]
+fn publication_symbols_and_collection_queries_share_one_inventory() {
+    let program = resolved(&[(
+        "main.srx",
+        r"
+        value I(int); value Key(str);
+        mod collection::one { pub fn make() -> I { make() } }
+        pub publish(collection, make): I;
+        outputs {
+            names: [Key] = module_exports(collection, make, fn(key: Key, f: fn() -> I) -> Key { key });
+        }
+    ",
+    )]);
+    let inventory = program.publications.values().next().unwrap();
+    assert_eq!(inventory.len(), 1);
+    assert_eq!(program.module_exports.len(), 2);
+    for shared in program.module_exports.values() {
+        assert!(Arc::ptr_eq(inventory, shared));
+    }
+    let member = program.catalog_members.values().next().unwrap();
+    assert!(Arc::ptr_eq(inventory, &member.inventory));
+    assert_eq!(member.factory(), inventory[0].item());
+}
+
+#[test]
+fn publication_metadata_exhaustion_is_terminal_before_symbol_installation() {
+    let mut sources = SourceSet::new();
+    sources.add("main.srx", "value I(int); mod collection::one { pub fn make() -> I { 1 } } pub publish(collection, make): I;").unwrap();
+    let parsed = parse_sources(&sources).unwrap();
+    let mut resolver = Resolver::new(&parsed);
+    resolver.collect();
+    resolver.bind_interfaces();
+    resolver.publication_bytes = MAX_PUBLICATION_METADATA_BYTES;
+    resolver.collect_catalog_members();
+    assert!(resolver.exhausted);
+    assert!(resolver.catalog_members.is_empty());
+    assert!(
+        resolver
+            .diagnostics
+            .iter()
+            .any(|error| error.message.contains("metadata byte limit"))
+    );
+    let span = resolver.items[0].span;
+    assert!(!resolver.charge(span));
+}
 
 fn resolved(sources: &[(&str, &str)]) -> ResolvedProgram {
     let mut set = SourceSet::new();
@@ -24,7 +70,10 @@ fn forward_references_and_repeated_modules_across_sources_resolve() {
             "first.srx",
             "mod shared::pkg { fn identity(item: Later) -> Later { item } }",
         ),
-        ("second.srx", "mod shared::pkg { struct Later {} }"),
+        (
+            "second.srx",
+            "mod shared::pkg { struct Later {} }",
+        ),
     ]);
 
     let modules: Vec<_> = program
@@ -82,7 +131,11 @@ fn module_export_selection_rejects_non_namespaces_and_non_function_exports() {
             "collection",
             "must be a function",
         ),
-        ("mod collection {}", "absent", "requires a module namespace"),
+        (
+            "mod collection {}",
+            "absent",
+            "requires a module namespace",
+        ),
     ] {
         let source = format!(
             "value Key(str); value I(int); {declaration} outputs {{ keys: [Key] = module_exports({namespace}, make, fn(key: Key, f: fn() -> I) -> Key {{ key }}); }}"
@@ -98,7 +151,7 @@ fn module_export_selection_rejects_non_namespaces_and_non_function_exports() {
 }
 
 #[test]
-fn repeated_module_projections_charge_key_bytes_and_sorting_work() {
+fn shared_module_projections_reuse_inventory_but_distinct_visibility_queries_charge_work() {
     use std::fmt::Write as _;
     let mut source = String::from(
         "value Key(str); value I(int); mod implementation { pub fn make() -> I { I(1) } } mod collection {",
@@ -116,11 +169,22 @@ fn repeated_module_projections_charge_key_bytes_and_sorting_work() {
         write!(source, "keys{index}: [Key] = module_exports(collection, make, fn(key: Key, f: fn() -> I) -> Key {{ key }});").unwrap();
     }
     source.push('}');
+    let program = resolved(&[("main.srx", &source)]);
+    let shared = program.module_exports.values().next().unwrap();
+    assert!(
+        program
+            .module_exports
+            .values()
+            .all(|inventory| Arc::ptr_eq(shared, inventory))
+    );
+    for index in 0..3 {
+        write!(source, "mod requester{index} {{ fn names() -> [Key] {{ module_exports(collection, make, fn(key: Key, f: fn() -> I) -> Key {{ key }}) }} }}").unwrap();
+    }
     let diagnostics = errors(&[("main.srx", &source)]);
     assert!(
-        diagnostics
-            .iter()
-            .any(|error| error.message.contains("name resolution work limit")),
+        diagnostics.iter().any(|error| error
+            .message
+            .contains("name resolution work limit")),
         "{diagnostics:?}"
     );
 }
@@ -138,11 +202,11 @@ fn unknown_types_and_closed_interface_private_access_are_diagnosed() {
         "main.srx",
         "mod api { struct Hidden {} outputs { type Public = Hidden; } } fn bad(item: api::Hidden) {}",
     )]);
-    assert!(
-        private
-            .iter()
-            .any(|error| error.message.contains("private to a module interface"))
-    );
+    assert!(private.iter().any(|error| {
+        error
+            .message
+            .contains("private to a module interface")
+    }));
 }
 
 #[test]
@@ -185,10 +249,19 @@ fn canonical_ids_and_diagnostic_messages_do_not_depend_on_source_order() {
     };
     assert_eq!(identities(&left), identities(&right));
 
-    let first = errors(&[("a.srx", "struct Same {}"), ("b.srx", "struct Same {}")]);
-    let second = errors(&[("b.srx", "struct Same {}"), ("a.srx", "struct Same {}")]);
+    let first = errors(&[
+        ("a.srx", "struct Same {}"),
+        ("b.srx", "struct Same {}"),
+    ]);
+    let second = errors(&[
+        ("b.srx", "struct Same {}"),
+        ("a.srx", "struct Same {}"),
+    ]);
     assert_eq!(
-        first.iter().map(|error| &error.message).collect::<Vec<_>>(),
+        first
+            .iter()
+            .map(|error| &error.message)
+            .collect::<Vec<_>>(),
         second
             .iter()
             .map(|error| &error.message)
@@ -217,7 +290,10 @@ fn domains_isolate_merges_and_only_authenticated_std_uses_reserved_lookup() {
         )
         .unwrap();
     sources
-        .add("consumer.srx", "fn trusted(item: std::Trusted) {}")
+        .add(
+            "consumer.srx",
+            "fn trusted(item: std::Trusted) {}",
+        )
         .unwrap();
 
     let program = resolve(parse_sources(&sources).unwrap()).unwrap();
@@ -251,11 +327,11 @@ fn domains_isolate_merges_and_only_authenticated_std_uses_reserved_lookup() {
         .add("project.srx", "fn bad(item: std::Private) {}")
         .unwrap();
     let diagnostics = resolve(parse_sources(&private_std).unwrap()).unwrap_err();
-    assert!(
-        diagnostics
-            .iter()
-            .any(|error| error.message.contains("private to a module interface"))
-    );
+    assert!(diagnostics.iter().any(|error| {
+        error
+            .message
+            .contains("private to a module interface")
+    }));
 }
 
 #[test]
@@ -307,7 +383,10 @@ fn authenticated_project_input_alias_resolves_only_root_outputs() {
             _ => None,
         })
         .unwrap();
-    let item = program.items().find(|item| item.id() == target).unwrap();
+    let item = program
+        .items()
+        .find(|item| item.id() == target)
+        .unwrap();
     assert_eq!(item.domain(), catalog);
     assert_eq!(item.path().segments(), ["make"]);
 }
@@ -354,7 +433,11 @@ fn input_domains_cannot_use_project_input_aliases() {
         .unwrap();
     let sibling = sources.create_input_domain("sibling").unwrap();
     sources
-        .add_to_input_domain(sibling, "sibling.srx", "fn denied() { catalog::make(); }")
+        .add_to_input_domain(
+            sibling,
+            "sibling.srx",
+            "fn denied() { catalog::make(); }",
+        )
         .unwrap();
 
     let diagnostics = resolve(parse_sources(&sources).unwrap()).unwrap_err();
@@ -398,15 +481,24 @@ fn interface_binding_reaches_a_bounded_fixpoint() {
             "a.srx",
             "mod a { struct Base {} outputs { type A = Base; } }",
         ),
-        ("b.srx", "mod b { use a::A; outputs { type B = A; } }"),
-        ("c.srx", "mod c { use b::B; outputs { type C = B; } }"),
+        (
+            "b.srx",
+            "mod b { use a::A; outputs { type B = A; } }",
+        ),
+        (
+            "c.srx",
+            "mod c { use b::B; outputs { type C = B; } }",
+        ),
         ("main.srx", "fn consume(item: c::C) {}"),
     ]);
 }
 
 #[test]
 fn local_namespaces_qualification_and_simultaneous_duplicates_are_checked() {
-    let program = resolved(&[("valid.srx", "struct T {} fn f(T: T) -> T { erase<T>(T) }")]);
+    let program = resolved(&[(
+        "valid.srx",
+        "struct T {} fn f(T: T) -> T { erase<T>(T) }",
+    )]);
     assert!(program.references().any(|reference| {
         reference.kind() == ReferenceKind::Type
             && matches!(reference.target(), ResolvedTarget::Item(_))
@@ -416,7 +508,10 @@ fn local_namespaces_qualification_and_simultaneous_duplicates_are_checked() {
         "invalid.srx",
         "struct T {} value V(str); struct Box<T> { field: V = T; } fn qualified(x: V) { x::bad; } fn duplicate(x: V, x: V) {} struct Pair<A, A> {}",
     )]);
-    let messages: Vec<_> = invalid.iter().map(|error| error.message.as_str()).collect();
+    let messages: Vec<_> = invalid
+        .iter()
+        .map(|error| error.message.as_str())
+        .collect();
     assert!(messages.contains(&"local value cannot qualify a `::` path"));
     assert!(messages.contains(&"duplicate function parameter"));
     assert!(messages.contains(&"duplicate type parameter"));
@@ -461,7 +556,7 @@ fn local_id_overflow_is_a_diagnostic_not_aliasing() {
 
     assert_eq!(
         resolver.local(
-            &crate::Ident {
+            &crate::syntax::Ident {
                 text: "x".into(),
                 span: Span::new(SourceId::SINGLE, 0, 0)
             },

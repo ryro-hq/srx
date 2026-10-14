@@ -20,7 +20,10 @@ fn syntax_actions_are_versioned_revalidated_and_never_echo_forged_edits() {
     let change = &action["edit"]["documentChanges"][0];
     assert_eq!(change["textDocument"]["version"], 1);
     assert_eq!(change["textDocument"]["uri"], document);
-    assert_eq!(change["edits"][0]["range"]["start"], cursor(text, "}"));
+    assert_eq!(
+        change["edits"][0]["range"]["start"],
+        cursor(text, "}")
+    );
     let mut forged = action.clone();
     forged["edit"] = json!({"changes":{"file:///somewhere":[{"newText":"forged"}]}});
     let resolved = client.request("codeAction/resolve", forged);

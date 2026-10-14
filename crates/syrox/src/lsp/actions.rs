@@ -1,7 +1,11 @@
 use serde_json::{Value, json};
-use syrox_lang::{AnalysisCancellation, DocumentSnapshot, SyntaxFix};
+use syrox_lang::{analysis::AnalysisCancellation, analysis::DocumentSnapshot, analysis::SyntaxFix};
 
-use super::{Server, document_uri, features::range, position};
+use super::{
+    Server, document_uri,
+    features::{range, text_edit},
+    position,
+};
 
 pub(super) struct ActionError(pub i32, pub String);
 
@@ -23,9 +27,15 @@ impl Server {
         if uri.starts_with("syrox-source:") {
             return Ok(json!([]));
         }
-        if params["context"]["only"].as_array().is_some_and(|kinds| {
-            !kinds.is_empty() && !kinds.iter().any(|kind| kind == "quickfix" || kind == "")
-        }) {
+        if params["context"]["only"]
+            .as_array()
+            .is_some_and(|kinds| {
+                !kinds.is_empty()
+                    && !kinds
+                        .iter()
+                        .any(|kind| kind == "quickfix" || kind == "")
+            })
+        {
             return Ok(json!([]));
         }
         let document = self
@@ -38,13 +48,19 @@ impl Server {
             .line_index(&cancellation)
             .map_err(|error| error.to_string())?;
         let start = lines
-            .offset(position(&params["range"]["start"])?, self.encoding)
+            .offset(
+                position(&params["range"]["start"])?,
+                self.encoding,
+            )
             .ok_or_else(|| ActionError(-32602, "invalid range start".into()))?;
         let end = lines
             .offset(position(&params["range"]["end"])?, self.encoding)
             .ok_or_else(|| ActionError(-32602, "invalid range end".into()))?;
         if start > end {
-            return Err(ActionError(-32602, "reversed action range".into()));
+            return Err(ActionError(
+                -32602,
+                "reversed action range".into(),
+            ));
         }
         let actions = document
             .syntax_fixes(&cancellation)
@@ -73,7 +89,11 @@ impl Server {
         {
             return Err(stale());
         }
-        let document = self.host.snapshot().document(uri).ok_or_else(stale)?;
+        let document = self
+            .host
+            .snapshot()
+            .document(uri)
+            .ok_or_else(stale)?;
         if document.overlay_version().map(i64::from) != data["version"].as_i64() {
             return Err(stale());
         }
@@ -97,7 +117,7 @@ impl Server {
             .line_index(&AnalysisCancellation::default())
             .expect("active document query");
         json!({"title":format!("Insert `{}`", fix.text),"kind":"quickfix",
-            "edit":{"documentChanges":[{"textDocument":{"uri":uri,"version":document.overlay_version()},"edits":[{"range":range(lines, fix.span, self.encoding),"newText":fix.text}]}]},
+            "edit":{"documentChanges":[{"textDocument":{"uri":uri,"version":document.overlay_version()},"edits":[text_edit(range(lines, fix.span, self.encoding).unwrap_or(Value::Null), fix.text)]}]},
             "data":{"uri":uri,"version":document.overlay_version(),"generation":self.generation,"process":std::process::id(),"offset":fix.span.start(),"text":fix.text}})
     }
 }

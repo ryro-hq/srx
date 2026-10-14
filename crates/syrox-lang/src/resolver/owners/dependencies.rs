@@ -1,14 +1,18 @@
 use super::{OwnerDiagnostic, OwnerReferenceTarget, OwnerRelativeSpan, OwnerSourceMap};
-use crate::Span;
 use crate::resolver::{
     ModuleId, Path, ResolvedItemKind, ResolvedModuleExport, ResolvedTarget, Resolver,
 };
+use crate::source::Span;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NamespaceQuery {
-    Lookup { expected: &'static str },
+    Lookup {
+        expected: &'static str,
+    },
     Variant,
-    ModuleExports { export: String },
+    ModuleExports {
+        export: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -85,7 +89,8 @@ impl Resolver<'_> {
         let target_bytes = |target: &ResolvedTarget| match target {
             ResolvedTarget::Item(id)
             | ResolvedTarget::EnumVariant {
-                enumeration: id, ..
+                enumeration: id,
+                ..
             } => bytes(self.items[id.index()].path.segments()),
             ResolvedTarget::Module(id) => bytes(self.modules[id.index()].path.segments()),
             _ => 0,
@@ -100,7 +105,10 @@ impl Resolver<'_> {
                 .iter()
                 .map(|diagnostic| diagnostic.message.len())
                 .sum::<usize>();
-        if let NamespaceQuery::ModuleExports { export } = &query {
+        if let NamespaceQuery::ModuleExports {
+            export,
+        } = &query
+        {
             text = text.saturating_add(export.len());
         }
         let mut units = path.segments.len() + self.diagnostics.len() - diagnostics_start + 1;
@@ -110,7 +118,10 @@ impl Resolver<'_> {
                     text = text.saturating_add(target_bytes(target));
                 }
             }
-            ObservedNamespace::Exports { root, entries } => {
+            ObservedNamespace::Exports {
+                root,
+                entries,
+            } => {
                 if let Some(root) = root {
                     text = text.saturating_add(target_bytes(root));
                 }
@@ -134,13 +145,7 @@ impl Resolver<'_> {
         }
         let diagnostics = self.diagnostics[diagnostics_start..]
             .iter()
-            .filter_map(|diagnostic| {
-                Some(OwnerDiagnostic {
-                    span: map.relative_span(diagnostic.span)?,
-                    code: diagnostic.code,
-                    message: diagnostic.message.clone(),
-                })
-            })
+            .filter_map(|diagnostic| map.diagnostic(diagnostic))
             .collect::<Vec<_>>();
         let complete = !self.exhausted
             && self.diagnostics.len() < crate::MAX_DIAGNOSTICS
@@ -152,7 +157,11 @@ impl Resolver<'_> {
             requester: self
                 .namespace_target(&ResolvedTarget::Module(module))
                 .identity,
-            path: path.segments.iter().map(|part| part.text.clone()).collect(),
+            path: path
+                .segments
+                .iter()
+                .map(|part| part.text.clone())
+                .collect(),
             span: relative,
             query,
             outcome: self.namespace_outcome(result),
@@ -168,7 +177,10 @@ impl Resolver<'_> {
             ObservedNamespace::Target(target) => {
                 NamespaceOutcome::Target(target.map(|target| self.namespace_target(target)))
             }
-            ObservedNamespace::Exports { root, entries } => NamespaceOutcome::Exports {
+            ObservedNamespace::Exports {
+                root,
+                entries,
+            } => NamespaceOutcome::Exports {
                 root: root.map(|root| self.namespace_target(root)),
                 entries: entries.map(|entries| {
                     entries
@@ -205,7 +217,10 @@ impl Resolver<'_> {
                     None,
                 )
             }
-            ResolvedTarget::EnumVariant { enumeration, index } => {
+            ResolvedTarget::EnumVariant {
+                enumeration,
+                index,
+            } => {
                 let item = &self.items[enumeration.index()];
                 (
                     OwnerReferenceTarget::EnumVariant {

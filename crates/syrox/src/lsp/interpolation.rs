@@ -1,9 +1,13 @@
 use serde_json::{Value, json};
 use syrox_lang::{
-    LineIndex, LocalKind, ParsedFile, ResolvedTarget, SemanticAnalysis, SourceId, SyntaxTokenKind,
+    analysis::SemanticAnalysis, line_index::LineIndex, resolver::LocalKind,
+    resolver::ResolvedTarget, source::SourceId, syntax::ParsedFile, syntax::SyntaxTokenKind,
 };
 
-use super::Server;
+use super::{
+    Server,
+    features::{edit_range, text_edit},
+};
 
 impl Server {
     pub(super) fn complete_interpolation(
@@ -40,9 +44,12 @@ impl Server {
                 .take_while(|byte| byte.is_ascii_alphanumeric() || **byte == b'_')
                 .count();
         let lines = LineIndex::new(parsed.source());
-        let begin = lines.position(u32::try_from(replace_start).ok()?, self.encoding)?;
-        let end = lines.position(u32::try_from(replace_end).ok()?, self.encoding)?;
-        let range = json!({"start":{"line":begin.line,"character":begin.character},"end":{"line":end.line,"character":end.character}});
+        let range = edit_range(
+            &lines,
+            u32::try_from(replace_start).ok()?,
+            u32::try_from(replace_end).ok()?,
+            self.encoding,
+        )?;
         let mut items = Vec::new();
         if parts.is_empty() {
             for (name, target) in analysis.complete_path(source, offset, &[], prefix) {
@@ -56,7 +63,12 @@ impl Server {
                 {
                     continue;
                 }
-                items.push(json!({"label":name,"kind":6,"detail":analysis.local_type(local).map(|ty|analysis.display_type(ty)),"textEdit":{"range":range,"newText":name}}));
+                items.push(json!({
+                    "label": name,
+                    "kind": 6,
+                    "detail": analysis.local_type(local).map(|ty|analysis.display_type(ty)),
+                    "textEdit": text_edit(range.clone(), name)
+                }));
             }
         } else {
             let Some(ResolvedTarget::Local(local)) =
@@ -82,7 +94,12 @@ impl Server {
                 .into_iter()
                 .filter(|field| field.name.starts_with(prefix))
             {
-                items.push(json!({"label":field.name,"kind":5,"detail":analysis.display_type(&field.ty),"textEdit":{"range":range,"newText":field.name}}));
+                items.push(json!({
+                    "label": field.name,
+                    "kind": 5,
+                    "detail": analysis.display_type(&field.ty),
+                    "textEdit": text_edit(range.clone(), field.name)
+                }));
             }
         }
         Some(json!({"isIncomplete":false,"items":items}))

@@ -8,6 +8,13 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[features]
+default = ["vm-tests"]
+# Host/guest harness selection; the default test run requires the microVM.
+vm-tests = []
+vm-guest = []
+ecosystem-tests = ["vm-tests"]
+
 [dependencies]
 clap.workspace = true
 syrox-engine.workspace = true
@@ -21,8 +28,11 @@ url = "=2.5.8"
 libc = "=1.0.0-alpha.4"
 
 [dev-dependencies]
+microsandbox = { version = "=0.7.3", default-features = false, features = ["local", "net"] }
 flate2 = "=1.1.9"
 tempfile = "=3.23.0"
+serde = { version = "=1.0.229", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "signal", "macros"] }
 
 [lints]
 workspace = true
@@ -34,3 +44,25 @@ path = "src/main.rs"
 [[bin]]
 name = "syrox-worker"
 path = "src/worker.rs"
+
+[[test]]
+name = "vm"
+path = "tests/vm.rs"
+harness = false
+required-features = ["vm-tests"]
+
+[[test]]
+name = "ecosystem"
+path = "tests/ecosystem.rs"
+harness = false
+required-features = ["ecosystem-tests"]
+
+[[test]]
+name = "vm_guest"
+path = "tests/vm_guest.rs"
+harness = false
+required-features = ["vm-guest"]
+
+[[example]]
+name = "verify_vm_harness"
+required-features = ["vm-tests"]
