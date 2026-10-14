@@ -34,7 +34,7 @@ pub(super) fn qualify(
     store_path: &Path,
     output: &Path,
     checks: &CheckConfiguration,
-) -> Result<String> {
+) -> Result<()> {
     let catalog = Catalog::load(path)?;
     let old: CatalogLock = serde_json::from_slice(&fs::read(path.join(LOCK_FILE))?)?;
     let mut lock = catalog.lock(path)?;
@@ -142,9 +142,7 @@ pub(super) fn qualify(
         .open(output.join(format!("{identity}.json")))?;
     report.write_all(serde_json::to_string_pretty(&evidence)?.as_bytes())?;
     report.sync_all()?;
-    Ok(format!(
-        "qualified {identity}: native execution and offline import passed"
-    ))
+    Ok(())
 }
 
 pub(super) fn release_manifest(
@@ -319,7 +317,7 @@ fn nginx_http(closure: &RuntimeClosure, cancellation: &Cancellation) -> Result<(
     let port_reservation = TcpListener::bind("127.0.0.1:0")?;
     let port = port_reservation.local_addr()?.port();
     let directory = NativeConfiguration::new(&format!(
-        "daemon off; error_log stderr; pid /tmp/nginx.pid; events {{}} http {{ access_log /dev/stdout; server {{ listen 127.0.0.1:{port}; location / {{ root /syrox/config/qualification; }} }} }}"
+        "daemon off; error_log stderr; pid /tmp/nginx.pid; events {{}} http {{ access_log off; server {{ listen 127.0.0.1:{port}; location / {{ root /syrox/config/qualification; }} }} }}"
     ))?;
     let configuration = directory.configuration()?;
     let config_argument = OsString::from("/syrox/config/qualification/nginx.conf");

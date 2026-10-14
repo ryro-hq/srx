@@ -106,9 +106,10 @@ fn execute(
         output,
     } = command
     {
-        return super::catalog_qualification::qualify(
-            &path, &identity, &config, &store, &output, checks,
-        );
+        super::catalog_qualification::qualify(&path, &identity, &config, &store, &output, checks)?;
+        return Ok(format!(
+            "qualified {identity}: native execution and offline import passed"
+        ));
     }
     let path = match &command {
         Command::Qualify {
