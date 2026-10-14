@@ -92,6 +92,33 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 
 The [CI workflow](.github/workflows/ci.yml) also checks dependencies, macOS portability stubs, and the static Linux binaries. Native build and runtime integration tests require an appropriately configured Linux host.
 
+## Merge workflow
+
+Open a focused pull request from a topic branch. Changes enter `main` through
+GitHub's merge queue, which rebases one pull request at a time onto the current
+`main` and tests the candidate before merging. Review approval is optional for
+solo development; all review conversations must be resolved.
+
+The required GitHub Actions check, `success`, covers every mandatory CI job.
+Failed, cancelled, or skipped dependencies fail the gate. CI runs on pull
+requests and `merge_group` candidates, and the queue waits up to 180 minutes
+for required checks. A failed or timed-out entry must be fixed and queued again.
+
+CodeQL keeps its default Rust and GitHub Actions configuration. Code scanning
+merge protection checks the pull request and blocks new high or critical
+security alerts and error-level findings. That rule does not evaluate merge
+groups; the queue requires the complete CI gate on its candidate.
+
+After reviewing the change and its checks, request integration with:
+
+```sh
+gh pr merge <number> --auto
+```
+
+GitHub waits for the pull request requirements, then adds it to the queue.
+Topic branches are deleted after merging. Direct pushes, force pushes, deletion
+of `main`, and merge commits are blocked; use the queue for integration.
+
 ## License
 
 Syrox is licensed under the [Apache License 2.0](LICENSE).
