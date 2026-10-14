@@ -177,13 +177,14 @@ refuse a different source inventory, toolchain, target or executable hash. They
 compile only the required GNU libtests and C fixtures. Firmware and the guest
 image are built once, cached with pinned inputs and checked before each row.
 Quality, Clippy, builds and environment preparation start concurrently on
-separate runners. Host Cargo caches include workspace crates and survive failed
-checks. Kernel rows restore vendored dependencies and GNU libtest compilation
+separate runners. Host Cargo caches retain compiled dependencies using
+Swatinem/rust-cache's defaults and are published only from the default branch
+after successful checks. Kernel rows restore vendored dependencies and GNU libtest compilation
 from a preparation cache bound to the immutable image, lockfile and toolchain;
 source hashes control freshness across commits. Only settled, inactive entries
 are saved. Build parallelism is recorded separately from VM execution limits.
 A second kernel belongs in this matrix only after the same capability probes
-and journeys qualify it. Weekly and manual runs repeat the required matrix.
+and journeys qualify it. Daily and manual runs repeat the required matrix.
 
 Every kernel row checks KVM and Docker and preserves reports, logs and journals
 even after failure. Preparation uses the host evidence owner's UID/GID while the
@@ -777,6 +778,34 @@ gh pr merge <number> --auto
 GitHub waits for the pull request requirements, then adds it to the queue.
 Topic branches are deleted after merging. Direct pushes, force pushes, deletion
 of `main`, and merge commits are blocked; use the queue for integration.
+
+### CI caches
+
+The default branch publishes the reusable caches; pull requests and merge-group
+candidates restore them and still run the complete suite. GitHub isolates
+caches created on pull request and queue refs, so copying the same cache into
+each ref consumes storage without making it reusable by later entries.
+
+Host dependencies use [Swatinem/rust-cache](https://github.com/Swatinem/rust-cache),
+with separate keys for incompatible targets and feature configurations. Saving
+only from `main` follows [axum](https://github.com/tokio-rs/axum/blob/main/.github/workflows/CI.yml)
+and [Ruff](https://github.com/astral-sh/ruff/blob/main/.github/workflows/ci.yaml).
+Daily runs on `main` keep reusable caches available to the queue, following
+[libc](https://github.com/rust-lang/libc/blob/main/.github/workflows/ci.yaml).
+
+The pinned VM environment uses `actions/cache/restore` and `actions/cache/save`,
+keyed by its recipes. Kernel lanes download the environment job's compressed
+artifact and verify its checksums and capabilities. The guest preparation cache
+contains vendored dependencies and GNU libtest compilation; its key combines the
+image, lockfile, toolchain and source hashes. Standard `restore-keys` reuse older
+outputs from the same environment. Only the successful native lane on `main`
+publishes settled entries after confirmed VM cleanup. GNU and musl acceptance
+lanes validate their own release candidates against the complete suite.
+
+[GitHub's cache service](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching)
+handles expiration and storage eviction. Cache contents accelerate preparation;
+artifact pins, qualification and test results remain fresh evidence for every
+candidate.
 
 ## License
 

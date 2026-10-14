@@ -8,7 +8,8 @@ on:
     types: [checks_requested]
   workflow_dispatch:
   schedule:
-    - cron: '23 4 * * 1'
+    # Like rust-lang/libc, keep a default-branch cache available to merge groups.
+    - cron: '23 4 * * *'
 
 permissions:
   contents: read
@@ -76,6 +77,7 @@ jobs:
       - uses: ./.github/actions/rust
         with:
           cache-key: host-tests
+          save-cache: 'false'
       - name: Language and CLI tests
         run: |
           cargo test --locked -p syrox-lang
@@ -138,7 +140,8 @@ jobs:
           sudo chown "$(id -u):$(id -g)" /dev/kvm
           sudo chmod 660 /dev/kvm
           docker info
-      - uses: actions/cache@v6
+      - name: Restore pinned VM environment
+        uses: actions/cache/restore@v6
         id: environment-cache
         with:
           path: |
@@ -171,12 +174,20 @@ jobs:
           test "$(sha256sum target/ci-environment/firmware.so | cut -d' ' -f1)" = "$(jq -r .firmware_sha256 target/ci-environment/provenance.json)"
           cd target/ci-environment
           sha256sum msb firmware.so image.tar image.id provenance.json > SHA256SUMS
+      - name: Save verified VM environment on the default branch
+        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.environment-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            target/ci-environment
+            target/vm-runtime
+          key: ${{ steps.environment-cache.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@v7
         with:
           name: vm-linux-6.12.109
           path: target/ci-environment/*
           if-no-files-found: error
-          compression-level: 0
+          compression-level: 1
 
   kernel:
     name: kernel (${{ matrix.profile }}, ${{ matrix.target }}, ${{ matrix.kernel }})
@@ -206,6 +217,7 @@ jobs:
       - uses: ./.github/actions/rust
         with:
           cache-key: host-tests
+          save-cache: 'false'
       - uses: actions/download-artifact@v8
         with:
           name: release-${{ matrix.target }}
@@ -223,14 +235,14 @@ jobs:
           sudo chown "$(id -u):$(id -g)" /dev/kvm
           sudo chmod 660 /dev/kvm
           docker load --input target/ci-environment/image.tar
-      - name: Restore host preparation outputs
+      - name: Restore guest preparation cache
         uses: actions/cache/restore@v6
         id: preparation-cache
         with:
           path: |
             target/vm-cache/vendor
             target/vm-cache/guest/target
-          key: vm-prepare-v1-${{ runner.os }}-${{ hashFiles('target/ci-environment/image.id', 'Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
+          key: vm-prepare-v1-${{ runner.os }}-${{ hashFiles('target/ci-environment/image.id', 'Cargo.lock', 'rust-toolchain.toml') }}-${{ hashFiles('Cargo.toml', 'crates/**', 'std/**', 'tests/fixtures/**') }}
           restore-keys: |
             vm-prepare-v1-${{ runner.os }}-${{ hashFiles('target/ci-environment/image.id', 'Cargo.lock', 'rust-toolchain.toml') }}-
       - name: Configure the explicit resource profile and imported candidates
@@ -256,8 +268,8 @@ jobs:
             jq -e '.vm_cleanup == "not-started" or .vm_cleanup == "confirmed absent" or (.vm_cleanup | startswith("destroyed;"))' target/test-evidence/ci-vm/report.json >/dev/null; then
             echo "save=true" >> "$GITHUB_OUTPUT"
           fi
-      - name: Save settled preparation outputs
-        if: always() && steps.inactive-cache.outputs.save == 'true' && steps.preparation-cache.outputs.cache-hit != 'true' && steps.preparation-cache.outputs.cache-primary-key != ''
+      - name: Save settled preparation from the default branch's native lane
+        if: success() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && matrix.profile == 'native' && steps.inactive-cache.outputs.save == 'true' && steps.preparation-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: |

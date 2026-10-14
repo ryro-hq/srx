@@ -591,11 +591,17 @@ fn timeout_terminates_the_process_group_and_preserves_partial_output() {
     let pid = fs::read_to_string(temporary.path().join("child.pid")).unwrap();
     // SIGKILL delivery to group members is asynchronous. Reaping the leader
     // does not mean its child has already reached the terminal kernel state.
+    // procfs can return ESRCH if the child disappears during the status read.
     let until = std::time::Instant::now() + Duration::from_secs(2);
     loop {
         let status = fs::read_to_string(format!("/proc/{}/status", pid.trim()));
         match status {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound
+                    || error.raw_os_error() == Some(libc::ESRCH) =>
+            {
+                break;
+            }
             Err(error) => panic!("cannot observe timed-out child: {error}"),
             Ok(status) => {
                 if status.lines().any(|line| {
