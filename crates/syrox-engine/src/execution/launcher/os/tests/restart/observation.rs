@@ -50,6 +50,10 @@ impl Fixture {
         )?))
     }
     fn observe(&mut self) -> Result<SystemdUnitStatus> {
+        let cancel = self.cancel.clone();
+        retry_restart_observation(&cancel, deadline(), || self.observe_once())
+    }
+    fn observe_once(&mut self) -> Result<SystemdUnitStatus> {
         let binding = self
             .binding()?
             .ok_or_else(|| invalid("gate binding not published"))?;
@@ -123,10 +127,7 @@ impl Fixture {
                     "payload witness differs",
                 )?;
                 let attempts = self.attempts()?;
-                let store = self
-                    .manager
-                    .query_fd_store(&status.unit, Duration::from_secs(2), &self.cancel)?
-                    .ok_or_else(|| invalid("missing FD store"))?;
+                let store = self.observe_fd_store(&status.unit)?;
                 let after = self.observe()?;
                 if payload_observed(&status, &after) {
                     let invocation = context::hex(
@@ -159,6 +160,17 @@ impl Fixture {
             check(Instant::now() < until, "payload witness deadline")?;
             std::thread::sleep(Duration::from_millis(20));
         }
+    }
+    fn observe_fd_store(
+        &mut self,
+        unit: &crate::systemd::SystemdUnitName,
+    ) -> Result<crate::systemd::SystemdFdStoreObserved> {
+        let cancel = self.cancel.clone();
+        retry_restart_observation(&cancel, deadline(), || {
+            self.manager
+                .query_fd_store(unit, Duration::from_secs(2), &cancel)?
+                .ok_or_else(|| invalid("missing FD store"))
+        })
     }
     pub(super) fn wait_failed(&mut self, code: i32, result: &str) -> Result<Vec<u8>> {
         self.wait_terminal(code, Some(result))
@@ -224,10 +236,7 @@ impl Fixture {
                         && status.exec_main_status == code,
                     "unexpected launcher envelope or manager rate-limit result",
                 )?;
-                let store = self
-                    .manager
-                    .query_fd_store(&status.unit, Duration::from_secs(2), &self.cancel)?
-                    .ok_or_else(|| invalid("missing terminal FD store"))?;
+                let store = self.observe_fd_store(&status.unit)?;
                 check(
                     store.invocation == status.invocation && store.count == 0,
                     "terminal FD store was not released",
@@ -355,4 +364,82 @@ fn payload_witness_requires_a_stable_active_invocation() {
     assert!(!payload_observed(&active, &restarted));
     active.main_pid = 0;
     assert!(!payload_observed(&active, &active));
+}
+
+// These are torn reads across an expected automatic restart. Retry the whole
+// observation; owner, contract, malformed packet and authority failures remain
+// errors. Production manager queries retain their strict invocation checks.
+fn retry_restart_observation<T>(
+    cancel: &Cancellation,
+    until: Instant,
+    mut observe: impl FnMut() -> Result<T>,
+) -> Result<T> {
+    loop {
+        cancel.check()?;
+        check(
+            Instant::now() < until,
+            "restart observation deadline",
+        )?;
+        match observe() {
+            Err(error)
+                if matches!(
+                    error.downcast_ref::<crate::systemd::SystemdError>(),
+                    Some(crate::systemd::SystemdError::Protocol(
+                        "unit invocation changed during observation"
+                            | "invocation changed during observation"
+                    ))
+                ) =>
+            {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            result => return result,
+        }
+    }
+}
+
+#[test]
+fn restart_observation_retries_only_torn_invocation_snapshots() {
+    use crate::systemd::SystemdError;
+    let cancel = Cancellation::default();
+    let mut snapshots = 0;
+    let result = retry_restart_observation(&cancel, deadline(), || {
+        snapshots += 1;
+        match snapshots {
+            1 => Err(SystemdError::Protocol("unit invocation changed during observation").into()),
+            2 => Err(SystemdError::Protocol("invocation changed during observation").into()),
+            _ => Ok(42),
+        }
+    })
+    .unwrap();
+    assert_eq!(result, 42);
+    assert_eq!(snapshots, 3);
+    for message in [
+        "manager ownership changed; reconnect required",
+        "invalid invocation identifier",
+        "loaded Os unit changed during observation",
+    ] {
+        snapshots = 0;
+        let error = retry_restart_observation::<()>(&cancel, deadline(), || {
+            snapshots += 1;
+            Err(SystemdError::Protocol(message).into())
+        })
+        .unwrap_err();
+        assert!(
+            matches!(error.downcast_ref::<SystemdError>(), Some(SystemdError::Protocol(value)) if *value == message)
+        );
+        assert_eq!(snapshots, 1);
+    }
+    assert!(
+        retry_restart_observation::<()>(&cancel, Instant::now(), || panic!(
+            "expired observation"
+        ))
+        .is_err()
+    );
+    cancel.cancel();
+    assert!(
+        retry_restart_observation::<()>(&cancel, deadline(), || panic!(
+            "cancelled observation"
+        ))
+        .is_err()
+    );
 }
