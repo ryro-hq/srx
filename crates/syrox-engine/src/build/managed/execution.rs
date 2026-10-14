@@ -270,26 +270,41 @@ impl<'a> ManagedBuildExecution<'a> {
     ) -> Result<(), BuildError> {
         loop {
             self.check_epoch(manager, cancel, deadline)?;
-            let status = manager
-                .query(
-                    &self.specification.context().unit,
-                    remaining(cancel, deadline)?,
-                    cancel,
-                )
-                .map_err(manager_error)?;
+            let status = match manager.query(
+                &self.specification.context().unit,
+                remaining(cancel, deadline)?,
+                cancel,
+            ) {
+                Ok(status) => status,
+                Err(error) => {
+                    // Before pin_worker there is no authenticated invocation.
+                    // Its first ID may be assigned during these property reads.
+                    // Only the still-pending exact Start job permits a fresh
+                    // snapshot; no bound observation gains this exception.
+                    if self.binding.is_none()
+                        && matches!(
+                            &error,
+                            crate::systemd::SystemdError::Protocol(
+                                "unit invocation changed during observation"
+                            )
+                        )
+                        && startup_snapshot_pending(
+                            &error,
+                            self.start_pending(manager, cancel, deadline)?,
+                        )
+                    {
+                        std::thread::sleep(Duration::from_millis(20));
+                        continue;
+                    }
+                    return Err(manager_error(error));
+                }
+            };
             // Type=notify keeps this exact job pending until after Hello and
             // resource authorization. Readiness must never wait for JobRemoved.
             if startup_ready(status.as_ref()) {
                 return Ok(());
             }
-            let start = self
-                .start
-                .as_ref()
-                .ok_or(BuildError::InvalidRequest)?;
-            let pending = !manager
-                .recorded_job_absent(start.path(), remaining(cancel, deadline)?, cancel)
-                .map_err(manager_error)?;
-            self.check_epoch(manager, cancel, deadline)?;
+            let pending = self.start_pending(manager, cancel, deadline)?;
             if !startup_pending(status.as_ref(), pending) {
                 return Err(BuildError::Execution(
                     "managed worker exited before Hello".into(),
@@ -297,6 +312,22 @@ impl<'a> ManagedBuildExecution<'a> {
             }
             std::thread::sleep(Duration::from_millis(20));
         }
+    }
+    fn start_pending(
+        &self,
+        manager: &mut SystemdManager,
+        cancel: &Cancellation,
+        deadline: Instant,
+    ) -> Result<bool, BuildError> {
+        let start = self
+            .start
+            .as_ref()
+            .ok_or(BuildError::InvalidRequest)?;
+        let pending = !manager
+            .recorded_job_absent(start.path(), remaining(cancel, deadline)?, cancel)
+            .map_err(manager_error)?;
+        self.check_epoch(manager, cancel, deadline)?;
+        Ok(pending)
     }
     /// Revoke before Stop, using a cleanup token independent of caller cancellation.
     /// A Stop with an uncertain reply is never repeated on this owner.
@@ -516,6 +547,14 @@ fn startup_pending(status: Option<&SystemdUnitStatus>, exact_job_pending: bool) 
     exact_job_pending && status.is_none_or(|status| status.active_state != "failed")
 }
 
+fn startup_snapshot_pending(error: &crate::systemd::SystemdError, exact_job_pending: bool) -> bool {
+    exact_job_pending
+        && matches!(
+            error,
+            crate::systemd::SystemdError::Protocol("unit invocation changed during observation")
+        )
+}
+
 fn require_same_binding(
     expected: Option<&ObservedManagedBuildBinding>,
     actual: &ObservedManagedBuildBinding,
@@ -660,6 +699,24 @@ mod tests {
         status.main_pid = 42;
         // The notify job may still be pending; Hello must be allowed now.
         assert!(startup_ready(Some(&status)));
+    }
+
+    #[test]
+    fn initial_invocation_snapshot_retries_only_while_exact_start_is_pending() {
+        use crate::systemd::SystemdError;
+        let torn = SystemdError::Protocol("unit invocation changed during observation");
+        assert!(startup_snapshot_pending(&torn, true));
+        assert!(!startup_snapshot_pending(&torn, false));
+        for message in [
+            "manager ownership changed; reconnect required",
+            "invalid invocation identifier",
+            "build unit observation differs or changed",
+        ] {
+            assert!(!startup_snapshot_pending(
+                &SystemdError::Protocol(message),
+                true
+            ));
+        }
     }
 
     #[test]
