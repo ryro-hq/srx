@@ -2,13 +2,29 @@ name: CI
 
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'merge_group' }}
+
 jobs:
+  success:
+    if: always()
+    needs: [rust, portability, static-linux]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every mandatory job to succeed
+        env:
+          NEEDS: ${{ toJson(needs) }}
+        run: jq --exit-status 'all(.result == "success")' <<< "$NEEDS"
+
   rust:
     runs-on: ubuntu-latest
     steps:
