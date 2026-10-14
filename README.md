@@ -778,6 +778,27 @@ GitHub waits for the pull request requirements, then adds it to the queue.
 Topic branches are deleted after merging. Direct pushes, force pushes, deletion
 of `main`, and merge commits are blocked; use the queue for integration.
 
+### CI caches
+
+The default branch publishes the reusable caches; pull requests and merge-group
+candidates restore them and still run the complete suite. GitHub isolates
+caches created on pull request and queue refs, so copying the same cache into
+each ref consumes storage without making it reusable by later entries.
+
+The pinned VM environment is keyed by its recipes. Vendor archives are keyed
+by `Cargo.lock`. Guest compilation caches combine the image, lock, toolchain
+and compilation source fingerprints, with a fallback to older outputs of the
+same environment. The native lane publishes the complete fixture cache after
+successful tests and confirmed VM cleanup; GNU and musl acceptance lanes use
+that compilation cache while validating their own release candidates.
+
+Cache maintenance executes its script from the default branch. It removes
+Syrox caches for closed pull requests and finished queue refs, keeps two cache
+generations per family on the default branch, and protects active runs and
+entries accessed within the last hour. It leaves CodeQL and unrelated caches
+alone. Cache contents accelerate preparation; artifact pins, qualification and
+test results remain fresh evidence for every candidate.
+
 ## License
 
 Syrox is licensed under the [Apache License 2.0](LICENSE).
