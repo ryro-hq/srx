@@ -95,8 +95,8 @@ The [CI workflow](.github/workflows/ci.yml) also checks dependencies, macOS port
 ## Merge workflow
 
 Open a focused pull request from a topic branch. Changes enter `main` through
-GitHub's merge queue, which rebases one pull request at a time onto the current
-`main` and tests the candidate before merging. Review approval is optional for
+GitHub's merge queue, which tests one pull request at a time with the current
+`main` and squash-merges it as one commit. Review approval is optional for
 solo development; all review conversations must be resolved.
 
 The required GitHub Actions check, `success`, covers every mandatory CI job.
