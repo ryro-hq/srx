@@ -115,7 +115,7 @@ impl Checker<'_> {
             }
             self.error(
                 "static match has no applicable case",
-                *self.static_calls.last().expect("static call"),
+                *self.static_calls.first().expect("static call"),
             );
             return Ty::Error;
         }

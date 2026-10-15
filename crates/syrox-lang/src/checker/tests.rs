@@ -182,7 +182,7 @@ fn static_traits_check_inheritance_ambiguity_and_affine_consumption() {
 
 #[test]
 fn failed_static_match_reports_the_invocation_span() {
-    let source = r#"value S(str); value I(int); fn select(const v: S) -> _ { match v { "known" => I(1) } } fn use_it() -> I { select("unknown") }"#;
+    let source = r#"value S(str); value I(int); fn inner(const v: S) -> _ { match v { "known" => I(1) } } fn select(const v: S) -> _ { inner(v) } fn use_it() -> I { select("unknown") }"#;
     let errors = check(resolved(source), &CheckPolicy::default()).unwrap_err();
     let error = errors
         .iter()
