@@ -448,6 +448,12 @@ impl Resolver<'_> {
                 );
                 continue;
             }
+            if self
+                .contract_modules
+                .contains(&self.items[item.index()].module)
+            {
+                continue;
+            }
             let relative = &candidate[prefix.len()..candidate.len() - 1];
             if !self.reserve_publication(
                 bytes.saturating_add(2 * size_of::<ResolvedModuleExport>()),

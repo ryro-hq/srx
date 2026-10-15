@@ -169,8 +169,24 @@ pub enum ItemKind {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
+    pub contract: Option<ModuleContract>,
     pub path: Path,
     pub items: Vec<Item>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModuleContract {
+    Methods {
+        target: Type,
+    },
+    Trait {
+        associated: Vec<Ident>,
+        parents: Vec<Path>,
+    },
+    Implementation {
+        trait_path: Path,
+        target: Type,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -240,6 +256,7 @@ pub struct Struct {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TypeParameter {
+    pub bounds: Vec<Path>,
     pub name: Ident,
     pub owner: bool,
     pub span: Span,
@@ -299,17 +316,34 @@ pub enum RefinementKind {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Function {
+    pub abstract_member: bool,
     pub name: Ident,
     pub type_parameters: Vec<TypeParameter>,
     pub parameters: Vec<Parameter>,
     pub result: Option<Type>,
-    /// Compile-time family, version, variant and result system of a package factory.
-    pub package: Option<Box<[StringLiteral; 4]>>,
     pub body: Block,
+}
+
+impl Function {
+    pub fn has_bounds(&self) -> bool {
+        self.type_parameters
+            .iter()
+            .any(|parameter| !parameter.bounds.is_empty())
+    }
+    pub fn is_static(&self) -> bool {
+        self.parameters
+            .iter()
+            .any(|parameter| parameter.constant)
+    }
+    pub fn inferred_result(&self) -> bool {
+        self.result.as_ref().is_some_and(|ty| matches!(&ty.kind, TypeKind::Named { path, arguments } if arguments.is_empty() && path.segments.len() == 1 && path.segments[0].text == "_"))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Parameter {
+    /// The checker requires a known value and specializes the body at the call.
+    pub constant: bool,
     pub name: Ident,
     pub ty: Type,
     pub span: Span,
@@ -378,6 +412,20 @@ pub struct Expression {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExpressionKind {
+    MethodCall {
+        receiver: Box<Expression>,
+        method: Ident,
+        arguments: Vec<Expression>,
+    },
+    If {
+        condition: Box<Expression>,
+        branches: [Box<Expression>; 2],
+    },
+    Equality {
+        left: Box<Expression>,
+        right: Box<Expression>,
+        negated: bool,
+    },
     Let(Block),
     Memoize(Box<Expression>),
     /// Reorder items by a parallel list of reusable primitive keys. Items are
@@ -462,6 +510,7 @@ pub struct MatchArm {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Pattern {
+    Literal(Literal),
     Wildcard(Span),
     Path(Path),
     Variant {

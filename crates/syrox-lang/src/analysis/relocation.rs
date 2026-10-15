@@ -634,6 +634,12 @@ mod tests {
             for expression in mapped.expressions {
                 if let Some(elaboration) = expression.elaboration() {
                     kinds.insert(match elaboration {
+                        crate::checker::Elaboration::TraitCall {
+                            ..
+                        } => 8,
+                        crate::checker::Elaboration::StaticCall {
+                            ..
+                        } => 7,
                         crate::checker::Elaboration::ModuleExports {
                             ..
                         } => 0,
@@ -647,9 +653,6 @@ mod tests {
                             ..
                         } => 3,
                         crate::checker::Elaboration::ValueLiteral(_) => 4,
-                        crate::checker::Elaboration::PackageSelection {
-                            ..
-                        } => 6,
                         crate::checker::Elaboration::Erasure {
                             ..
                         } => 5,

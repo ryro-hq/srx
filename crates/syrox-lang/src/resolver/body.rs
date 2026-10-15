@@ -16,6 +16,12 @@ impl Resolver<'_> {
             if !self.charge(parameter.span) {
                 return;
             }
+            if !parameter.bounds.is_empty() {
+                self.error(
+                    "static trait bounds are supported on functions",
+                    parameter.span,
+                );
+            }
             if parameter.owner {
                 self.error(
                     "`owner` is only valid on an opaque struct",
@@ -50,7 +56,7 @@ impl Resolver<'_> {
         types: &BTreeMap<String, LocalId>,
     ) {
         let path = match &arm.pattern {
-            Pattern::Wildcard(_) => None,
+            Pattern::Wildcard(_) | Pattern::Literal(_) => None,
             Pattern::Path(path)
             | Pattern::Variant {
                 path,
@@ -103,6 +109,31 @@ impl Resolver<'_> {
 
     pub(super) fn resolve_contents(&mut self) {
         for located in self.walk_items() {
+            if let ItemKind::Module(declaration) = &located.item.kind {
+                if !self.charge(located.item.span) {
+                    return;
+                }
+                if matches!(
+                    declaration.contract,
+                    Some(
+                        crate::syntax::ModuleContract::Implementation { .. }
+                            | crate::syntax::ModuleContract::Methods { .. }
+                    )
+                ) {
+                    let mut path = located.module_path.clone();
+                    path.extend(
+                        declaration
+                            .path
+                            .segments
+                            .iter()
+                            .map(|segment| segment.text.clone()),
+                    );
+                    self.implementation_modules
+                        .insert(self.module_ids[&(located.domain, path)]);
+                }
+            }
+        }
+        for located in self.walk_items() {
             if !self.charge(located.item.span) {
                 return;
             }
@@ -142,7 +173,33 @@ impl Resolver<'_> {
     // Exhaustive traversal keeps lexical scopes and recovery in syntax order.
     fn resolve_item_contents(&mut self, module: ModuleId, located: &super::LocatedItem<'_>) {
         match &located.item.kind {
-            ItemKind::Module(_) | ItemKind::Use(_) => {}
+            ItemKind::Module(declaration) => match &declaration.contract {
+                Some(crate::syntax::ModuleContract::Methods {
+                    target,
+                }) => self.resolve_type(module, target, &BTreeMap::new()),
+                Some(crate::syntax::ModuleContract::Trait {
+                    parents,
+                    ..
+                }) => {
+                    for parent in parents {
+                        self.resolve_path(module, parent, Expected::Any, ReferenceKind::Type);
+                    }
+                }
+                Some(crate::syntax::ModuleContract::Implementation {
+                    trait_path,
+                    target,
+                }) => {
+                    self.resolve_path(
+                        module,
+                        trait_path,
+                        Expected::Any,
+                        ReferenceKind::Type,
+                    );
+                    self.resolve_type(module, target, &BTreeMap::new());
+                }
+                None => {}
+            },
+            ItemKind::Use(_) => {}
             ItemKind::Enum(enumeration) => {
                 self.resolve_enum(module, enumeration, located.item.span);
             }
@@ -156,6 +213,12 @@ impl Resolver<'_> {
                 for parameter in &alias.type_parameters {
                     if !self.charge(parameter.span) {
                         return;
+                    }
+                    if !parameter.bounds.is_empty() {
+                        self.error(
+                            "static trait bounds are supported on functions",
+                            parameter.span,
+                        );
                     }
                     if parameter.owner {
                         self.error(
@@ -183,6 +246,12 @@ impl Resolver<'_> {
                 for parameter in &structure.type_parameters {
                     if !self.charge(parameter.span) {
                         return;
+                    }
+                    if !parameter.bounds.is_empty() {
+                        self.error(
+                            "static trait bounds are supported on functions",
+                            parameter.span,
+                        );
                     }
                     if type_locals.contains_key(&parameter.name.text) {
                         self.error("duplicate type parameter", parameter.span);
@@ -330,6 +399,9 @@ impl Resolver<'_> {
                 id,
                 function.name.span.join(function.body.span),
             );
+            for bound in &parameter.bounds {
+                self.resolve_path(module, bound, Expected::Any, ReferenceKind::Type);
+            }
         }
         for parameter in &function.parameters {
             self.resolve_type(module, &parameter.ty, &types);
@@ -347,7 +419,16 @@ impl Resolver<'_> {
             self.editor_local(&parameter.name, id, function.body.span);
         }
         if let Some(result) = &function.result {
-            self.resolve_type(module, result, &types);
+            if function.inferred_result() {
+                if !function.is_static() {
+                    self.error(
+                        "inferred return requires a const parameter",
+                        result.span,
+                    );
+                }
+            } else {
+                self.resolve_type(module, result, &types);
+            }
         }
         self.resolve_block(module, &function.body, &mut locals, &types);
     }
@@ -434,12 +515,42 @@ impl Resolver<'_> {
                     path,
                     arguments,
                 } => {
-                    if let Some(local) = single_local(path, locals) {
+                    if let Some(local) = path
+                        .segments
+                        .first()
+                        .and_then(|name| locals.get(&name.text))
+                        .copied()
+                    {
                         self.references.push(ResolvedReference {
                             span: path.span,
                             kind: ReferenceKind::Type,
                             target: ResolvedTarget::Local(local),
                         });
+                    } else if self.implementation_modules.contains(&module)
+                        && path.segments.len() == 2
+                        && path.segments[0].text == "Self"
+                    {
+                        let shortened = Path {
+                            segments: path.segments[1..].to_vec(),
+                            span: path.span,
+                        };
+                        if self
+                            .lookup(module, &shortened, Expected::Type)
+                            .is_some()
+                        {
+                            self.resolve_path(
+                                module,
+                                &shortened,
+                                Expected::Type,
+                                ReferenceKind::Type,
+                            );
+                        } else {
+                            self.references.push(ResolvedReference {
+                                span: path.span,
+                                kind: ReferenceKind::Type,
+                                target: ResolvedTarget::Module(module),
+                            });
+                        }
                     } else {
                         self.resolve_path(module, path, Expected::Type, ReferenceKind::Type);
                     }
@@ -472,6 +583,51 @@ impl Resolver<'_> {
                 return;
             }
             match &expression.kind {
+                ExpressionKind::MethodCall {
+                    receiver,
+                    method,
+                    arguments,
+                } => {
+                    if let ExpressionKind::Path(path) = &receiver.kind {
+                        if !value_locals.contains_key(&path.segments[0].text)
+                            && (self
+                                .input_domains
+                                .get(&self.modules[module.index()].domain)
+                                .is_some_and(|aliases| {
+                                    aliases.contains_key(&path.segments[0].text)
+                                })
+                                || matches!(path.segments[0].text.as_str(), "std" | "project")
+                                || matches!(
+                                    self.lookup(module, path, Expected::Any),
+                                    Some(ResolvedTarget::Module(_))
+                                ))
+                        {
+                            let mut callee = path.clone();
+                            callee.segments.push(method.clone());
+                            callee.span = method.span;
+                            self.resolve_callee(module, &callee, value_locals);
+                        } else {
+                            stack.push(receiver);
+                        }
+                    } else {
+                        stack.push(receiver);
+                    }
+                    stack.extend(arguments.iter().rev());
+                }
+                ExpressionKind::If {
+                    condition,
+                    branches,
+                } => {
+                    stack.push(condition);
+                    stack.extend(branches.iter().map(AsRef::as_ref));
+                }
+                ExpressionKind::Equality {
+                    left,
+                    right,
+                    ..
+                } => {
+                    stack.extend([left.as_ref(), right.as_ref()]);
+                }
                 ExpressionKind::Integer(_) => {}
                 ExpressionKind::String(string) => {
                     self.resolve_string(string, value_locals);
@@ -525,7 +681,29 @@ impl Resolver<'_> {
                     callee,
                     arguments,
                 } => {
-                    self.resolve_callee(module, callee, value_locals);
+                    if callee.segments.len() == 2
+                        && type_locals.contains_key(&callee.segments[0].text)
+                    {
+                        self.references.push(ResolvedReference {
+                            span: callee.span,
+                            kind: ReferenceKind::Function,
+                            target: ResolvedTarget::Local(type_locals[&callee.segments[0].text]),
+                        });
+                    } else if self.implementation_modules.contains(&module)
+                        && callee.segments.len() == 2
+                        && callee.segments[0].text == "Self"
+                    {
+                        self.resolve_callee(
+                            module,
+                            &Path {
+                                segments: callee.segments[1..].to_vec(),
+                                span: callee.span,
+                            },
+                            value_locals,
+                        );
+                    } else {
+                        self.resolve_callee(module, callee, value_locals);
+                    }
                     stack.extend(arguments.iter().rev());
                 }
                 ExpressionKind::Apply {

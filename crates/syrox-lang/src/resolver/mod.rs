@@ -80,6 +80,8 @@ pub(super) enum Expected {
 }
 
 pub(super) struct Resolver<'a> {
+    implementation_modules: BTreeSet<ModuleId>,
+    contract_modules: BTreeSet<ModuleId>,
     pub(super) parsed: &'a ParsedSources,
     pub(super) modules: Vec<ResolvedModule>,
     pub(super) module_ids: BTreeMap<DomainPath, ModuleId>,
@@ -193,6 +195,8 @@ impl<'a> Resolver<'a> {
 
     pub(super) fn new(parsed: &'a ParsedSources) -> Self {
         Self {
+            implementation_modules: BTreeSet::new(),
+            contract_modules: BTreeSet::new(),
             parsed,
             modules: Vec::new(),
             module_ids: BTreeMap::new(),
@@ -289,7 +293,7 @@ impl<'a> Resolver<'a> {
                 .collect();
             while let Some((item, module_path)) = stack.pop() {
                 if let ItemKind::Module(module) = &item.kind {
-                    let mut child = module_path;
+                    let mut child = module_path.clone();
                     child.extend(
                         module
                             .path
@@ -299,6 +303,13 @@ impl<'a> Resolver<'a> {
                     );
                     for nested in module.items.iter().rev() {
                         stack.push((nested, child.clone()));
+                    }
+                    if module.contract.is_some() {
+                        result.push(LocatedItem {
+                            item,
+                            domain,
+                            module_path,
+                        });
                     }
                 } else {
                     result.push(LocatedItem {

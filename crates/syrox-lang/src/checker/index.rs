@@ -156,6 +156,9 @@ impl<'a> Checker<'a> {
                     .and_then(|modules| modules.get(child_path.as_slice()))
                     .expect("resolved module")
                     .to_owned();
+                if let Some(contract) = &declaration.contract {
+                    self.module_contracts.insert(child, contract);
+                }
                 for nested in declaration.items.iter().rev() {
                     stack.push((nested, child_path.clone(), child));
                 }

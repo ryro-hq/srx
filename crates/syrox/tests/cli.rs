@@ -165,7 +165,7 @@ fn check_reports_success_and_language_errors_with_distinct_exit_codes() {
         fixture("valid.srx").to_str().unwrap(),
     ]);
     assert!(valid.status.success());
-    assert!(String::from_utf8_lossy(&valid.stdout).contains("12 top-level declaration(s)"));
+    assert!(String::from_utf8_lossy(&valid.stdout).contains("13 top-level declaration(s)"));
 
     let without_std = run(&[
         "--std",
@@ -226,7 +226,7 @@ fn check_accepts_project_directories_and_reports_loader_errors() {
         "{}",
         String::from_utf8_lossy(&valid.stderr)
     );
-    assert!(String::from_utf8_lossy(&valid.stdout).contains("12 top-level declaration(s)"));
+    assert!(String::from_utf8_lossy(&valid.stdout).contains("13 top-level declaration(s)"));
 
     let invalid = project_command(&[
         "check",

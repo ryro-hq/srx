@@ -286,6 +286,7 @@ impl Parser<'_> {
             && !matches!(
                 keyword,
                 Keyword::Fn
+                    | Keyword::Mod
                     | Keyword::Struct
                     | Keyword::Type
                     | Keyword::Enum
@@ -294,6 +295,7 @@ impl Parser<'_> {
                     | Keyword::Opaque
                     | Keyword::Use
                     | Keyword::Publish
+                    | Keyword::Trait
             )
         {
             self.error(Diagnostic::error(
@@ -304,6 +306,8 @@ impl Parser<'_> {
         }
         let start = token.span;
         let (kind, end) = match keyword {
+            Keyword::Trait => self.parse_trait(start)?,
+            Keyword::Impl => self.parse_impl(start)?,
             Keyword::Mod => self.parse_module(start)?,
             Keyword::Use => self.parse_use(start)?,
             Keyword::Inputs => self.parse_inputs(start)?,
@@ -373,6 +377,175 @@ impl Parser<'_> {
         })
     }
 
+    fn parse_trait(&mut self, start: Span) -> Option<(ItemKind, Span)> {
+        let name = self.ident("expected trait name")?;
+        let path = super::Path {
+            segments: vec![name.clone()],
+            span: name.span,
+        };
+        let parents = if self.consume(TokenKind::Colon).is_some() {
+            vec![self.parse_path("expected parent trait")?]
+        } else {
+            Vec::new()
+        };
+        let open = self.expect(TokenKind::LeftBrace, "expected `{` after trait")?;
+        if !self.enter(open.span) {
+            return None;
+        }
+        let mut associated = Vec::new();
+        let mut items = Vec::new();
+        while !self.at(TokenKind::RightBrace) {
+            if self.consume_keyword(Keyword::Type).is_some() {
+                associated.push(self.ident("expected associated type")?);
+                self.expect(
+                    TokenKind::Semicolon,
+                    "expected `;` after associated type",
+                )?;
+            } else {
+                let method_start = self
+                    .expect_keyword(
+                        Keyword::Fn,
+                        "expected trait method or associated type",
+                    )?
+                    .span;
+                let (kind, end) = self.parse_function(method_start, true)?;
+                let ItemKind::Function(mut function) = kind else {
+                    return None;
+                };
+                if !function.abstract_member {
+                    self.error(Diagnostic::error(
+                        "static traits require method signatures without default bodies",
+                        function.name.span,
+                    ));
+                }
+                function.type_parameters.insert(
+                    0,
+                    TypeParameter {
+                        name: Ident {
+                            text: "Self".to_owned(),
+                            span: function.name.span,
+                        },
+                        owner: false,
+                        bounds: vec![Self::generated_path(
+                            function.name.span,
+                            &[&name.text],
+                        )],
+                        span: function.name.span,
+                    },
+                );
+                items.push(Item {
+                    kind: ItemKind::Function(function),
+                    public: true,
+                    span: method_start.join(end),
+                });
+            }
+        }
+        let end = self
+            .expect(TokenKind::RightBrace, "expected `}` after trait")?
+            .span;
+        self.leave();
+        let _ = start;
+        Some((
+            ItemKind::Module(Module {
+                path,
+                items,
+                contract: Some(crate::syntax::ModuleContract::Trait {
+                    associated,
+                    parents,
+                }),
+            }),
+            end,
+        ))
+    }
+
+    fn parse_impl(&mut self, _start: Span) -> Option<(ItemKind, Span)> {
+        let trait_path = self.parse_path("expected implemented trait")?;
+        let inherent = self.at(TokenKind::LeftBrace);
+        let target = if inherent {
+            Some(Type {
+                span: trait_path.span,
+                kind: TypeKind::Named {
+                    path: trait_path.clone(),
+                    arguments: Vec::new(),
+                },
+            })
+        } else {
+            None
+        };
+        let for_span = if inherent {
+            trait_path.span
+        } else {
+            self.expect_keyword(Keyword::For, "expected `for` after trait")?
+                .span
+        };
+        let target = if let Some(target) = target {
+            target
+        } else {
+            self.parse_type()?
+        };
+        let open = self.expect(
+            TokenKind::LeftBrace,
+            "expected `{` after implementation type",
+        )?;
+        if !self.enter(open.span) {
+            return None;
+        }
+        let mut items = self.parse_items(true);
+        let end = self
+            .expect(
+                TokenKind::RightBrace,
+                "expected `}` after implementation",
+            )?
+            .span;
+        self.leave();
+        for item in &mut items {
+            item.public = true;
+        }
+        items.insert(
+            0,
+            Item {
+                public: false,
+                span: for_span.join(target.span),
+                kind: ItemKind::TypeAlias(TypeAlias {
+                    name: Ident {
+                        text: "Self".to_owned(),
+                        span: for_span,
+                    },
+                    type_parameters: Vec::new(),
+                    ty: target.clone(),
+                }),
+            },
+        );
+        let path = super::Path {
+            span: trait_path.span,
+            segments: vec![Ident {
+                text: format!(
+                    "__impl_{}_{}",
+                    trait_path.span.source_id().index(),
+                    trait_path.span.start()
+                ),
+                span: trait_path.span,
+            }],
+        };
+        Some((
+            ItemKind::Module(Module {
+                path,
+                items,
+                contract: Some(if inherent {
+                    crate::syntax::ModuleContract::Methods {
+                        target,
+                    }
+                } else {
+                    crate::syntax::ModuleContract::Implementation {
+                        trait_path,
+                        target,
+                    }
+                }),
+            }),
+            end,
+        ))
+    }
+
     fn parse_module(&mut self, start: Span) -> Option<(ItemKind, Span)> {
         let path = self.parse_path("expected module path")?;
         let open = self.expect(
@@ -400,6 +573,7 @@ impl Parser<'_> {
         let _ = start;
         Some((
             ItemKind::Module(Module {
+                contract: None,
                 path,
                 items,
             }),
@@ -626,7 +800,13 @@ impl Parser<'_> {
             let start = self.peek()?.span;
             let owner = self.consume_keyword(Keyword::Owner).is_some();
             let name = self.ident("expected type parameter")?;
+            let bounds = if self.consume(TokenKind::Colon).is_some() {
+                vec![self.parse_path("expected trait bound")?]
+            } else {
+                Vec::new()
+            };
             parameters.push(TypeParameter {
+                bounds,
                 span: start.join(name.span),
                 name,
                 owner,
@@ -866,6 +1046,7 @@ impl Parser<'_> {
         if !self.at(TokenKind::RightParen) {
             loop {
                 let parameter_start = self.peek()?.span;
+                let constant = self.consume_keyword(Keyword::Const).is_some();
                 let parameter_name = self.ident("expected parameter name")?;
                 self.expect(
                     TokenKind::Colon,
@@ -873,6 +1054,7 @@ impl Parser<'_> {
                 )?;
                 let ty = self.parse_type()?;
                 parameters.push(Parameter {
+                    constant,
                     span: parameter_start.join(ty.span),
                     name: parameter_name,
                     ty,
@@ -903,44 +1085,16 @@ impl Parser<'_> {
             span: start.join(self.tokens[self.at - 1].span),
         });
         let body_at = self.at;
-        let package = if self.peek().is_some_and(|token| {
-            token.kind == TokenKind::Ident && self.text(token.span) == "package"
-        }) {
-            self.advance();
-            self.expect(
-                TokenKind::LeftParen,
-                "expected package identity tuple",
-            )?;
-            let mut identity = Vec::new();
-            for index in 0..4 {
-                if index > 0 {
-                    self.expect(
-                        TokenKind::Comma,
-                        "expected `,` in package identity",
-                    )?;
-                }
-                let literal = self.string_literal()?;
-                if literal
-                    .parts
-                    .iter()
-                    .any(|part| !matches!(part, super::StringPart::Text { .. }))
-                {
-                    self.error(Diagnostic::error(
-                        "package identity must be literal",
-                        literal.span,
-                    ));
-                }
-                identity.push(literal);
+        let abstract_member = self.at(TokenKind::Semicolon);
+        let body = if abstract_member {
+            let end = self.advance()?.span;
+            Block {
+                statements: Vec::new(),
+                tail: None,
+                span: end,
+                incomplete: false,
             }
-            self.expect(
-                TokenKind::RightParen,
-                "expected `)` after package identity",
-            )?;
-            Some(Box::new(identity.try_into().ok()?))
-        } else {
-            None
-        };
-        let body = if let Some(body) = self.parse_block() {
+        } else if let Some(body) = self.parse_block() {
             body
         } else {
             self.incomplete_bodies.push(name.span);
@@ -978,11 +1132,11 @@ impl Parser<'_> {
         let end = body.span;
         Some((
             ItemKind::Function(Function {
+                abstract_member,
                 name,
                 type_parameters,
                 parameters,
                 result,
-                package,
                 body,
             }),
             end,

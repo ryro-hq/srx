@@ -122,10 +122,24 @@ impl<'a> ProgramIndex<'a> {
         for source in resolved.parsed().iter() {
             index.walk_items(&source.program().items, budget)?;
         }
-        for expression in program.expressions() {
+        let mut expressions: Vec<_> = program.expressions().collect();
+        while let Some(expression) = expressions.pop() {
             budget.charge(0)?;
             index.intern_checked_type(expression.ty(), budget)?;
             index.intern_module_collection(expression, budget)?;
+            if let Some(Elaboration::StaticCall {
+                facts,
+                ..
+            }) = expression.elaboration()
+            {
+                budget.charge(
+                    facts
+                        .expressions
+                        .len()
+                        .saturating_mul(size_of::<&crate::checker::CheckedExpression>()),
+                )?;
+                expressions.extend(facts.expressions.values());
+            }
             if let Some(Elaboration::Erasure {
                 source,
             }) = expression.elaboration()

@@ -32,6 +32,8 @@ pub use editor::{
 #[cfg(target_os = "linux")]
 pub use editor::{open_project_analysis_with, open_standard_library_analysis_with};
 pub use prepared::PreparedPlan;
+mod catalog;
+pub use catalog::check_catalog_with;
 pub use standard_library::{
     AuthenticatedStandardLibrary, AuthenticatedStandardSource, StandardLibraryError,
 };

@@ -50,7 +50,7 @@ impl Checker<'_> {
                         self.expect_same(want, &actual, value.span, "let binding");
                     }
                     let ty = expected.unwrap_or(actual);
-                    let constant = self.package_constant(value);
+                    let constant = self.constant_value(value, 0);
                     if let Some(local) = self.local_id(name.span) {
                         self.bind_local(local, ty, name.span, annotation.is_some());
                         self.body
@@ -109,6 +109,27 @@ impl Checker<'_> {
         let before = self.body.fact_errors;
         let before_unknown = self.body.fact_unknowns;
         let ty = match &expression.kind {
+            ExpressionKind::MethodCall {
+                receiver,
+                method,
+                arguments,
+            } => self.check_method_call(
+                receiver,
+                method,
+                arguments,
+                expected,
+                context,
+                &mut elaboration,
+            ),
+            ExpressionKind::If {
+                condition,
+                branches,
+            } => self.check_if(condition, branches, expected, context),
+            ExpressionKind::Equality {
+                left,
+                right,
+                ..
+            } => self.check_equality(left, right, context),
             ExpressionKind::Integer(_) => self.lift_literal(Ty::Int, expected, &mut elaboration),
             ExpressionKind::String(string) => {
                 self.check_string(string, context);
@@ -383,7 +404,20 @@ impl Checker<'_> {
                     .factory();
                 self.published_member_type(factory, path.span)
             }
-            Some(ResolvedTarget::Local(local)) => self.use_local(local, path.span, consuming),
+            Some(ResolvedTarget::Local(local)) => {
+                let ty = self.use_local(local, path.span, consuming);
+                if matches!(ty, Ty::Str | Ty::Int)
+                    && self
+                        .body
+                        .bindings
+                        .get(&local)
+                        .is_some_and(|binding| binding.constant.is_some())
+                {
+                    self.lift_literal(ty, expected, elaboration)
+                } else {
+                    ty
+                }
+            }
             Some(ResolvedTarget::EnumVariant {
                 enumeration,
                 index,
@@ -427,6 +461,16 @@ impl Checker<'_> {
                     return resolved;
                 }
                 if let Some((parameters, result)) = self.function_types.get(&item) {
+                    if self.functions[&item].declaration.is_static()
+                        || self.functions[&item].declaration.has_bounds()
+                        || self.functions[&item].declaration.abstract_member
+                    {
+                        self.error(
+                            "const functions require a direct call with known arguments",
+                            path.span,
+                        );
+                        return Ty::Error;
+                    }
                     if !self.function_parameters(item).is_empty() {
                         return self.infer_function_value(item, expected, path.span, elaboration);
                     }
@@ -525,6 +569,21 @@ impl Checker<'_> {
             return *result;
         }
         if let Some(ResolvedTarget::Local(local)) = self.target(callee.span).cloned() {
+            if callee.segments.len() == 2 && self.type_bounds.contains_key(&local) {
+                if let Some(trait_id) =
+                    self.bounded_method(local, &callee.segments[1].text, callee.span)
+                {
+                    return self.check_trait_call(
+                        trait_id,
+                        &callee.segments[1].text,
+                        arguments,
+                        context,
+                        callee.span,
+                        elaboration,
+                    );
+                }
+                return Ty::Error;
+            }
             let ty = self.use_local(local, callee.span, true);
             if let Ty::Function {
                 parameters,
@@ -559,13 +618,23 @@ impl Checker<'_> {
             return Ty::Error;
         }
         if let Some((parameters, result)) = self.function_types.get(&item).cloned() {
+            if self.functions[&item].declaration.abstract_member {
+                let info = self.functions[&item];
+                return self.check_trait_call(
+                    info.context.module,
+                    &info.declaration.name.text,
+                    arguments,
+                    context,
+                    callee.span,
+                    elaboration,
+                );
+            }
             if self
                 .functions
                 .get(&item)
-                .is_some_and(|info| info.declaration.package.is_some())
-                && !arguments.is_empty()
+                .is_some_and(|info| info.declaration.is_static() || info.declaration.has_bounds())
             {
-                return self.check_package_selection(item, arguments, elaboration, context);
+                return self.check_static_call(item, arguments, context, callee.span, elaboration);
             }
             self.record_arguments(item, arguments);
             if !self.function_parameters(item).is_empty() {
@@ -881,6 +950,9 @@ impl Checker<'_> {
         context: Context,
     ) -> Ty {
         let scrutinee = self.check_expr(value, None, context, true);
+        if self.literal_match_type(&scrutinee) {
+            return self.check_literal_match(&scrutinee, value, arms, expected, context);
+        }
         let Some(enumeration) = Ty::nominal_head(&scrutinee) else {
             self.error("only an enum can be matched", value.span);
             return Ty::Error;
@@ -906,6 +978,10 @@ impl Checker<'_> {
             }
             self.body.bindings = baseline.clone();
             match &arm.pattern {
+                Pattern::Literal(_) => self.error(
+                    "literal pattern requires a string or integer",
+                    arm.span,
+                ),
                 Pattern::Wildcard(_) => wildcard = true,
                 Pattern::Path(path)
                 | Pattern::Variant {

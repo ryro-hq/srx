@@ -50,6 +50,7 @@ impl Evaluator<'_> {
                 substitutions: ev.substitute_bindings(substitutions, &BTreeMap::new(), span)?,
             }),
             Value::Closure {
+                facts,
                 ty,
                 once,
                 owner,
@@ -79,6 +80,7 @@ impl Evaluator<'_> {
                     ));
                 }
                 Ok(Value::Closure {
+                    facts: facts.clone(),
                     once: false,
                     owner: *owner,
                     substitutions: ev.substitute_bindings(substitutions, &BTreeMap::new(), span)?,

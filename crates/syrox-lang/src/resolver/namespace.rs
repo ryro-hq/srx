@@ -9,6 +9,7 @@ impl Resolver<'_> {
     pub(super) fn collect(&mut self) {
         let mut module_paths = BTreeSet::new();
         let mut public_paths = BTreeSet::new();
+        let mut contract_paths = BTreeSet::new();
         let mut pending = Vec::new();
         let mut boundaries: BTreeMap<DomainPath, BoundarySpans> = BTreeMap::new();
 
@@ -40,9 +41,15 @@ impl Resolver<'_> {
                             }
                             child.push(segment.text.clone());
                             module_paths.insert((domain, child.clone()));
+                            if item.public {
+                                public_paths.insert((domain, child.clone()));
+                            }
                         }
                         for nested in module.items.iter().rev() {
                             stack.push((nested, child.clone()));
+                        }
+                        if module.contract.is_some() {
+                            contract_paths.insert((domain, child));
                         }
                     }
                     ItemKind::Inputs(inputs) => {
@@ -158,6 +165,9 @@ impl Resolver<'_> {
             self.module_info.push(ModuleInfo::default());
         }
         for module in &self.modules {
+            if contract_paths.contains(&(module.domain, module.path.segments.clone())) {
+                self.contract_modules.insert(module.id);
+            }
             if let Some((name, parent)) = module.path.segments.split_last() {
                 let parent_id = self.module_ids[&(module.domain, parent.to_vec())];
                 self.module_info[parent_id.index()]

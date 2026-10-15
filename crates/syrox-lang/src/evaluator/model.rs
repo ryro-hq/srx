@@ -91,6 +91,7 @@ pub enum Value {
         substitutions: std::collections::BTreeMap<crate::resolver::LocalId, crate::checker::Ty>,
     },
     Closure {
+        facts: Arc<[Arc<crate::checker::StaticFacts>]>,
         ty: Arc<CanonicalType>,
         once: bool,
         owner: crate::source::SourceDomainId,

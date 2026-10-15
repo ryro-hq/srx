@@ -3,6 +3,15 @@ use crate::{resolver::resolve, source::SourceSet, syntax::parse_sources};
 
 fn resolved(text: &str) -> ResolvedProgram {
     let mut sources = SourceSet::new();
+    let prelude = "mod std { pub enum Bool { False, True } }";
+    let text = if text.contains(prelude) {
+        sources
+            .add_standard_library("std.srx", prelude)
+            .unwrap();
+        text.replace(prelude, "")
+    } else {
+        text.to_owned()
+    };
     sources.add("main.srx", text).unwrap();
     resolve(parse_sources(&sources).unwrap()).unwrap()
 }
@@ -21,6 +30,186 @@ fn messages(text: &str) -> Vec<String> {
 
 fn identity(path: &str) -> CanonicalItemIdentity {
     CanonicalItemIdentity::new(SourceDomainId::project(), path.split("::")).unwrap()
+}
+
+#[test]
+fn ordinary_control_flow_checks_coverage_branch_types_and_affine_moves() {
+    checked(
+        r#"mod std { pub enum Bool { False, True } } value S(str); value I(int); fn f(x: S) -> I { if x == "yes" { 1 } else { match x { "no" => 2, _ => 3 } } }"#,
+    );
+    for (source, expected) in [
+        (
+            r#"value S(str); value I(int); fn f(x: S) -> I { match x { "a" => 1 } }"#,
+            "not exhaustive",
+        ),
+        (
+            r"value I(int); fn f(x: I) -> I { match x { 1 => 1, 1 => 2, _ => 3 } }",
+            "more than once",
+        ),
+        (
+            r#"mod std { pub enum Bool { False, True } } value I(int); value S(str); fn f(x: std::Bool) -> I { if x { I(1) } else { S("bad") } }"#,
+            "if branch",
+        ),
+        (
+            r"mod std { pub enum Bool { False, True } } resource R(int); fn f(b: std::Bool, r: R) -> R { if b { let used = r; } else {}; r }",
+            "moved",
+        ),
+        (
+            r"mod std { pub enum Bool { False, True } } value I(int); fn f() -> I { if 1 { 1 } else { 2 } }",
+            "if condition",
+        ),
+    ] {
+        assert!(
+            messages(source)
+                .iter()
+                .any(|message| message.contains(expected)),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn constant_selectors_infer_each_contract_and_diagnose_at_the_call() {
+    let declarations = r#"value S(str); value I(int); struct Selection { version: S; } struct Old { port: I; } struct New { host: S; } fn select(const selection: Selection) -> _ { match selection.version { "old" => Old { port = 7; }, "new" => New { host = "server"; } } }"#;
+    checked(&format!(
+        r#"{declarations} fn f() -> New {{ let version: S = "new"; select({{ version = version; }}) }} fn g() -> Old {{ select({{ version = "old"; }}) }}"#
+    ));
+    assert!(
+        messages(&format!(
+            r#"{declarations} fn f() -> Old {{ select({{ version = "unknown"; }}) }}"#
+        ))
+        .iter()
+        .any(|message| message.contains("no applicable case"))
+    );
+    assert!(
+        messages(&format!(
+            r"{declarations} fn f(version: S) -> Old {{ select({{ version = version; }}) }}"
+        ))
+        .iter()
+        .any(|message| message.contains("must be a known"))
+    );
+    assert!(
+        messages(&format!(
+            r#"{declarations} fn f() -> Old {{ select({{ version = "new"; }}) }}"#
+        ))
+        .iter()
+        .any(|message| message.contains("function return"))
+    );
+    let recursive = resolved(
+        r"value I(int); fn recurse(const n: I) -> _ { recurse(n) } fn f() -> I { recurse(1) }",
+    );
+    let errors = check_with_limits(
+        recursive,
+        &CheckPolicy::default(),
+        CheckLimits {
+            max_specialization_depth: 4,
+            ..CheckLimits::default()
+        },
+    )
+    .unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("specialization limit"))
+    );
+}
+
+#[test]
+fn static_traits_enforce_complete_coherent_implementations_and_bounds() {
+    let declarations = "value I(int); struct P {} trait Package { type Settings; fn render(p: Self, settings: Self::Settings) -> I; }";
+    for (implementation, expected) in [
+        ("impl Package for P {}", "associated types"),
+        (
+            "impl Package for P { type Settings = I; }",
+            "missing method",
+        ),
+        (
+            "impl Package for P { type Settings = I; fn render(p: P, settings: P) -> I { 1 } }",
+            "signature differs",
+        ),
+        (
+            "impl Package for P { type Settings = I; type Extra = I; fn render(p: P, settings: I) -> I { settings } }",
+            "associated types",
+        ),
+        (
+            "impl Package for P { type Settings = I; fn render(p: P, settings: I) -> I { settings } } impl Package for P { type Settings = I; fn render(p: P, settings: I) -> I { settings } }",
+            "ambiguous duplicate",
+        ),
+        (
+            "fn render<T: Package>(p: T, settings: T::Settings) -> I { T::render(p, settings) } fn use_it() -> I { render(P {}, 1) }",
+            "trait",
+        ),
+    ] {
+        let errors = messages(&format!("{declarations} {implementation}"));
+        assert!(
+            errors
+                .iter()
+                .any(|message| message.contains(expected)),
+            "{implementation}: {errors:?}"
+        );
+    }
+    checked(&format!(
+        "{declarations} impl Package for P {{ type Settings = I; fn render(p: P, settings: I) -> I {{ settings }} }} fn render<T: Package>(p: T, settings: T::Settings) -> I {{ T::render(p, settings) }} fn use_it() -> I {{ render(P {{}}, 7) }}"
+    ));
+}
+
+#[test]
+fn static_traits_check_inheritance_ambiguity_and_affine_consumption() {
+    for (source, expected) in [
+        ("trait A: B {} trait B: A {}", "cyclic trait"),
+        (
+            "struct P {} trait A {} trait B: A {} impl B for P {}",
+            "parent trait",
+        ),
+        (
+            "value I(int); struct P {} trait A { type Settings; } trait B: A { type Settings; } impl A for P { type Settings = I; } impl B for P { type Settings = I; } fn f<T: B>(p: T, s: T::Settings) -> I { 1 } fn g() -> I { f(P {}, 1) }",
+            "ambiguous associated type",
+        ),
+        (
+            "resource R(int); struct P {} trait Take { fn take(p: Self, r: R) -> R; } impl Take for P { fn take(p: P, r: R) -> R { r; r } }",
+            "moved affine",
+        ),
+    ] {
+        let errors = messages(source);
+        assert!(
+            errors
+                .iter()
+                .any(|message| message.contains(expected)),
+            "{source}: {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn failed_static_match_reports_the_invocation_span() {
+    let source = r#"value S(str); value I(int); fn select(const v: S) -> _ { match v { "known" => I(1) } } fn use_it() -> I { select("unknown") }"#;
+    let errors = check(resolved(source), &CheckPolicy::default()).unwrap_err();
+    let error = errors
+        .iter()
+        .find(|error| error.message.contains("no applicable case"))
+        .unwrap();
+    assert!(source[error.span.start() as usize..error.span.end() as usize].contains("select"));
+}
+
+#[test]
+fn repeated_constant_fields_share_storage_within_the_checking_budget() {
+    use std::fmt::Write as _;
+    let mut source = String::from(
+        "value I(int); struct Pair<T> { left: T; right: T; } fn choose<T>(const selection: T) -> I { 1 } fn use_it() -> I { let n0: I = 1;",
+    );
+    let mut ty = String::from("I");
+    for index in 1..=24 {
+        write!(
+            source,
+            "let n{index} = Pair<{ty}> {{ left = n{}; right = n{}; }};",
+            index - 1,
+            index - 1
+        )
+        .unwrap();
+        ty = format!("Pair<{ty}>");
+    }
+    source.push_str("choose(n24) }");
+    checked(&source);
 }
 
 #[test]

@@ -39,7 +39,9 @@ use std::{Shell, select_command};
 
 outputs {
     dev: Shell = Shell {
-        pkgs = [select_command(pkgs::hello, "out", "hello")];
+        pkgs = [select_command(std::package_recipe(pkgs.hello_version {
+            version = "2.12.1";
+        }), "out", "hello")];
         services = [];
     };
 }
@@ -81,14 +83,22 @@ services.nginx = {
 };
 ```
 
-This declares an `os` output. Use `pkgs.forSystem("linux-x86_64-musl").nginx`
-for musl; GNU and musl selections can share a project. Exact literal versions
+This declares an `os` output. Bind `pkgs.forSystem("linux-x86_64-musl")` to a
+variable and call its `nginx` method for musl; GNU and musl selections can share
+a project. Build tools and result systems are explicit. Exact literal versions
 and string constants are supported. Unknown versions, variants and fields fail
 before acquisition. `extraConfig` is checked by the selected nginx with `nginx -t`
 in an isolated runtime before a generation is frozen. `let/in`, contextual
 attribute sets, booleans and triple-quoted multiline strings are pure.
 
-`srx catalog check`, `lock`, `matrix`, `updates`, `add`, `qualify` and
+Package modules use ordinary `if`, `==`/`!=`, literal `match` and static traits.
+`std::package_traits::Package` associates an implementation with `Settings`,
+recipe and rendering operations; `ServicePackage` adds service integration.
+Selectors such as `fn nginx(const selection: Selection) -> _` specialize their
+result from known arguments. An unsupported static case fails at the call;
+ordinary functions require compatible branches and exhaustive matches.
+
+`srx catalog check`, `generate`, `lock`, `matrix`, `updates`, `add`, `qualify` and
 `release-manifest` maintain the pinned TOML inventory using native commands.
 Qualification builds and runs each required combination and verifies offline
 bundle import; a missing or failed combination prevents a release manifest.

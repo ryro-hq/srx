@@ -95,7 +95,7 @@ struct Descriptor {
     span: Span,
     header: Span,
     defaults: Vec<String>,
-    package_family: Option<String>,
+    dispatch: bool,
 }
 
 impl SemanticAnalysis {
@@ -215,15 +215,10 @@ impl SemanticAnalysis {
                 break;
             }
             if let Some(mut interface) = self.declared_interface(descriptor, &mut budget, cancel)? {
-                if let Some(family) = &descriptor.package_family {
-                    // Selection depends on the entire family, including the
-                    // absence of duplicate or newly registered combinations.
+                if descriptor.dispatch {
                     for candidate in &descriptors {
                         cancel.check()?;
-                        if candidate.identity.domain() == descriptor.identity.domain()
-                            && candidate.package_family.as_ref() == Some(family)
-                            && candidate.identity != descriptor.identity
-                        {
+                        if candidate.dispatch && candidate.identity != descriptor.identity {
                             if !budget.identity(&candidate.identity) {
                                 break;
                             }
@@ -260,6 +255,22 @@ impl SemanticAnalysis {
             }
             locations.insert(item.span(), item);
         }
+        let mut contract_regions = Vec::new();
+        for source in self.resolved.parsed().iter() {
+            let mut pending: Vec<_> = source.program().items.iter().collect();
+            while let Some(item) = pending.pop() {
+                cancel.check()?;
+                if !budget.reserve(1, 0) {
+                    return Ok(Vec::new());
+                }
+                if let ItemKind::Module(module) = &item.kind {
+                    if module.contract.is_some() {
+                        contract_regions.push(item.span);
+                    }
+                    pending.extend(&module.items);
+                }
+            }
+        }
         let mut descriptors = Vec::new();
         for source in self.resolved.parsed().iter() {
             let mut pending: Vec<_> = source.program().items.iter().collect();
@@ -268,6 +279,16 @@ impl SemanticAnalysis {
                 if !budget.reserve(1, 0) {
                     return Ok(Vec::new());
                 }
+                let contract_region = contract_regions
+                    .iter()
+                    .find(|span: &&Span| {
+                        span.source_id() == item.span.source_id()
+                            && span.start() <= item.span.start()
+                            && span.end() >= item.span.end()
+                    })
+                    .copied();
+                let dispatch = contract_region.is_some()
+                    || matches!(&item.kind, ItemKind::Function(function) if function.has_bounds());
                 let (name, end, defaults) = match &item.kind {
                     ItemKind::Module(module) => {
                         pending.extend(&module.items);
@@ -275,7 +296,11 @@ impl SemanticAnalysis {
                     }
                     ItemKind::Function(function) => (
                         function.name.span,
-                        function.body.span.start(),
+                        if function.is_static() || function.has_bounds() {
+                            function.body.span.end()
+                        } else {
+                            function.body.span.start()
+                        },
                         Vec::new(),
                     ),
                     ItemKind::Struct(structure) => {
@@ -331,7 +356,7 @@ impl SemanticAnalysis {
                                         value.span.start(),
                                     ),
                                     defaults: Vec::new(),
-                                    package_family: None,
+                                    dispatch: false,
                                 });
                             }
                         }
@@ -355,15 +380,11 @@ impl SemanticAnalysis {
                         identity: CanonicalItemIdentity::from_resolved(resolved),
                         kind: resolved.kind(),
                         span: item.span,
-                        header: Span::new(item.span.source_id(), item.span.start(), end),
+                        header: contract_region.unwrap_or_else(|| {
+                            Span::new(item.span.source_id(), item.span.start(), end)
+                        }),
+                        dispatch,
                         defaults,
-                        package_family: match &item.kind {
-                            ItemKind::Function(function) => function
-                                .package
-                                .as_ref()
-                                .map(|identity| identity[0].source.clone()),
-                            _ => None,
-                        },
                     });
                 }
             }
@@ -388,7 +409,16 @@ impl SemanticAnalysis {
         if !owner.namespace_dependencies_complete || owner.source_map.span() != descriptor.span {
             return Ok(None);
         }
-        let Some(header) = owner.source_map.relative_span(descriptor.header) else {
+        let end = if let Some(header) = owner.source_map.relative_span(descriptor.header) {
+            Some(header.end)
+        } else if descriptor.header.source_id() == descriptor.span.source_id()
+            && descriptor.header.start() <= descriptor.span.start()
+            && descriptor.header.end() >= descriptor.span.end()
+        {
+            // A trait member's interface includes its enclosing contract, while
+            // its resolution observations remain relative to the member.
+            None
+        } else {
             return Ok(None);
         };
         let Some(text) = self
@@ -408,13 +438,7 @@ impl SemanticAnalysis {
             dependencies: BTreeSet::new(),
             namespace_dependencies: Vec::new(),
         };
-        if !extend_interface(
-            &mut interface,
-            &owner,
-            Some(header.end),
-            budget,
-            cancel,
-        )? {
+        if !extend_interface(&mut interface, &owner, end, budget, cancel)? {
             return Ok(None);
         }
         for field in &descriptor.defaults {
@@ -679,6 +703,45 @@ mod tests {
         let after = analyze(&[("main.srx", &changed)], &CheckPolicy::default());
         assert!(!after.diagnostics().is_empty());
         assert_ne!(baseline, manifest(&after, "inspect"));
+    }
+
+    #[test]
+    fn selector_and_trait_changes_invalidate_callers() {
+        let text = r#"value I(int); value S(str); struct P {} trait Package { type Settings; fn render(p: Self) -> Self::Settings; } impl Package for P { type Settings = I; fn render(p: P) -> I { I(1) } } fn render<T: Package>(p: T) -> T::Settings { T::render(p) } fn select(const version: S) -> _ { match version { "1" => render(P {}), "2" => I(2) } } fn inspect() -> I { select("1") }"#;
+        let before = analyze(&[("main.srx", text)], &CheckPolicy::default());
+        assert!(
+            before.diagnostics().is_empty(),
+            "{:?}",
+            before.diagnostics()
+        );
+        let dependencies = |analysis: &SemanticAnalysis| {
+            analysis
+                .owner_type_dependencies(
+                    &ResolutionOwnerKey {
+                        domain: SourceDomainId::project(),
+                        path: vec!["inspect".into()],
+                        part: ResolutionOwnerPart::Declaration,
+                    },
+                    &AnalysisCancellation::default(),
+                )
+                .unwrap()
+        };
+        let baseline = dependencies(&before);
+        assert!(
+            baseline.is_some(),
+            "trait caller dependencies must be cacheable"
+        );
+        for changed in [
+            text.replace("\"1\" => render(P {})", "\"1\" => I(3)"),
+            text.replace(
+                "fn render(p: P) -> I { I(1) }",
+                "fn render(p: P) -> I { I(3) }",
+            ),
+            text.replace("type Settings;", "type Configuration;"),
+        ] {
+            let after = analyze(&[("main.srx", &changed)], &CheckPolicy::default());
+            assert_ne!(baseline, dependencies(&after), "{changed}");
+        }
     }
 
     #[test]

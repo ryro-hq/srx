@@ -9,6 +9,39 @@ impl Parser<'_> {
         self.parse_concat(true)
     }
 
+    fn parse_if(&mut self) -> Option<Expression> {
+        let start = self.advance()?.span;
+        if !self.enter(start) {
+            return None;
+        }
+        let condition = self.parse_concat(false)?;
+        let yes = self.parse_block()?;
+        self.expect_keyword(Keyword::Else, "expected `else` after `if` branch")?;
+        let no = if self.at_keyword(Keyword::If) {
+            self.parse_if()?
+        } else {
+            let block = self.parse_block()?;
+            Expression {
+                span: block.span,
+                kind: ExpressionKind::Let(block),
+            }
+        };
+        self.leave();
+        Some(Expression {
+            span: start.join(no.span),
+            kind: ExpressionKind::If {
+                condition: Box::new(condition),
+                branches: [
+                    Box::new(Expression {
+                        span: yes.span,
+                        kind: ExpressionKind::Let(yes),
+                    }),
+                    Box::new(no),
+                ],
+            },
+        })
+    }
+
     fn parse_concat(&mut self, allow_struct: bool) -> Option<Expression> {
         self.syntax(SyntaxKind::Expression, |parser| {
             parser.parse_concat_inner(allow_struct)
@@ -17,18 +50,44 @@ impl Parser<'_> {
 
     fn parse_concat_inner(&mut self, allow_struct: bool) -> Option<Expression> {
         let first = self.parse_postfix(allow_struct)?;
-        if !self.at(TokenKind::PlusPlus) {
-            return Some(first);
+        let mut left = first;
+        if self.at(TokenKind::PlusPlus) {
+            let start = left.span;
+            let mut expressions = vec![left];
+            while self.consume(TokenKind::PlusPlus).is_some() {
+                expressions.push(self.parse_postfix(allow_struct)?);
+            }
+            left = Expression {
+                span: start.join(expressions.last()?.span),
+                kind: ExpressionKind::Concat(expressions),
+            };
         }
-        let start = first.span;
-        let mut expressions = vec![first];
-        while self.consume(TokenKind::PlusPlus).is_some() {
-            expressions.push(self.parse_postfix(allow_struct)?);
+        let negated = if self.consume(TokenKind::EqualEqual).is_some() {
+            false
+        } else if self.consume(TokenKind::NotEqual).is_some() {
+            true
+        } else {
+            return Some(left);
+        };
+        let mut right = self.parse_postfix(allow_struct)?;
+        if self.at(TokenKind::PlusPlus) {
+            let start = right.span;
+            let mut expressions = vec![right];
+            while self.consume(TokenKind::PlusPlus).is_some() {
+                expressions.push(self.parse_postfix(allow_struct)?);
+            }
+            right = Expression {
+                span: start.join(expressions.last()?.span),
+                kind: ExpressionKind::Concat(expressions),
+            };
         }
-        let span = start.join(expressions.last()?.span);
         Some(Expression {
-            kind: ExpressionKind::Concat(expressions),
-            span,
+            span: left.span.join(right.span),
+            kind: ExpressionKind::Equality {
+                left: Box::new(left),
+                right: Box::new(right),
+                negated,
+            },
         })
     }
 
@@ -47,94 +106,48 @@ impl Parser<'_> {
                     parser.advance();
                     parser.ident("expected field name after `.`")
                 })?;
-                if let ExpressionKind::Path(path) = &expression.kind {
-                    if field.text == "forSystem" && self.at(TokenKind::LeftParen) {
+                if (allow_struct && self.at(TokenKind::LeftBrace)) || self.at(TokenKind::LeftParen)
+                {
+                    let arguments = if self.at(TokenKind::LeftBrace) {
+                        let span = self.peek()?.span;
+                        vec![self.parse_struct_literal(
+                            Path {
+                                segments: Vec::new(),
+                                span,
+                            },
+                            Vec::new(),
+                        )?]
+                    } else {
                         let open = self.advance()?.span;
                         if !self.enter(open) {
                             return None;
                         }
-                        let system = self.parse_expression()?;
-                        self.expect(TokenKind::RightParen, "expected `)` after system")?;
+                        let arguments = self.comma_expressions(TokenKind::RightParen)?;
                         self.expect(
-                            TokenKind::Dot,
-                            "expected package after `forSystem`",
+                            TokenKind::RightParen,
+                            "expected `)` after method arguments",
                         )?;
-                        let member = self.ident("expected package name")?;
-                        let mut callee = path.clone();
-                        callee.span = callee.span.join(member.span);
-                        callee.segments.push(member);
-                        let start = self.peek()?.span;
-                        let mut request = self.parse_struct_literal(
-                            Path {
-                                segments: Vec::new(),
-                                span: start,
-                            },
-                            Vec::new(),
-                        )?;
-                        let ExpressionKind::Struct {
-                            fields,
-                            ..
-                        } = &mut request.kind
-                        else {
-                            return None;
-                        };
-                        fields.insert(
-                            0,
-                            StructField {
-                                name: Ident {
-                                    text: "system".to_owned(),
-                                    span: field.span,
-                                },
-                                span: field.span.join(system.span),
-                                value: system,
-                            },
-                        );
                         self.leave();
-                        expression = Expression {
-                            span: expression.span.join(request.span),
-                            kind: ExpressionKind::Call {
-                                callee,
-                                arguments: vec![request],
-                            },
-                        };
-                        continue;
+                        arguments
+                    };
+                    let end = self.tokens[self.at - 1].span;
+                    links += 1;
+                    if links >= crate::MAX_SYNTAX_DEPTH {
+                        self.error(Diagnostic::error(
+                            "method chain exceeds syntax nesting limit",
+                            field.span,
+                        ));
+                        return None;
                     }
-                    if allow_struct && self.at(TokenKind::LeftBrace) {
-                        let mut callee = path.clone();
-                        callee.span = callee.span.join(field.span);
-                        callee.segments.push(field);
-                        let arguments = if self.at(TokenKind::LeftBrace) {
-                            let open = self.peek()?.span;
-                            vec![self.parse_struct_literal(
-                                Path {
-                                    segments: Vec::new(),
-                                    span: open,
-                                },
-                                Vec::new(),
-                            )?]
-                        } else {
-                            let open = self.advance()?.span;
-                            if !self.enter(open) {
-                                return None;
-                            }
-                            let arguments = self.comma_expressions(TokenKind::RightParen)?;
-                            self.expect(
-                                TokenKind::RightParen,
-                                "expected `)` after arguments",
-                            )?;
-                            self.leave();
-                            arguments
-                        };
-                        let end = self.tokens[self.at - 1].span;
-                        expression = Expression {
-                            span: expression.span.join(end),
-                            kind: ExpressionKind::Call {
-                                callee,
-                                arguments,
-                            },
-                        };
-                        continue;
-                    }
+                    expression = Expression {
+                        span: expression.span.join(end),
+                        kind: ExpressionKind::MethodCall {
+                            receiver: Box::new(expression),
+                            method: field,
+                            arguments,
+                        },
+                    };
+                    continue;
                 }
                 if let ExpressionKind::Field {
                     fields,
@@ -145,7 +158,7 @@ impl Parser<'_> {
                     fields.push(field);
                 } else {
                     links += 1;
-                    if links >= crate::MAX_DEPTH {
+                    if links >= crate::MAX_SYNTAX_DEPTH {
                         self.error(Diagnostic::error(
                             "postfix chain exceeds syntax nesting limit",
                             field.span,
@@ -162,7 +175,7 @@ impl Parser<'_> {
                 }
             } else if let Some(open) = self.consume(TokenKind::LeftParen) {
                 links += 1;
-                if links >= crate::MAX_DEPTH {
+                if links >= crate::MAX_SYNTAX_DEPTH {
                     self.error(Diagnostic::error(
                         "functional call chain exceeds syntax nesting limit",
                         open.span,
@@ -232,6 +245,7 @@ impl Parser<'_> {
             TokenKind::LeftParen => self.parse_group(),
             TokenKind::Keyword(Keyword::Erase) => self.parse_erase(),
             TokenKind::Keyword(Keyword::Match) => self.parse_match(),
+            TokenKind::Keyword(Keyword::If) => self.parse_if(),
             TokenKind::Keyword(Keyword::Fn | Keyword::Once) => self.parse_closure(),
             TokenKind::Keyword(Keyword::Fold) => self.parse_fold(),
             TokenKind::Keyword(Keyword::SortByKeys) => self.parse_sort_by_keys(),
@@ -270,6 +284,7 @@ impl Parser<'_> {
             )?;
             let ty = self.parse_type()?;
             parameters.push(Parameter {
+                constant: false,
                 span: name.span.join(ty.span),
                 name,
                 ty,
@@ -761,6 +776,21 @@ impl Parser<'_> {
     }
 
     fn parse_pattern(&mut self) -> Option<Pattern> {
+        if self.at(TokenKind::Integer) || self.at(TokenKind::String) {
+            let literal = self.parse_literal()?;
+            if let Literal::String(string) = &literal
+                && string
+                    .parts
+                    .iter()
+                    .any(|part| !matches!(part, StringPart::Text { .. }))
+            {
+                self.error(Diagnostic::error(
+                    "match pattern must be a literal without interpolation",
+                    string.span,
+                ));
+            }
+            return Some(Pattern::Literal(literal));
+        }
         if self
             .peek()
             .is_some_and(|token| token.kind == TokenKind::Ident && self.text(token.span) == "_")

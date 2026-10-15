@@ -16,14 +16,26 @@ impl Evaluator<'_> {
         substitutions: &BTreeMap<LocalId, Ty>,
         span: Span,
     ) -> Eval<Value> {
-        if let Some(Elaboration::PackageSelection {
-            factory,
-        }) = self
-            .checked
-            .expression(span)
-            .and_then(|metadata| metadata.elaboration())
+        let metadata = self.expression_metadata(span).ok_or(Halt)?;
+        if let Some(Elaboration::TraitCall {
+            implementation,
+        }) = metadata.elaboration()
         {
-            return self.invoke_item(*factory, Vec::new(), &BTreeMap::new(), span);
+            let values = self.evaluate_arguments(arguments, substitutions, span)?;
+            return self.invoke_item(*implementation, values, &BTreeMap::new(), span);
+        }
+        if let Some(Elaboration::StaticCall {
+            function: item,
+            facts,
+            ..
+        }) = metadata.elaboration()
+        {
+            let values = self.evaluate_arguments(arguments, substitutions, span)?;
+            let supplied = self.substitute_bindings(&facts.substitutions, substitutions, span)?;
+            self.static_facts.push(facts.clone());
+            let result = self.invoke_item(*item, values, &supplied, span);
+            self.static_facts.pop();
+            return result;
         }
         let item = match self.index.target(callee_span).cloned() {
             Some(ResolvedTarget::EnumVariant {
@@ -31,7 +43,7 @@ impl Evaluator<'_> {
                 ..
             }) => {
                 let payload = self.evaluate_arguments(arguments, substitutions, span)?;
-                let ty = self.checked.expression(span).ok_or(Halt)?.ty();
+                let ty = metadata.ty();
                 let ty = self.canonical_ty(ty, substitutions, span)?;
                 return self.construct_variant(ty, index, payload, span);
             }
@@ -58,11 +70,7 @@ impl Evaluator<'_> {
             }
             _ => return self.fail(callee_span, "checked call has no item target"),
         };
-        let supplied = match self
-            .checked
-            .expression(span)
-            .and_then(|metadata| metadata.elaboration())
-        {
+        let supplied = match metadata.elaboration() {
             Some(Elaboration::FunctionSpecialization {
                 substitutions: supplied,
             }) => self.substitute_bindings(supplied, substitutions, span)?,
@@ -139,6 +147,7 @@ impl Evaluator<'_> {
                 ..
             } => self.invoke_item(item, values, &supplied, span),
             Value::Closure {
+                facts,
                 body,
                 owner,
                 parameters,
@@ -164,9 +173,12 @@ impl Evaluator<'_> {
                         bound.push((local, evaluator.locals.insert(local, value)));
                     }
                     evaluator.enter_call(span)?;
+                    let previous_facts =
+                        std::mem::replace(&mut evaluator.static_facts, facts.to_vec());
                     let previous_context = std::mem::replace(&mut evaluator.project_context, owner);
                     let result = evaluator.block(&body, &supplied);
                     evaluator.call_depth -= 1;
+                    evaluator.static_facts = previous_facts;
                     evaluator.project_context = previous_context;
                     result
                 })
@@ -237,20 +249,7 @@ impl Evaluator<'_> {
                 bound.push((local, evaluator.locals.insert(local, value)));
             }
             let previous_context = evaluator.enter_project_context(function.body.span);
-            let result = evaluator.block(&function.body, supplied).and_then(|value| {
-                if let Some(identity) = &function.package {
-                    let Value::Struct { fields, .. } = &value else {
-                        return evaluator.fail(span, "package factory did not return a package reference");
-                    };
-                    for (name, literal) in ["version", "variant", "system"].into_iter().zip(&identity[1..]) {
-                        let expected = evaluator.string(literal, supplied)?;
-                        if !fields.iter().any(|(field, value)| field == name && matches!(value, Value::Nominal { value: PrimitiveValue::Str(actual), .. } if *actual == expected)) {
-                            return evaluator.fail(span, "package reference identity differs from its declared selection");
-                        }
-                    }
-                }
-                Ok(value)
-            });
+            let result = evaluator.block(&function.body, supplied);
             evaluator.project_context = previous_context;
             result
         })

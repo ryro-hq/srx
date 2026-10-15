@@ -401,7 +401,7 @@ impl Evaluator<'_> {
         substitutions: &BTreeMap<LocalId, Ty>,
         span: Span,
     ) -> Eval<Value> {
-        let metadata = self.checked.expression(span).ok_or(Halt)?;
+        let metadata = self.expression_metadata(span).ok_or(Halt)?;
         let Some(Elaboration::ModuleExports {
             key,
             function,

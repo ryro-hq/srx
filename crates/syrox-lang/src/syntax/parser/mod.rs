@@ -13,9 +13,9 @@ use crate::syntax::{
     StructField, Type, TypeAlias, TypeKind, TypeParameter, Use,
 };
 use crate::{
-    MAX_DEPTH, MAX_DIAGNOSTICS, diagnostic::Diagnostic, diagnostic::DiagnosticCode,
-    diagnostic::SyntaxExpectation, source::Source, source::SourceId, source::SourceSet,
-    source::Span,
+    MAX_DIAGNOSTICS, MAX_SYNTAX_DEPTH as MAX_DEPTH, diagnostic::Diagnostic,
+    diagnostic::DiagnosticCode, diagnostic::SyntaxExpectation, source::Source, source::SourceId,
+    source::SourceSet, source::Span,
 };
 
 mod expressions;

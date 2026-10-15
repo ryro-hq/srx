@@ -1,19 +1,25 @@
 use super::*;
 
 const CATALOG: &str = r#"
+pub struct Selection { version: std::PackagePinText = "2"; variant: std::PackagePinText = "minimal"; system: std::PackagePinText = "linux-x86_64-gnu"; }
+    pub struct Set { system: std::PackagePinText; }
+    pub fn forSystem(const system: std::PackagePinText) -> Set { Set { system = system; } }
+    impl Set { fn nginx(const packages: Self, const selection: Selection) -> _ { package::nginx({ version = selection.version; variant = selection.variant; system = packages.system; }) } }
+    pub fn nginx(const selection: Selection) -> _ { match selection.variant { "minimal" => match selection.system { "linux-x86_64-gnu" => match selection.version { "1" => old(), "2" => newer() }, "linux-x86_64-musl" => match selection.version { "2" => other_abi::musl() } } } }
+
     value Port(int) where 1..=65535;
     value ProxyUrl(str);
     pub struct Old { listen: Port = 8080; }
     struct New { listen: Port = 8080; proxyPass: ProxyUrl = "http://127.0.0.1:3000"; }
-    pub fn nginx() -> std::PackageRef<New> package("nginx", "2", "minimal", "linux-x86_64-gnu") {
+    pub fn newer() -> std::PackageRef<New> {
         std::with_package_service(std::package_ref(std::recipe_ref(recipe), "2", "minimal", "linux-x86_64-gnu", "new", render_new), integrate)
     }
-    pub fn old() -> std::PackageRef<Old> package("nginx", "1", "minimal", "linux-x86_64-gnu") {
+    pub fn old() -> std::PackageRef<Old> {
         std::with_package_service(std::package_ref(std::recipe_ref(recipe), "1", "minimal", "linux-x86_64-gnu", "old", render_old), integrate)
     }
     mod other_abi {
-        pub fn musl() -> std::PackageRef<Old> package("nginx", "2", "minimal", "linux-x86_64-musl") {
-            std::package_ref(std::recipe_ref(recipe), "2", "minimal", "linux-x86_64-musl", "old", render_old)
+        pub fn musl() -> std::PackageRef<Old> {
+            std::with_package_service(std::package_ref(std::recipe_ref(recipe), "2", "minimal", "linux-x86_64-musl", "old", render_old), integrate)
         }
     }
     fn recipe() -> std::Recipe {
@@ -70,6 +76,26 @@ fn selected_version_controls_contextual_settings() {
             valid,
             "version {version}, settings {settings}: {result:?}"
         );
+    }
+}
+
+#[test]
+fn child_project_aliases_support_dotted_selectors_and_bound_package_sets() {
+    let workspace = TempProject::new();
+    workspace.write(
+        "pkgs/main.srx",
+        "inputs { recipes = \"modules:recipes\"; } pub use recipes::package::{nginx, forSystem};",
+    );
+    workspace.write("pkgs/recipes/package.srx", CATALOG);
+    let config = package_configuration();
+    lock_project_with(&workspace.0.join("pkgs"), &config).unwrap();
+    for request in [
+        r#"pkgs.nginx { version = "2"; }"#,
+        r#"let packages = pkgs.forSystem("linux-x86_64-musl"); in packages.nginx { version = "2"; }"#,
+    ] {
+        workspace.write("consumer/main.srx", &format!(r#"inputs {{ pkgs = "path:../pkgs"; }} services.nginx = {{ package = {request}; settings = {{ listen = 8080; }}; }};"#));
+        let result = check_path_with(&workspace.0.join("consumer"), &config);
+        assert!(result.is_ok(), "{request}: {result:?}");
     }
 }
 

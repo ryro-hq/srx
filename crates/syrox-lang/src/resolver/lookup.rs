@@ -158,7 +158,6 @@ impl Resolver<'_> {
                 && let Some(&owner) = self
                     .module_ids
                     .get(&(domain, owner_path.to_vec()))
-                && !self.is_descendant(module, owner)
                 && let Some(&item) = self.module_info[owner.index()].exports.get(name)
             {
                 if let Some(visible) =

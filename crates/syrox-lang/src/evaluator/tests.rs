@@ -8,6 +8,15 @@ use crate::{
 
 fn checked(source: &str, policy: &CheckPolicy) -> CheckedProgram {
     let mut sources = SourceSet::new();
+    let prelude = "mod std { pub enum Bool { False, True } }";
+    let source = if source.contains(prelude) {
+        sources
+            .add_standard_library("std.srx", prelude)
+            .unwrap();
+        source.replace(prelude, "")
+    } else {
+        source.to_owned()
+    };
     sources.add("main.srx", source).unwrap();
     check(
         resolve(parse_sources(&sources).unwrap()).unwrap(),
@@ -90,6 +99,93 @@ fn sorting_moves_affine_elements_stably_and_rejects_mismatched_lengths() {
 
 fn identity(path: &str) -> CanonicalItemIdentity {
     CanonicalItemIdentity::new(SourceDomainId::project(), path.split("::")).unwrap()
+}
+
+#[test]
+fn constant_calls_keep_distinct_facts_for_each_selected_branch() {
+    let result = run(
+        r#"
+        mod std { pub enum Bool { False, True } }
+        value S(str); value I(int);
+        struct Selection { version: S; }
+        struct Old { port: I; } struct New { host: S; }
+        fn select(const selection: Selection) -> _ {
+            if selection.version != "new" { match selection.version { "old" => Old { port = 7; } } }
+            else { New { host = "server"; } }
+        }
+        outputs { old: Old = select({ version = "old"; }); new: New = select({ version = "new"; }); }
+    "#,
+        &CheckPolicy::default(),
+    );
+    assert!(result.diagnostics().next().is_none());
+    let names: Vec<_> = result
+        .roots()
+        .map(|root| match root.value().unwrap() {
+            Value::Struct {
+                fields,
+                ..
+            } => fields[0].0.clone(),
+            _ => panic!("expected selected struct"),
+        })
+        .collect();
+    assert_eq!(names, ["port", "host"]);
+}
+
+#[test]
+fn static_traits_dispatch_with_associated_settings_and_generic_bounds() {
+    let result = run(
+        r#"
+        value S(str); struct Settings { host: S; } struct P {}
+        trait Package { type Settings; fn render(package: Self, settings: Self::Settings) -> S; }
+        impl Package for P { type Settings = project::Settings; fn render(package: Self, settings: Self::Settings) -> S { settings.host } }
+        fn configure<T: Package>(package: T, settings: T::Settings) -> S { T::render(package, settings) }
+        outputs { text: S = configure(P {}, { host = "server"; }); }
+    "#,
+        &CheckPolicy::default(),
+    );
+    assert!(result.diagnostics().next().is_none());
+    assert!(
+        matches!(result.roots().next().unwrap().value().unwrap(), Value::Nominal { value: PrimitiveValue::Str(value), .. } if value == "server")
+    );
+}
+
+#[test]
+fn package_sets_are_values_and_specialized_closures_retain_their_facts() {
+    let result = run(
+        r#"
+        value S(str); value I(int); struct Set { system: S; } struct Selection { version: S = "one"; }
+        impl Set { fn nginx(const set: Self, const selection: Selection) -> I { match set.system { "musl" => match selection.version { "one" => 7 }, "gnu" => 8 } } }
+        fn forSystem(const system: S) -> Set { Set { system = system; } }
+        trait Render { type Settings; fn render(package: Self, settings: Self::Settings) -> S; }
+        struct P {} struct Settings { host: S; }
+        impl Render for P { type Settings = project::Settings; fn render(package: Self, settings: Self::Settings) -> S { settings.host } }
+        fn delayed<T: Render>(package: T) -> fn(T::Settings) -> S { fn(settings: T::Settings) -> S { T::render(package, settings) } }
+        outputs {
+            abi: I = let packages = forSystem("musl"); in packages.nginx { version = "one"; };
+            text: S = delayed(P {})({ host = "captured"; });
+        }
+    "#,
+        &CheckPolicy::default(),
+    );
+    assert!(
+        result.diagnostics().next().is_none(),
+        "{:?}",
+        result.diagnostics().collect::<Vec<_>>()
+    );
+    let values: Vec<_> = result
+        .roots()
+        .map(|root| root.value().unwrap())
+        .collect();
+    assert!(matches!(
+        values[0],
+        Value::Nominal {
+            value: PrimitiveValue::Int(7),
+            ..
+        }
+    ));
+    assert!(
+        matches!(values[1], Value::Nominal { value: PrimitiveValue::Str(value), .. } if value == "captured")
+    );
 }
 
 #[test]

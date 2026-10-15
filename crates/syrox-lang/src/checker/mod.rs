@@ -13,6 +13,8 @@
 //! checking. Publishing those facts does not create a cache across revisions.
 
 mod bodies;
+mod constants;
+mod control;
 mod declarations;
 mod editor;
 mod enums;
@@ -22,9 +24,10 @@ mod index;
 mod inference;
 mod model;
 mod ownership;
-mod packages;
 mod policy;
 mod relocation;
+mod specialization;
+mod traits;
 mod types;
 
 pub use bodies::{BodyBudget, BodyEffects, BodyReplayState};
@@ -37,6 +40,7 @@ pub use model::{
     OwnershipUse, OwnershipUseKind, OwnershipUseStatus, ParameterHint, PolicyMismatch, Ty,
     TypeStatus, check, check_with_limits,
 };
+pub use model::{Constant, StaticFacts};
 pub use policy::{
     CanonicalItemIdentity, CheckPolicy, ErasureRule, MAX_ALIAS_DEPTH, MAX_CHECK_WORK,
     MAX_GENERIC_INSTANCES, MAX_METADATA_UNITS, MAX_POLICY_BYTES, MAX_POLICY_ENTRIES,
@@ -109,7 +113,7 @@ enum RawTy {
 
 #[derive(Clone)]
 struct Binding {
-    constant: Option<std::sync::Arc<str>>,
+    constant: Option<Constant>,
     ty: Ty,
     affine: bool,
     moved: Option<Span>,
@@ -120,6 +124,13 @@ struct Binding {
 }
 
 struct Checker<'a> {
+    module_contracts: BTreeMap<ModuleId, &'a crate::syntax::ModuleContract>,
+    type_bounds: BTreeMap<LocalId, Vec<ModuleId>>,
+    implementations: BTreeMap<(ModuleId, Ty), ModuleId>,
+    methods: BTreeMap<Ty, Vec<ModuleId>>,
+    static_calls: Vec<Span>,
+    static_mode: bool,
+    static_instances: usize,
     program: &'a ResolvedProgram,
     policy: &'a CheckPolicy,
     limits: CheckLimits,
@@ -165,6 +176,13 @@ impl<'a> Checker<'a> {
         limits: CheckLimits,
     ) -> Self {
         Self {
+            module_contracts: BTreeMap::new(),
+            type_bounds: BTreeMap::new(),
+            implementations: BTreeMap::new(),
+            methods: BTreeMap::new(),
+            static_calls: Vec::new(),
+            static_mode: false,
+            static_instances: 0,
             program,
             policy,
             limits,
@@ -221,7 +239,9 @@ impl<'a> Checker<'a> {
         if self.exhausted {
             return;
         }
+        self.index_traits();
         self.collect_function_types();
+        self.validate_traits();
         self.collect_editor_types();
         if self.exhausted {
             return;

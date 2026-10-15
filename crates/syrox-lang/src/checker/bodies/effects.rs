@@ -21,6 +21,7 @@ pub struct BodyReplayState {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::checker) enum EffectOperation {
+    Specialization,
     WorkProbe(usize),
     Metadata,
     EditorUnit,
@@ -117,6 +118,11 @@ impl BodyEffects {
                 )?;
                 let position = state.budget;
                 match &observation.operation {
+                    EffectOperation::Specialization => {
+                        if position.specializations >= limits.max_generic_instances {
+                            return None;
+                        }
+                    }
                     EffectOperation::WorkProbe(cost) => {
                         if position.work.checked_add(*cost)? > limits.max_work {
                             return None;
@@ -233,8 +239,14 @@ fn advance(
             .diagnostics
             .checked_sub(before.diagnostics)?,
     )?;
+    position.specializations = position.specializations.checked_add(
+        after
+            .specializations
+            .checked_sub(before.specializations)?,
+    )?;
     (position.work <= limits.max_work
         && position.metadata <= limits.max_metadata_units
+        && position.specializations <= limits.max_generic_instances
         && position.editor_metadata <= limits.max_metadata_units
         && position.diagnostics < crate::MAX_DIAGNOSTICS)
         .then_some(())

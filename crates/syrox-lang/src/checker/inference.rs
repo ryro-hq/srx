@@ -32,13 +32,26 @@ impl Checker<'_> {
         }
         for (index, argument) in arguments.iter().enumerate() {
             let parameter = parameters.get(index);
-            let contextual = parameter.and_then(|ty| {
+            let mut contextual = parameter.and_then(|ty| {
                 self.concretize(
                     raw_from_ty(ty.clone()),
                     &substitutions,
                     argument.span,
                 )
             });
+            if contextual == Some(Ty::Error)
+                && !substitutions.is_empty()
+                && self
+                    .functions
+                    .get(&item)
+                    .is_some_and(|info| info.declaration.has_bounds())
+                && let Some(parameter) = self.functions[&item]
+                    .declaration
+                    .parameters
+                    .get(index)
+            {
+                contextual = Some(self.resolve_type(&parameter.ty, &substitutions, 0));
+            }
             let actual = self.check_expr(argument, contextual.as_ref(), context, true);
             if let Some(parameter) = parameter {
                 self.infer_type(

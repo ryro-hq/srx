@@ -135,7 +135,7 @@ fn factory_must_return_the_contract_registered_in_the_inventory() {
     )
     .unwrap();
     std::fs::write(root.path().join("toolchain.toml"), "").unwrap();
-    let factory = "pub fn nginx() -> std::PackageRef<contract::Settings> package(\"nginx\",\"1.30.5\",\"minimal\",\"linux-x86_64-gnu\") { missing() }";
+    let factory = "pub fn nginx() -> std::PackageRef<contract::Settings> { missing() }";
     std::fs::write(root.path().join("recipe.srx"), factory).unwrap();
     assert!(catalog.lock(root.path()).is_ok());
     std::fs::write(
@@ -144,4 +144,84 @@ fn factory_must_return_the_contract_registered_in_the_inventory() {
     )
     .unwrap();
     assert!(catalog.lock(root.path()).is_err());
+}
+
+fn release_catalog() -> Catalog {
+    let gnu = lock("1").versions.remove(0).package;
+    let mut musl = gnu.clone();
+    musl.system = "linux-x86_64-musl".into();
+    Catalog {
+        schema: 2,
+        defaults: BTreeMap::from([("nginx".into(), "1.30.5".into())]),
+        channels: vec![channel("even-minor")],
+        packages: vec![gnu, musl],
+    }
+}
+
+#[test]
+fn release_schema_stores_one_origin_and_explicit_combinations() {
+    let catalog = release_catalog();
+    let text = toml::to_string(&catalog).unwrap();
+    assert_eq!(text.matches("source_url =").count(), 1);
+    assert_eq!(
+        text.matches("[[releases.combinations]]").count(),
+        2
+    );
+    assert_eq!(toml::from_str::<Catalog>(&text).unwrap(), catalog);
+    let mut inconsistent = catalog;
+    inconsistent.packages[1].source = "other.srx".into();
+    assert!(inconsistent.validate().is_err());
+}
+
+#[test]
+fn generated_release_data_is_deterministic_and_contract_sensitive() {
+    let root = tempfile::tempdir().unwrap();
+    let catalog = release_catalog();
+    std::fs::write(
+        root.path().join("contract.srx"),
+        "pub struct Settings {}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.path().join("recipe.srx"),
+        "// shared recipe\n",
+    )
+    .unwrap();
+    catalog
+        .generate_releases(root.path(), false)
+        .unwrap();
+    catalog
+        .generate_releases(root.path(), true)
+        .unwrap();
+    let original = std::fs::read(root.path().join("source.srx")).unwrap();
+    let mut reordered = catalog.clone();
+    reordered.packages.reverse();
+    reordered
+        .generate_releases(root.path(), false)
+        .unwrap();
+    assert_eq!(
+        original,
+        std::fs::read(root.path().join("source.srx")).unwrap()
+    );
+    std::fs::write(
+        root.path().join("contract.srx"),
+        "pub struct Settings { port: std::Port; }\n",
+    )
+    .unwrap();
+    assert!(
+        catalog
+            .generate_releases(root.path(), true)
+            .is_err()
+    );
+    catalog
+        .generate_releases(root.path(), false)
+        .unwrap();
+    assert_ne!(
+        original,
+        std::fs::read(root.path().join("source.srx")).unwrap()
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("recipe.srx")).unwrap(),
+        "// shared recipe\n"
+    );
 }

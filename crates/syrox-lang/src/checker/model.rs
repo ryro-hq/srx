@@ -72,8 +72,13 @@ impl Ty {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Elaboration {
-    PackageSelection {
-        factory: ItemId,
+    TraitCall {
+        implementation: ItemId,
+    },
+    StaticCall {
+        function: ItemId,
+        facts: std::sync::Arc<StaticFacts>,
+        constant: Option<Constant>,
     },
     ModuleExports {
         key: ItemId,
@@ -102,6 +107,23 @@ pub struct CheckedExpression {
     pub(super) elaboration: Option<Elaboration>,
     pub(super) expected: Option<Ty>,
     pub(super) status: TypeStatus,
+}
+
+/// Per-call facts prevent two constant specializations from sharing branch types.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StaticFacts {
+    pub substitutions: BTreeMap<LocalId, Ty>,
+    pub expressions: BTreeMap<(u32, u32, u32), CheckedExpression>,
+    pub patterns: BTreeMap<(u32, u32, u32), CheckedPattern>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Constant {
+    String(std::sync::Arc<str>),
+    Integer(i64),
+    Boolean(bool),
+    Struct(std::sync::Arc<BTreeMap<String, Constant>>),
+    List(std::sync::Arc<[Constant]>),
 }
 
 /// Confidence in an editor fact, independent of the contextual expected type.

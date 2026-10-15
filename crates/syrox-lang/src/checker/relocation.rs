@@ -65,10 +65,41 @@ pub(crate) trait FactMapper {
     fn elaboration(&mut self, elaboration: &Elaboration) -> Option<Elaboration> {
         self.reserve(0)?;
         Some(match elaboration {
-            Elaboration::PackageSelection {
-                factory,
-            } => Elaboration::PackageSelection {
-                factory: self.item(*factory)?,
+            Elaboration::TraitCall {
+                implementation,
+            } => Elaboration::TraitCall {
+                implementation: self.item(*implementation)?,
+            },
+            Elaboration::StaticCall {
+                function,
+                facts,
+                constant,
+            } => Elaboration::StaticCall {
+                function: self.item(*function)?,
+                facts: std::sync::Arc::new(super::StaticFacts {
+                    substitutions: facts
+                        .substitutions
+                        .iter()
+                        .map(|(id, ty)| Some((self.local(*id)?, self.ty(ty)?)))
+                        .collect::<Option<_>>()?,
+                    expressions: facts
+                        .expressions
+                        .values()
+                        .map(|fact| {
+                            let fact = self.expression(fact)?;
+                            Some((super::span_key(fact.span), fact))
+                        })
+                        .collect::<Option<_>>()?,
+                    patterns: facts
+                        .patterns
+                        .values()
+                        .map(|fact| {
+                            let fact = self.pattern(fact)?;
+                            Some((super::span_key(fact.span), fact))
+                        })
+                        .collect::<Option<_>>()?,
+                }),
+                constant: constant.clone(),
             },
             Elaboration::ModuleExports {
                 key,

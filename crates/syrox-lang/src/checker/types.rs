@@ -23,7 +23,13 @@ impl Checker<'_> {
                 .declaration
                 .result
                 .as_ref()
-                .map_or(Ty::Unit, |ty| self.resolve_type(ty, &types, 0));
+                .map_or(Ty::Unit, |ty| {
+                    if info.declaration.inferred_result() {
+                        Ty::Error
+                    } else {
+                        self.resolve_type(ty, &types, 0)
+                    }
+                });
             self.function_types
                 .insert(id, (parameters, result));
         }
@@ -45,7 +51,11 @@ impl Checker<'_> {
         params: &BTreeMap<LocalId, Ty>,
         depth: usize,
     ) -> Ty {
-        let raw = self.resolve_raw_type(ty, &BTreeMap::new(), depth);
+        let raw_params = params
+            .iter()
+            .map(|(&id, ty)| (id, RawTy::Concrete(ty.clone())))
+            .collect();
+        let raw = self.resolve_raw_type(ty, &raw_params, depth);
         let resolved = self
             .concretize(raw, params, ty.span)
             .unwrap_or_else(|| {
@@ -136,6 +146,25 @@ impl Checker<'_> {
         };
         match target {
             ResolvedTarget::Local(local) => {
+                if path.segments.len() > 1 {
+                    if path.segments.len() != 2 || !arguments.is_empty() {
+                        self.error(
+                            "associated type projection requires one member without arguments",
+                            path.span,
+                        );
+                        return RawTy::Concrete(Ty::Error);
+                    }
+                    let concrete = params
+                        .get(&local)
+                        .cloned()
+                        .and_then(|raw| self.concretize(raw, &BTreeMap::new(), path.span));
+                    return RawTy::Concrete(self.associated_type(
+                        local,
+                        concrete.as_ref(),
+                        &path.segments[1].text,
+                        path.span,
+                    ));
+                }
                 if !arguments.is_empty() {
                     self.error(
                         "a type parameter cannot take type arguments",
@@ -149,8 +178,19 @@ impl Checker<'_> {
             }
             ResolvedTarget::Item(item) => self
                 .expand_item_type_with_aliases(item, arguments, params, depth, path.span, aliases),
-            ResolvedTarget::Module(_)
-            | ResolvedTarget::EnumVariant {
+            ResolvedTarget::Module(module) => {
+                if path.segments.len() == 2 && path.segments[0].text == "Self" {
+                    RawTy::Concrete(self.implementation_associated_type(
+                        module,
+                        &path.segments[1].text,
+                        path.span,
+                    ))
+                } else {
+                    self.error("resolved target is not a type", path.span);
+                    RawTy::Concrete(Ty::Error)
+                }
+            }
+            ResolvedTarget::EnumVariant {
                 ..
             }
             | ResolvedTarget::ContextualEnumVariant => {

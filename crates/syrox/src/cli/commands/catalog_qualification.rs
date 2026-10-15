@@ -22,7 +22,7 @@ use syrox_engine::{
         RuntimeClosure, RuntimeConfiguration, RuntimeError,
         run_runtime_configured_with_cancellation,
     },
-    store::{ContentDigest, RootName, Store},
+    store::{RootName, Store},
 };
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -43,6 +43,9 @@ pub(super) fn qualify(
         return Err("catalog lock is stale".into());
     }
     check_project_lock_with(path, checks)?;
+    if catalog.schema == 2 {
+        syrox_engine::project::check_catalog_with(path, &catalog, checks)?;
+    }
     let entry = lock
         .versions
         .iter()
@@ -67,7 +70,8 @@ pub(super) fn qualify(
     let cancellation = &signals.cancellation;
     let user = UserConfiguration::load_with_store(Some(config), Some(store_path))?;
     let worker = crate::cli::worker_path::build_candidate()?;
-    let reference = format!("{}#{}", path.display(), entry.package.export);
+    let selection = SelectedProject::new(path, entry, checks)?;
+    let reference = format!("{}#selected", selection.path().display());
     let selected = resolve_build(&reference, &user, checks)?;
     let result = realize_build(
         &selected,
@@ -93,6 +97,9 @@ pub(super) fn qualify(
         cancellation,
         |_, _| {},
     )?;
+    if entry.package.name == "nginx" {
+        qualify_service_configuration(path, entry, checks, &user, &worker, cancellation)?;
+    }
     qualify_runtime(&closure, entry, cancellation)?;
     fs::create_dir_all(output)?;
     let producer = Store::open(store_path)?;
@@ -135,6 +142,7 @@ pub(super) fn qualify(
         "toolchain": result.toolchain.map(|pin| pin.to_string()), "manifest": digest.to_string(),
         "bundle_sha256": file_digest(&bundle_path, cancellation)?, "provenance": provenance,
         "native_execution": true, "offline_import_and_execution": true,
+        "service_preparation": entry.package.name == "nginx",
     });
     let mut report = OpenOptions::new()
         .write(true)
@@ -145,86 +153,7 @@ pub(super) fn qualify(
     Ok(())
 }
 
-pub(super) fn release_manifest(
-    path: &Path,
-    evidence: &Path,
-    output: &Path,
-    checks: &CheckConfiguration,
-) -> Result<String> {
-    let catalog = Catalog::load(path)?;
-    check_project_lock_with(path, checks)?;
-    let previous: CatalogLock = serde_json::from_slice(&fs::read(path.join(LOCK_FILE))?)?;
-    let mut lock = catalog.lock(path)?;
-    lock.retain_previous(&previous, false)?;
-    if lock != previous {
-        return Err("catalog lock is stale".into());
-    }
-    let cancellation = Cancellation::default();
-    let mut reports = Vec::new();
-    let temporary = tempfile::tempdir()?;
-    let receiver = Store::initialize(temporary.path())?;
-    for entry in &lock.versions {
-        let report: serde_json::Value = serde_json::from_slice(&fs::read(
-            evidence.join(format!("{}.json", entry.identity)),
-        )?)?;
-        if report["schema"] != 1
-            || report["identity"] != entry.identity
-            || report["system"] != entry.package.system
-            || report["version"] != entry.package.version
-            || report["native_execution"] != true
-            || report["offline_import_and_execution"] != true
-        {
-            return Err("required combination lacks successful native qualification".into());
-        }
-        let bundle = evidence.join(format!("{}.bundle", entry.identity));
-        if report["bundle_sha256"].as_str() != Some(file_digest(&bundle, &cancellation)?.as_str()) {
-            return Err("qualification bundle changed content".into());
-        }
-        let pin = report["manifest"]
-            .as_str()
-            .ok_or("qualification has no manifest pin")?
-            .parse::<ContentDigest>()?;
-        let root = RootName::new(format!("qualification_{}", entry.identity))?;
-        let admitted = import_bundle(
-            &receiver,
-            &root,
-            pin,
-            &mut File::open(bundle)?,
-            &cancellation,
-        )?;
-        let app = admitted
-            .manifest()
-            .outputs()
-            .get("application")
-            .ok_or("qualification lacks application artifact")?;
-        if report["action"].as_str() != Some(app.action.to_string().as_str())
-            || report["artifact"].as_str() != Some(app.artifact.to_string().as_str())
-        {
-            return Err("qualification receipt differs from the distributed artifact".into());
-        }
-        if report["toolchain"]
-            .as_str()
-            .and_then(|pin| pin.parse::<ContentDigest>().ok())
-            .is_none()
-        {
-            return Err("qualification lacks a verified toolchain identity".into());
-        }
-        reports.push(report);
-    }
-    let manifest = serde_json::json!({"schema":1,"catalog_lock_sha256":file_digest(&path.join(LOCK_FILE), &cancellation)?,"project_lock_sha256":file_digest(&path.join("Syrox.lock"), &cancellation)?,"packages":reports});
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(output)?;
-    file.write_all(serde_json::to_string_pretty(&manifest)?.as_bytes())?;
-    file.sync_all()?;
-    Ok(format!(
-        "verified all {} required combinations",
-        lock.versions.len()
-    ))
-}
-
-fn file_digest(path: &Path, cancellation: &Cancellation) -> Result<String> {
+pub(super) fn file_digest(path: &Path, cancellation: &Cancellation) -> Result<String> {
     let mut file = File::open(path)?;
     if !file.metadata()?.is_file()
         || file.metadata()?.len() > syrox_engine::bundle::MAX_BUNDLE_BYTES
@@ -411,6 +340,153 @@ fn nginx_http(closure: &RuntimeClosure, cancellation: &Cancellation) -> Result<(
 }
 
 struct NativeConfiguration(tempfile::TempDir);
+
+/// A locked consumer invokes the shared selector with the exact matrix request.
+struct SelectedProject(tempfile::TempDir);
+
+impl SelectedProject {
+    fn path(&self) -> std::path::PathBuf {
+        self.0.path().join("consumer")
+    }
+
+    fn new(path: &Path, entry: &LockedVersion, checks: &CheckConfiguration) -> Result<Self> {
+        Self::with_configuration(path, entry, checks, None)
+    }
+
+    fn with_configuration(
+        path: &Path,
+        entry: &LockedVersion,
+        checks: &CheckConfiguration,
+        extra: Option<&str>,
+    ) -> Result<Self> {
+        let temporary = tempfile::tempdir()?;
+        let catalog = syrox_engine::project::open_locked_project_with(path, checks)?;
+        let loaded = catalog.loaded();
+        let catalog_path = temporary.path().join("pkgs");
+        fs::create_dir(&catalog_path)?;
+        fs::write(
+            catalog_path.join("main.srx"),
+            loaded.main_source().text(),
+        )?;
+        for input in loaded.inputs() {
+            let directory = input
+                .locator()
+                .strip_prefix("modules:")
+                .ok_or("catalog qualification requires local module inputs")?;
+            for source in input.files() {
+                let destination = catalog_path
+                    .join(directory)
+                    .join(source.relative_path());
+                fs::create_dir_all(
+                    destination
+                        .parent()
+                        .ok_or("module source has no directory")?,
+                )?;
+                fs::write(
+                    destination,
+                    loaded
+                        .sources()
+                        .get(source.source_id())
+                        .ok_or("missing catalog source")?
+                        .text(),
+                )?;
+            }
+        }
+        for asset in loaded.assets() {
+            let mut bytes = Vec::new();
+            File::open(loaded.path().join(asset.relative_path()))?
+                .take(asset.size().saturating_add(1))
+                .read_to_end(&mut bytes)?;
+            if u64::try_from(bytes.len())? != asset.size()
+                || <[u8; 32]>::from(Sha256::digest(&bytes)) != *asset.digest()
+            {
+                return Err("catalog asset changed while preparing the selected project".into());
+            }
+            let destination = catalog_path.join(asset.relative_path());
+            fs::create_dir_all(
+                destination
+                    .parent()
+                    .ok_or("catalog asset has no directory")?,
+            )?;
+            fs::write(destination, bytes)?;
+        }
+        syrox_engine::project::lock_project_with(&catalog_path, checks)?;
+        let package = &entry.package;
+        let project_path = temporary.path().join("consumer");
+        fs::create_dir_all(project_path.join("recipes/selected"))?;
+        fs::write(
+            project_path.join("main.srx"),
+            format!(
+                r#"
+            inputs {{ pkgs = "path:../pkgs"; catalog = "modules:recipes"; }}
+            pub fn selected_recipe() -> std::Recipe {{
+                std::recipe_value(std::package_recipe(pkgs.{} {{ version = {:?}; variant = {:?}; system = {:?}; }}))
+            }}
+            pub publish(catalog, recipe): std::Recipe;
+        "#,
+                package.factory, package.version, package.variant, package.system
+            ),
+        )?;
+        fs::write(
+            project_path.join("recipes/selected/package.srx"),
+            "pub fn recipe() -> std::Recipe { project::selected_recipe() }\n",
+        )?;
+        if let Some(extra) = extra {
+            let mut main = OpenOptions::new()
+                .append(true)
+                .open(project_path.join("main.srx"))?;
+            writeln!(
+                main,
+                "services.nginx = {{ enable = true; package = pkgs.nginx {{ version = {:?}; variant = {:?}; system = {:?}; }}; settings = {{ extraConfig = {:?}; }}; }};",
+                package.version, package.variant, package.system, extra
+            )?;
+        }
+        syrox_engine::project::lock_project_with(&project_path, checks)?;
+        Ok(Self(temporary))
+    }
+}
+
+fn qualify_service_configuration(
+    path: &Path,
+    entry: &LockedVersion,
+    checks: &CheckConfiguration,
+    user: &UserConfiguration,
+    worker: &Path,
+    cancellation: &Cancellation,
+) -> Result<()> {
+    use syrox_engine::{
+        deployment::manifest::{DeploymentError, prepare_consumer},
+        project::prepare_project_consumer_with,
+    };
+    for (text, valid) in [
+        ("server_tokens off;", true),
+        ("syrox_invalid_directive;", false),
+    ] {
+        let selection = SelectedProject::with_configuration(path, entry, checks, Some(text))?;
+        let plan = prepare_project_consumer_with(&selection.path(), checks, "os")?;
+        match prepare_consumer(
+            plan,
+            "os",
+            user,
+            worker,
+            false,
+            cancellation,
+            |_, _| {},
+        ) {
+            Ok(_) if valid => {}
+            Err(DeploymentError::ConfigurationValidation {
+                ..
+            }) if !valid => {}
+            Ok(_) => {
+                return Err(
+                    "selected nginx accepted invalid extraConfig during service preparation".into(),
+                );
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
 
 impl NativeConfiguration {
     fn new(text: &str) -> Result<Self> {
