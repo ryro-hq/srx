@@ -3,6 +3,7 @@
 //! Catalog admission is pure. A matrix describes required builds; it never
 //! establishes availability or authorizes publication of an unbuilt artifact.
 
+pub mod artifacts;
 mod files;
 mod locks;
 mod model;

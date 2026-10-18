@@ -231,6 +231,47 @@ impl GenerationInstallation {
                 "prepared output identities differ from manifest",
             ));
         }
+        self.prepare_manifest(
+            generation.canonical_bytes(),
+            views,
+            store,
+            launcher,
+            cancellation,
+            deadline,
+        )
+    }
+
+    pub(crate) fn prepare_empty(
+        &self,
+        launcher_identity: super::LauncherIdentity,
+        store: &Store,
+        launcher: &Path,
+        cancellation: &Cancellation,
+        deadline: Instant,
+    ) -> Result<RetainedGeneration> {
+        let bytes = GenerationManifest::empty(launcher_identity).canonical_bytes()?;
+        self.prepare_manifest(
+            &bytes,
+            BTreeMap::new(),
+            store,
+            launcher,
+            cancellation,
+            deadline,
+        )
+    }
+
+    fn prepare_manifest(
+        &self,
+        bytes: &[u8],
+        views: BTreeMap<String, &MaterializedArtifact>,
+        store: &Store,
+        launcher: &Path,
+        cancellation: &Cancellation,
+        deadline: Instant,
+    ) -> Result<RetainedGeneration> {
+        check(cancellation, deadline)?;
+        let pin = ContentDigest::sha256(bytes);
+        let manifest = GenerationManifest::decode_bounded(bytes, pin)?;
         let launcher_file =
             crate::platform::linux::fd::open_top(launcher).map_err(storage::open_error)?;
         if launcher_file.metadata().file_type() != crate::platform::linux::fd::FileType::Regular
@@ -247,7 +288,7 @@ impl GenerationInstallation {
                 "installation identity changed",
             ));
         }
-        let (directory, mut record) = self.begin_candidate(pin, generation.canonical_bytes())?;
+        let (directory, mut record) = self.begin_candidate(pin, bytes)?;
         let operation = store.operation()?;
         operation.ingest(
             CheckedReader {
@@ -258,11 +299,7 @@ impl GenerationInstallation {
             launcher_digest,
             MAX_LAUNCHER_BYTES,
         )?;
-        operation.ingest(
-            generation.canonical_bytes(),
-            pin,
-            MAX_MANIFEST_BYTES as u64,
-        )?;
+        operation.ingest(bytes, pin, MAX_MANIFEST_BYTES as u64)?;
         for (key, view) in views {
             check(cancellation, deadline)?;
             view.retain(&output_root(&self.id, pin, &key)?, cancellation)?;

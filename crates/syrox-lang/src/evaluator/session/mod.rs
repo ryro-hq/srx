@@ -422,6 +422,7 @@ impl<'a> EvaluationSession<'a> {
             claims,
             selected: exported,
             reference: Some(id.clone()),
+            recipe_owner: self.memos.owner(id),
             aliases: if exported {
                 vec![name.to_owned()]
             } else {
@@ -544,6 +545,7 @@ impl<'a> EvaluationSession<'a> {
             claims,
             selected: false,
             reference: None,
+            recipe_owner: None,
             aliases: Vec::new(),
         });
         Ok(())

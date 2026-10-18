@@ -408,6 +408,37 @@ impl SystemdManager {
         self.observe_identity_with(&Budget::new(timeout, cancellation)?)
     }
 
+    /// Read the selected manager's actual unit search directories. This does
+    /// not load, publish or reload any units. Reject a manager change during
+    /// observation so callers cannot combine paths from different authorities.
+    pub fn unit_paths(
+        &mut self,
+        timeout: Duration,
+        cancellation: &Cancellation,
+    ) -> Result<Vec<PathBuf>, SystemdError> {
+        let budget = Budget::new(timeout, cancellation)?;
+        let before = self.observe_identity_with(&budget)?;
+        let paths = self.bus.get_strings(
+            MANAGER_PATH,
+            MANAGER_INTERFACE,
+            "UnitPath",
+            &budget,
+        )?;
+        let paths = paths
+            .into_iter()
+            .map(|path| {
+                absolute(Path::new(&path))?;
+                Ok(PathBuf::from(path))
+            })
+            .collect::<Result<Vec<_>, SystemdError>>()?;
+        if self.observe_identity_with(&budget)? != before {
+            return Err(SystemdError::Protocol(
+                "manager changed while reading unit paths",
+            ));
+        }
+        Ok(paths)
+    }
+
     fn observe_identity_with(
         &mut self,
         budget: &Budget<'_>,

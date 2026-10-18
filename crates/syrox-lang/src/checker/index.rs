@@ -246,11 +246,13 @@ impl<'a> Checker<'a> {
                         }
                         if let OutputKind::Value {
                             ty,
+                            value,
                             ..
                         } = &output.kind
                             && let Some(id) = self.declaration_id(output.span)
                         {
                             self.output_values.insert(id, ty);
+                            self.output_initializers.insert(id, value);
                         }
                     }
                 }

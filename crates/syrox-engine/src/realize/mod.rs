@@ -169,7 +169,18 @@ pub enum RealizeError {
     #[error(transparent)]
     Result(crate::result::ResultError),
     #[error(transparent)]
+    Artifact(Box<crate::catalog::artifacts::ArtifactError>),
+    #[error(transparent)]
     Io(#[from] std::io::Error),
+}
+
+impl From<crate::catalog::artifacts::ArtifactError> for RealizeError {
+    fn from(error: crate::catalog::artifacts::ArtifactError) -> Self {
+        match error {
+            crate::catalog::artifacts::ArtifactError::Cancelled => Self::Cancelled,
+            error => Self::Artifact(Box::new(error)),
+        }
+    }
 }
 
 impl From<crate::result::ResultError> for RealizeError {
@@ -427,6 +438,88 @@ pub fn realize_build(
     progress: impl FnMut(BuildProgress),
 ) -> Result<BuildResult, RealizeError> {
     RealizeContext::new(options).realize_build(resolved, cancellation, progress)
+}
+
+/// A selection preserves the distinction between a local build receipt and a
+/// result imported under an explicitly pinned artifact authority.
+#[derive(Debug)]
+pub enum SelectedBuildResult {
+    Built(BuildResult),
+    Imported {
+        admitted: crate::result::AdmittedResult,
+        output: crate::result::RetainedOutput,
+    },
+}
+
+/// Preview authorization without opening the Store or bundle transport. Actual
+/// availability is checked during realization; Prefer may compile on a miss.
+pub fn selected_artifact_manifest(
+    resolved: &ResolvedBuild,
+    configuration: &UserConfiguration,
+) -> Result<Option<ContentDigest>, RealizeError> {
+    let reference = crate::plan::PlanOutputRef {
+        package: resolved.build.package().clone(),
+        output: "out".into(),
+    };
+    let selection = crate::catalog::artifacts::ArtifactSelection::resolve(
+        &resolved.prepared,
+        configuration.artifacts(),
+    )?;
+    Ok(selection
+        .select(&reference)?
+        .map(|entry| entry.manifest_digest())
+        .transpose()?)
+}
+
+/// Realize the primary `out` output according to the user's artifact policy.
+/// The lower-level `realize_build` remains an explicit compilation operation.
+pub fn realize_selected_build(
+    resolved: &ResolvedBuild,
+    options: RealizeOptions<'_>,
+    cancellation: &Cancellation,
+    progress: impl FnMut(BuildProgress),
+) -> Result<SelectedBuildResult, RealizeError> {
+    cancellation.check()?;
+    let reference = crate::plan::PlanOutputRef {
+        package: resolved.build.package().clone(),
+        output: "out".into(),
+    };
+    let selection = crate::catalog::artifacts::ArtifactSelection::resolve(
+        &resolved.prepared,
+        options.configuration.artifacts(),
+    )?;
+    let context = RealizeContext::new(options);
+    if let Some(artifact) = selection.select(&reference)?
+        && let Some(imported) = artifact.import(context.store()?, cancellation)?
+    {
+        let output = imported
+            .admitted
+            .output(&imported.outputs["out"])
+            .ok_or_else(|| {
+                crate::catalog::artifacts::ArtifactError::Invalid(
+                    "authorized primary output is absent".into(),
+                )
+            })?;
+        return Ok(SelectedBuildResult::Imported {
+            admitted: imported.admitted,
+            output,
+        });
+    }
+    Ok(SelectedBuildResult::Built(
+        context.realize_build(resolved, cancellation, progress)?,
+    ))
+}
+
+/// Bounded selection preserving the caller's export order.
+pub fn realize_selected_builds(
+    builds: &[ResolvedBuild],
+    options: RealizeOptions<'_>,
+    jobs: usize,
+    cancellation: &Cancellation,
+) -> Result<Vec<SelectedBuildResult>, RealizeError> {
+    run_bounded(builds.len(), jobs.min(8), |index| {
+        realize_selected_build(&builds[index], options, cancellation, |_| {})
+    })
 }
 
 /// Realize several exports with bounded invocation-wide admission. A completed

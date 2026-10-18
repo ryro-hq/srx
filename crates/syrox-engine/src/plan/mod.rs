@@ -110,12 +110,16 @@ impl fmt::Display for PlanPackageId {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlanPackage {
     id: PlanPackageId,
+    recipe_owner: Option<syrox_lang::source::SourceDomainId>,
     export: Option<String>,
     aliases: Vec<String>,
     dependencies: Vec<PlanPackageId>,
 }
 
 impl PlanPackage {
+    pub const fn recipe_owner(&self) -> Option<syrox_lang::source::SourceDomainId> {
+        self.recipe_owner
+    }
     pub const fn id(&self) -> &PlanPackageId {
         &self.id
     }
@@ -757,6 +761,7 @@ fn extract_packages(
     let mut work = Work(0);
     let mut edge_count = 0_usize;
     let mut candidates = Vec::with_capacity(exact_roots.len());
+    let mut owners = BTreeMap::new();
     for root in exact_roots {
         work.charge()?;
         let value = root.value();
@@ -778,6 +783,7 @@ fn extract_packages(
         {
             candidate.aliases.push(budget.string(alias)?);
         }
+        owners.insert(candidate.id.copy(budget)?, root.recipe_owner());
         candidates.push(candidate);
     }
     candidates.sort_by(|left, right| {
@@ -916,6 +922,7 @@ fn extract_packages(
         budget.node::<PlanPackageId>()?;
         packages.push(PlanPackage {
             id: id.copy(budget)?,
+            recipe_owner: owners[id],
             export: exports[id]
                 .as_deref()
                 .map(|name| budget.string(name))

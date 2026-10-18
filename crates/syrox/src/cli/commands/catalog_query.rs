@@ -16,6 +16,42 @@ pub(super) fn execute(
     command: Command,
     checks: &CheckConfiguration,
 ) -> Result<String, Box<dyn std::error::Error>> {
+    if let Command::AuthorizeArtifacts {
+        path,
+        release,
+        evidence,
+        output,
+    } = command
+    {
+        let output = std::path::absolute(output)?;
+        if output
+            .parent()
+            .ok_or("descriptor requires a parent directory")?
+            .canonicalize()?
+            != evidence.canonicalize()?
+        {
+            return Err("write the descriptor beside its bundles in --evidence".into());
+        }
+        let descriptor = syrox_engine::catalog::artifacts::authorize_artifacts(
+            &path,
+            &release,
+            &evidence,
+            checks,
+            &syrox_engine::cancellation::Cancellation::default(),
+        )?;
+        let bytes = descriptor.encode()?;
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&output)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        return Ok(format!(
+            "authorized local artifact descriptor {}\nsha256 {}\nReview and pin this descriptor in [artifacts] before use.",
+            output.display(),
+            syrox_engine::store::ContentDigest::sha256(&bytes)
+        ));
+    }
     if let Command::Generate {
         path,
         check,
@@ -51,7 +87,10 @@ pub(super) fn execute(
         ));
     }
     let path = match &command {
-        Command::Qualify {
+        Command::AuthorizeArtifacts {
+            ..
+        }
+        | Command::Qualify {
             ..
         }
         | Command::Generate {
@@ -150,7 +189,10 @@ pub(super) fn execute(
         Command::Generate {
             ..
         } => unreachable!("handled before admission"),
-        Command::Qualify {
+        Command::AuthorizeArtifacts {
+            ..
+        }
+        | Command::Qualify {
             ..
         }
         | Command::ReleaseManifest {

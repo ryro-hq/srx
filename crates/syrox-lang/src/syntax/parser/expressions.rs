@@ -639,6 +639,7 @@ impl Parser<'_> {
             kind: ExpressionKind::Struct {
                 path,
                 type_arguments,
+                record_span: open.span.join(end),
                 fields,
                 recovery,
             },

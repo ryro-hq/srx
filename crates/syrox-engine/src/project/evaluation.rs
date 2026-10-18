@@ -17,10 +17,10 @@ use super::{
 /// they are not persistent recipe or Action identities.
 #[derive(Debug)]
 pub struct LockedProject {
-    loaded: LoadedProject,
-    checked: CheckedProgram,
-    configuration: CheckConfiguration,
-    digest: [u8; 32],
+    pub(super) loaded: LoadedProject,
+    pub(super) checked: CheckedProgram,
+    pub(super) configuration: CheckConfiguration,
+    pub(super) digest: [u8; 32],
 }
 
 impl LockedProject {

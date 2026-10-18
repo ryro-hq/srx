@@ -1,0 +1,31 @@
+struct Settings {
+    listen: ListenPort = 8080;
+}
+value ListenPort(int) where 1 ..= 65535;
+fn make(settings: Settings) -> Settings {
+    settings
+}
+mod api {
+    pub fn make(settings: Settings) -> Settings {
+        settings
+    }
+}
+let callback: fn(Settings) -> Settings = make;
+let a = make({
+        listen = 8080;
+    });
+let b = make {
+    listen = 8081;
+};
+let c = api::make {
+    listen = 8082;
+};
+let d = api.make {
+    listen = 8083;
+};
+let e = callback {
+    listen = 8084;
+};
+outputs {
+    result: ConfigText = "${a.listen},${b.listen},${c.listen},${d.listen},${e.listen}";
+}

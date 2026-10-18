@@ -14,6 +14,12 @@ impl Checker<'_> {
         if depth >= self.limits.max_specialization_depth || !self.charge(expression.span) {
             return None;
         }
+        if let ExpressionKind::Struct { path, .. } = &expression.kind
+            && !path.segments.is_empty()
+            && self.target(path.span).is_some_and(|target| !matches!(target, ResolvedTarget::Item(item) if self.structs.contains_key(item)))
+        {
+            return self.constant_value(&expression.record_call()?, depth + 1);
+        }
         match &expression.kind {
             ExpressionKind::List(items) => items
                 .iter()

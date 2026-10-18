@@ -9,7 +9,9 @@ use thiserror::Error;
 
 use crate::store::ContentDigest;
 
+mod artifacts;
 mod managed;
+pub use artifacts::{ArtifactConfiguration, ArtifactPolicy};
 pub(crate) mod secrets;
 pub use managed::ManagedBuildConfiguration;
 pub use secrets::ShellSecretSources;
@@ -41,6 +43,7 @@ pub struct UserConfiguration {
     managed_build: Option<ManagedBuildConfiguration>,
     shell_secrets: ShellSecretSources,
     allow_https: Vec<String>,
+    artifacts: ArtifactConfiguration,
 }
 
 impl UserConfiguration {
@@ -162,6 +165,10 @@ impl UserConfiguration {
         allow_https.sort();
         allow_https.dedup();
         empty(&network)?;
+        let artifacts = table(&mut root, "artifacts")?
+            .map(ArtifactConfiguration::parse)
+            .transpose()?
+            .unwrap_or_default();
         empty(&root)?;
         Ok(Self {
             store: store_path,
@@ -170,11 +177,15 @@ impl UserConfiguration {
             managed_build,
             shell_secrets,
             allow_https,
+            artifacts,
         })
     }
 
     pub fn store(&self) -> &Path {
         &self.store
+    }
+    pub const fn artifacts(&self) -> &ArtifactConfiguration {
+        &self.artifacts
     }
     pub const fn catalog(&self) -> Option<&LocalCatalog> {
         self.catalog.as_ref()

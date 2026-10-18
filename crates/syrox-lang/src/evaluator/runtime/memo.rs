@@ -408,6 +408,15 @@ enum State {
 }
 
 impl MemoArena {
+    pub(in crate::evaluator) fn owner(&self, id: &MemoId) -> Option<SourceDomainId> {
+        if !Arc::ptr_eq(&id.operation, &self.operation) {
+            return None;
+        }
+        self.entries
+            .get(id.index)
+            .map(|entry| entry.owner)
+    }
+
     pub(in crate::evaluator) fn origin(
         &self,
         id: &MemoId,

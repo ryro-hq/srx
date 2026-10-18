@@ -20,6 +20,9 @@ mod conservation;
 mod coordinator;
 mod manager;
 mod preparation;
+#[cfg(test)]
+#[path = "tests/profile_authority.rs"]
+mod profile_authority_tests;
 pub(crate) mod recovery;
 
 /// Apply an already retained candidate using an explicitly selected manager.
@@ -29,7 +32,7 @@ pub fn apply_os_generation(
     cancellation: &Cancellation,
     deadline: Instant,
 ) -> Result<OsApplyReport, OsApplyError> {
-    execute_generation(request, false, cancellation, deadline)
+    execute_generation(request, false, None, cancellation, deadline)
 }
 
 /// Restore an explicitly selected retained generation. This uses the same
@@ -58,12 +61,44 @@ pub fn rollback_os_generation(
         start_timeout: request.start_timeout,
         stop_timeout: request.stop_timeout,
     };
-    execute_generation(&apply, true, cancellation, deadline)
+    execute_generation(&apply, true, None, cancellation, deadline)
+}
+
+/// The profile identity and journal selection captured before preparation.
+#[derive(Clone, Debug)]
+pub struct OsSelectionAuthority {
+    pub installation: String,
+    pub active_operation: Option<String>,
+}
+
+/// Apply with profile identity and operation comparison under execution authority.
+/// With `rollback` selected, record a rollback of a retained candidate through
+/// the same coordinator, retaining the existing rollback checks.
+pub fn apply_os_generation_with_authority(
+    request: &OsApplyRequest,
+    authority: &OsSelectionAuthority,
+    rollback: bool,
+    cancellation: &Cancellation,
+    deadline: Instant,
+) -> Result<OsApplyReport, OsApplyError> {
+    if rollback && request.expected == Some(request.candidate) {
+        return Err(failure(
+            "rollback target equals desired generation",
+        ));
+    }
+    execute_generation(
+        request,
+        rollback,
+        Some(authority),
+        cancellation,
+        deadline,
+    )
 }
 
 fn execute_generation(
     request: &OsApplyRequest,
     rollback: bool,
+    authority: Option<&OsSelectionAuthority>,
     cancellation: &Cancellation,
     deadline: Instant,
 ) -> Result<OsApplyReport, OsApplyError> {
@@ -91,9 +126,29 @@ fn execute_generation(
     let snapshot = journal
         .snapshot(cancellation, deadline)
         .map_err(|_| failure("read activation journal"))?;
+    if let Some(authority) = authority {
+        if installation.id() != authority.installation
+            || snapshot.installation != authority.installation
+        {
+            return Err(failure(
+                "profile installation identity comparison",
+            ));
+        }
+        if snapshot.active_operation != authority.active_operation {
+            return Err(failure("profile active operation comparison"));
+        }
+    }
     selection_preflight(&snapshot, request.expected)?;
     let (mut manager, epoch) = observe_manager(&request.scope, &context, cancellation, deadline)?;
     epoch_preflight(&snapshot, &epoch)?;
+    let unit_paths = manager
+        .unit_paths(remaining(cancellation, deadline)?, cancellation)
+        .map_err(|_| failure("observe manager unit paths"))?;
+    if !unit_paths.contains(&request.units) {
+        return Err(failure(
+            "units directory is absent from manager UnitPath",
+        ));
+    }
     let input = preparation::ResourcePreparation {
         installation: &installation,
         generation: &candidate,

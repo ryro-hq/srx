@@ -368,10 +368,10 @@ fn module_bindings_are_lazy_and_shared_across_roots_with_memo_identity() {
 }
 
 #[test]
-fn global_callback_effects_are_rejected_even_with_a_reusable_result() {
+fn deferred_global_callbacks_remain_lazy_and_can_create_resources_in_outputs() {
     let policy = CheckPolicy::default();
     let program = checked(
-        "resource R(int); value I(int); let callback = fn() -> I { let consumed = R(7); I(1) }; let answer = callback(); outputs { result: I = answer; }",
+        "resource R(int); value I(int); let factory = memoize(fn() -> fn() -> R { fn() -> R { R(7) } }); let callback = factory(); let identity = fn(argument: I) -> I { argument }; let answer = identity(1); let once_factory = fn() -> I { let f = once fn() -> I { I(2) }; f() }; outputs { first: R = callback(); second: R = callback(); pure: I = answer; once_result: I = once_factory(); }",
         &policy,
     );
     let environment = EvaluationEnvironment::new(&policy);
@@ -382,13 +382,15 @@ fn global_callback_effects_are_rejected_even_with_a_reusable_result() {
         EvaluationLimits::default(),
     )
     .unwrap();
-    let result = session.evaluate_root("result").unwrap();
-    assert!(result.value().is_none());
-    assert!(result.diagnostics().iter().any(|diagnostic| {
-        diagnostic
-            .message
-            .contains("global initializer cannot consume")
-    }));
+    for name in ["first", "second", "pure", "once_result"] {
+        let result = session.evaluate_root(name).unwrap();
+        assert!(
+            result.value().is_some(),
+            "{:?}",
+            result.diagnostics()
+        );
+    }
+    assert!(session.into_realized().unwrap().is_success());
 }
 
 #[test]

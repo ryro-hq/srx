@@ -105,6 +105,13 @@ impl Checker<'_> {
         if !self.charge(expression.span) {
             return Ty::Error;
         }
+        if let ExpressionKind::Struct { path, .. } = &expression.kind
+            && !path.segments.is_empty()
+            && self.target(path.span).is_some_and(|target| !matches!(target, ResolvedTarget::Item(item) if self.structs.contains_key(item)))
+            && let Some(call) = expression.record_call()
+        {
+            return self.check_expr(&call, expected, context, consuming);
+        }
         let mut elaboration = None;
         let before = self.body.fact_errors;
         let before_unknown = self.body.fact_unknowns;
@@ -216,6 +223,7 @@ impl Checker<'_> {
                 type_arguments,
                 fields,
                 recovery,
+                ..
             } => self.check_struct_literal(
                 path,
                 type_arguments,

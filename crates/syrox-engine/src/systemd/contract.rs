@@ -228,6 +228,13 @@ pub fn interface_contract() -> Result<SystemdInterfaceContract, SystemdError> {
     }
     insert(
         &mut managed,
+        MANAGER_INTERFACE,
+        "properties",
+        "UnitPath",
+        "as",
+    )?;
+    insert(
+        &mut managed,
         SERVICE_INTERFACE,
         "properties",
         "NFileDescriptorStore",

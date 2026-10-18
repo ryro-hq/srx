@@ -748,12 +748,19 @@ impl Resolver<'_> {
                     ..
                 } => {
                     if !path.segments.is_empty() {
-                        self.resolve_path(
-                            module,
-                            path,
-                            Expected::Struct,
-                            ReferenceKind::StructConstructor,
-                        );
+                        if single_local(path, value_locals).is_none()
+                            && self.lookup_variant(module, path).is_none()
+                            && matches!(self.lookup(module, path, Expected::Any), Some(ResolvedTarget::Item(item)) if self.items[item.index()].kind == super::ResolvedItemKind::Struct)
+                        {
+                            self.resolve_path(
+                                module,
+                                path,
+                                Expected::Struct,
+                                ReferenceKind::StructConstructor,
+                            );
+                        } else {
+                            self.resolve_callee(module, path, value_locals);
+                        }
                     }
                     for ty in type_arguments {
                         self.resolve_type(module, ty, type_locals);

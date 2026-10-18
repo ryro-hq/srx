@@ -506,6 +506,10 @@ pub fn resolve_plan_output(
 /// barrier while other packages are being realized.
 pub(crate) enum RealizedPackage {
     Built(BuildResult),
+    Catalog {
+        outputs: std::collections::BTreeMap<String, String>,
+        admitted: AdmittedResult,
+    },
     Imported {
         declaration: PlanImportedResult,
         admitted: AdmittedResult,
@@ -563,6 +567,22 @@ impl RealizedPackage {
                 let view = admitted.materialize_output(&selected.identity, cancellation)?;
                 Ok((view, selected))
             }
+            Self::Catalog {
+                outputs,
+                admitted,
+            } => {
+                let selected = outputs
+                    .get(name)
+                    .and_then(|key| admitted.output(key))
+                    .filter(|output| output.identity.output == name)
+                    .ok_or_else(|| {
+                        MaterializationError::Invalid(
+                            "authorized runtime closure does not provide this output".into(),
+                        )
+                    })?;
+                let view = admitted.materialize_output(&selected.identity, cancellation)?;
+                Ok((view, selected))
+            }
         }
     }
 }
@@ -575,11 +595,25 @@ pub(crate) fn realize_package(
 ) -> Result<RealizedPackage, RealizeError> {
     cancellation.check()?;
     match &resolved.origin {
-        OutputSource::Built(build) => Ok(RealizedPackage::Built(context.realize_build(
-            build,
-            cancellation,
-            progress,
-        )?)),
+        OutputSource::Built(build) => {
+            let selection = crate::catalog::artifacts::ArtifactSelection::resolve(
+                &build.prepared,
+                context.options.configuration.artifacts(),
+            )?;
+            if let Some(artifact) = selection.select(&resolved.reference)?
+                && let Some(imported) = artifact.import(context.store()?, cancellation)?
+            {
+                return Ok(RealizedPackage::Catalog {
+                    outputs: imported.outputs,
+                    admitted: imported.admitted,
+                });
+            }
+            Ok(RealizedPackage::Built(context.realize_build(
+                build,
+                cancellation,
+                progress,
+            )?))
+        }
         OutputSource::Imported(declaration) => Ok(RealizedPackage::Imported {
             admitted: AdmittedResult::open(
                 context.store()?,

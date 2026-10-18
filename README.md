@@ -28,6 +28,9 @@ Syrox is experimental and currently targets Linux.
 
 ## The language
 
+See the [language reference](docs/language.md) for checked, executable examples
+of bindings, record calls, platform conditions and shared recipes.
+
 Use packages from [syrox-pkgs](https://github.com/ryro-hq/syrox-pkgs) in your own
 environment. With the catalog checked out beside your project, save this as
 `main.srx`:
@@ -96,7 +99,8 @@ Root public names of the authenticated standard library are available directly;
 explicit imports take precedence. Module `let` bindings are private by default,
 exported with `pub let`, immutable, reusable and shared during evaluation.
 Global initializers cannot consume affine resources. Effects hidden behind
-callbacks are also checked when the initializer is evaluated.
+invoked callbacks are traced by the checker with call-path diagnostics; the
+evaluator retains the same safeguard.
 Forward references are allowed and cycles are diagnosed. Known `if`/`match`
 conditions in module initializers and configurations check the selected branch.
 Names and syntax are resolved in every branch. Exact versions remain required.
@@ -122,6 +126,21 @@ catalog has no ARM64 implementations. `linux` and `linux-arm` require an explici
 architecture. Persisted package identities keep full target tags.
 `extraConfig` is checked by the selected nginx with `nginx -t` in an isolated
 runtime before a generation is frozen.
+
+Configure the service installation once, then operate it by profile:
+
+```sh
+srx project lock .
+srx os init .#os --name web --user --config ./build.toml
+srx os apply --profile web
+srx os status --profile web
+srx os logs nginx --profile web --follow
+srx os stop --profile web
+```
+
+See [installation profiles](docs/os-profiles.md) for ownership, rollback,
+recovery and Linux requirements, and [artifact selection](docs/artifacts.md)
+for automatic consumption of explicitly authorized local bundles.
 
 Package modules use ordinary `if`, `==`/`!=`, literal `match` and static traits.
 `package_traits::Package` associates an implementation with `Settings`,

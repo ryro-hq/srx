@@ -481,6 +481,9 @@ pub enum ExpressionKind {
     Struct {
         path: Path,
         type_arguments: Vec<Type>,
+        /// Exact braces span, also used for the anonymous argument when the
+        /// resolved path names a callable rather than a struct constructor.
+        record_span: Span,
         fields: Vec<StructField>,
         /// Query-only malformed field fragments; strict parsing rejects these.
         recovery: Vec<Span>,
@@ -500,6 +503,59 @@ pub enum ExpressionKind {
         fields: Vec<Ident>,
     },
     Concat(Vec<Expression>),
+}
+
+impl Expression {
+    /// Lower a named record application after resolution has identified a
+    /// callable. Constructors retain the original expression and authority.
+    pub(crate) fn record_call(&self) -> Option<Self> {
+        let ExpressionKind::Struct {
+            path,
+            type_arguments,
+            record_span,
+            fields,
+            recovery,
+        } = &self.kind
+        else {
+            return None;
+        };
+        if path.segments.is_empty() {
+            return None;
+        }
+        let argument = Self {
+            span: *record_span,
+            kind: ExpressionKind::Struct {
+                path: Path {
+                    segments: Vec::new(),
+                    span: *record_span,
+                },
+                type_arguments: Vec::new(),
+                record_span: *record_span,
+                fields: fields.clone(),
+                recovery: recovery.clone(),
+            },
+        };
+        Some(Self {
+            span: self.span,
+            kind: if type_arguments.is_empty() {
+                ExpressionKind::Call {
+                    callee: path.clone(),
+                    arguments: vec![argument],
+                }
+            } else {
+                ExpressionKind::Apply {
+                    callee: Box::new(Self {
+                        span: path.span,
+                        kind: ExpressionKind::Specialize {
+                            function: path.clone(),
+                            arguments: type_arguments.clone(),
+                        },
+                    }),
+                    arguments: vec![argument],
+                }
+            },
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -384,10 +384,17 @@ impl Evaluator<'_> {
                 })
             }
             ExpressionKind::Struct {
+                path,
                 fields,
                 recovery,
                 ..
             } => {
+                if !path.segments.is_empty()
+                    && self.index.target(path.span).is_some_and(|target| !matches!(target, ResolvedTarget::Item(item) if self.index.structures.contains_key(item)))
+                    && let Some(call) = expression.record_call()
+                {
+                    return self.expression_inner(&call, substitutions);
+                }
                 if !recovery.is_empty() {
                     return self.fail(
                         expression.span,

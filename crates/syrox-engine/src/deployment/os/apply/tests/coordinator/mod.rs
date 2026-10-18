@@ -917,6 +917,7 @@ fn supersession_during_live_observation_cannot_report_current_preservation() {
 
 mod recovery;
 mod rollback;
+mod stop;
 
 #[test]
 fn fresh_selection_after_abandonment_preserves_the_existing_authorized_invocation() {

@@ -312,6 +312,21 @@ impl LockManifest {
         }
     }
 
+    // A configuration edit may change only main.srx and its derived digest.
+    // In particular, do not resolve a mutable input again as an incidental
+    // consequence of applying a service configuration.
+    pub(super) fn drift_except_main(&self, expected: &Self) -> Option<LockDrift> {
+        if self.standard_library != expected.standard_library {
+            Some(LockDrift::StandardLibrary)
+        } else if self.edges != expected.edges {
+            Some(LockDrift::Graph)
+        } else if self.inputs != expected.inputs || self.assets != expected.assets {
+            Some(LockDrift::Project)
+        } else {
+            None
+        }
+    }
+
     fn encode(&self) -> Result<Vec<u8>, LockFormatError> {
         self.encode_with_limit(MAX_LOCK_BYTES)
     }

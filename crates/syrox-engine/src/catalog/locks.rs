@@ -12,6 +12,17 @@ use syrox_lang::{
 
 impl Catalog {
     pub fn lock(&self, root: &Path) -> Result<CatalogLock, CatalogError> {
+        self.lock_with_standard(
+            root,
+            &crate::project::AuthenticatedStandardLibrary::bundled(),
+        )
+    }
+
+    pub(crate) fn lock_with_standard(
+        &self,
+        root: &Path,
+        library: &crate::project::AuthenticatedStandardLibrary,
+    ) -> Result<CatalogLock, CatalogError> {
         self.validate()?;
         if self.schema == 2 {
             self.generate_releases(root, true)?;
@@ -44,16 +55,15 @@ impl Catalog {
                     "main.srx".to_owned(),
                     ContentDigest::sha256(&bounded_file(root, "main.srx")?).to_string(),
                 );
-                let standard: BTreeMap<_, _> =
-                    crate::project::AuthenticatedStandardLibrary::bundled()
-                        .sources()
-                        .map(|source| {
-                            (
-                                source.name().to_owned(),
-                                ContentDigest::sha256(source.text().as_bytes()).to_string(),
-                            )
-                        })
-                        .collect();
+                let standard: BTreeMap<_, _> = library
+                    .sources()
+                    .map(|source| {
+                        (
+                            source.name().to_owned(),
+                            ContentDigest::sha256(source.text().as_bytes()).to_string(),
+                        )
+                    })
+                    .collect();
                 let encoded =
                     serde_json::to_vec(&standard).map_err(|error| invalid(error.to_string()))?;
                 inputs.insert(

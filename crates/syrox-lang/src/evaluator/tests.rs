@@ -1699,3 +1699,54 @@ fn maximum_supported_value_depth_drops_safely() {
     }
     drop(value);
 }
+
+#[test]
+fn record_calls_share_contextual_inference_defaults_and_evaluation() {
+    let declarations = r#"
+        value I(int); value S(str);
+        struct Options { payload: I; name: S = "gnu"; }
+        struct lowercase { payload: I; }
+        enum Wrapped { Value(Options) }
+        enum Holder<T> { Some(T) }
+        let constructor: fn(Options) -> Holder<Options> = Holder::Some<Options>;
+        fn make(options: Options) -> I { options.payload }
+        fn Uppercase(options: Options) -> I { options.payload }
+        fn generic<T>(options: T) -> T { options }
+        mod api { pub fn make(options: Options) -> I { options.payload } }
+        let callback = fn(options: Options) -> I { options.payload };
+        fn selected(const options: Options) -> _ { match options.name { "gnu" => options.payload } }
+    "#;
+    for expression in [
+        "make({ payload = 7; })",
+        "make { payload = 7; }",
+        "api::make { payload = 7; }",
+        "api.make { payload = 7; }",
+        "callback { payload = 7; }",
+        "Uppercase { payload = 7; }",
+        "selected { payload = 7; }",
+        "generic<Options> { payload = 7; }.payload",
+        "lowercase { payload = 7; }.payload",
+        "let make = callback; in make { payload = 7; }",
+        "match (Wrapped::Value { payload = 7; }) { Value(options) => options.payload }",
+        "match (constructor { payload = 7; }) { Some(options) => options.payload }",
+    ] {
+        let source =
+            format!("{declarations} let answer = {expression}; outputs {{ result: I = answer; }}");
+        let result = run(&source, &CheckPolicy::default());
+        assert!(
+            result.is_success(),
+            "{expression}: {:?}",
+            result.diagnostics().collect::<Vec<_>>()
+        );
+        assert!(
+            matches!(
+                result.roots().next().unwrap().value(),
+                Some(Value::Nominal {
+                    value: PrimitiveValue::Int(7),
+                    ..
+                })
+            ),
+            "{expression}"
+        );
+    }
+}

@@ -1,63 +1,72 @@
 use std::path::Path;
+use syrox_engine::{
+    cancellation::Cancellation,
+    deployment::os::{OsStatus, inspect_os_status},
+};
 
-use syrox_engine::cancellation::Cancellation;
-use syrox_engine::deployment::os::inspect_os_status;
+pub(crate) fn run(installation: &Path, as_json: bool, cancel: &Cancellation) -> Result<u8, String> {
+    let status =
+        inspect_os_status(installation, cancel, super::deadline()).map_err(|e| e.to_string())?;
+    print(&status, as_json);
+    Ok(0)
+}
 
-pub(crate) fn run(installation: &Path, json: bool, cancel: &Cancellation) -> Result<u8, String> {
-    let status = inspect_os_status(installation, cancel, super::deadline())
-        .map_err(|error| error.to_string())?;
-    if json {
-        let boot_fences: Vec<_> = status.boot_fences.iter().map(|fence| serde_json::json!({
+pub(super) fn json(status: &OsStatus) -> serde_json::Value {
+    let boot_fences: Vec<_> = status.boot_fences.iter().map(|fence| serde_json::json!({
             "previous_boot": fence.previous_boot,
             "current": {"boot": fence.current.boot, "manager": fence.current.manager, "scope": fence.current.scope},
         })).collect();
-        let bindings: Vec<_> = status
-            .bindings
-            .iter()
-            .map(|binding| {
-                serde_json::json!({
-                    "resource": binding.resource,
-                    "generation": binding.generation.to_string(),
-                    "pin": binding.pin.to_string(),
-                    "unit": binding.unit,
-                    "authorized": binding.authorized,
-                    "epoch": {
-                        "boot": binding.epoch.boot,
-                        "manager": binding.epoch.manager,
-                        "scope": binding.epoch.scope,
-                    },
-                })
-            })
-            .collect();
-        let pending_effects: Vec<_> = status
-            .pending_effects
-            .iter()
-            .map(|effect| {
-                serde_json::json!({
-                    "operation": effect.operation,
-                    "effect": effect.effect,
-                    "kind": effect.kind,
-                    "resource": effect.resource,
-                    "target": effect.target.to_string(),
-                    "phase": effect.phase,
-                    "job": effect.job,
-                })
-            })
-            .collect();
-        println!(
-            "{}",
+    let bindings: Vec<_> = status
+        .bindings
+        .iter()
+        .map(|binding| {
             serde_json::json!({
-                "observation": "journal",
-                "installation": status.installation,
-                "desired": status.desired.map(|pin| pin.to_string()),
-                "active_operation": status.active_operation,
-                "active_kind": status.active_kind,
-                "boot_fences": boot_fences,
-                "abandoned_operations": status.abandoned_operations,
-                "bindings": bindings,
-                "pending_effects": pending_effects,
+                "resource": binding.resource,
+                "generation": binding.generation.to_string(),
+                "pin": binding.pin.to_string(),
+                "unit": binding.unit,
+                "authorized": binding.authorized,
+                "invocation": binding.invocation,
+                "invocation_error": binding.invocation_error,
+                "epoch": {
+                    "boot": binding.epoch.boot,
+                    "manager": binding.epoch.manager,
+                    "scope": binding.epoch.scope,
+                },
             })
-        );
+        })
+        .collect();
+    let pending_effects: Vec<_> = status
+        .pending_effects
+        .iter()
+        .map(|effect| {
+            serde_json::json!({
+                "operation": effect.operation,
+                "effect": effect.effect,
+                "kind": effect.kind,
+                "resource": effect.resource,
+                "target": effect.target.to_string(),
+                "phase": effect.phase,
+                "job": effect.job,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "observation": "journal",
+        "installation": status.installation,
+        "desired": status.desired.map(|pin| pin.to_string()),
+        "active_operation": status.active_operation,
+        "active_kind": status.active_kind,
+        "boot_fences": boot_fences,
+        "abandoned_operations": status.abandoned_operations,
+        "bindings": bindings,
+        "pending_effects": pending_effects,
+    })
+}
+
+pub(super) fn print(status: &OsStatus, as_json: bool) {
+    if as_json {
+        println!("{}", json(status));
     } else {
         println!(
             "journal {} desired={} active_operation={} active_kind={}",
@@ -106,5 +115,4 @@ pub(crate) fn run(installation: &Path, json: bool, cancel: &Cancellation) -> Res
             );
         }
     }
-    Ok(0)
 }

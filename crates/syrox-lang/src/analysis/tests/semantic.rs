@@ -1451,3 +1451,45 @@ fn global_package_contract_is_available_in_output_configuration() {
         analysis.expression_at(source, offset)
     );
 }
+
+#[test]
+fn callback_body_edits_refresh_global_effect_diagnostics_and_preserve_old_snapshots() {
+    let text = "resource R(int); value I(int); let callback = fn() -> I { let consumed = I(7); I(1) }; let answer = callback();";
+    let mut sources = SourceSet::new();
+    let source = sources.add("main.srx", text).unwrap();
+    let (mut host, bindings) = host_for(&sources);
+    let policy = CheckPolicy::default();
+    let cancel = AnalysisCancellation::default();
+    let before = host
+        .snapshot()
+        .analyze_project(&sources, &bindings, &policy, &cancel)
+        .unwrap();
+    assert!(
+        before.diagnostics().is_empty(),
+        "{:?}",
+        before.diagnostics()
+    );
+    for (version, changed, should_fail) in [
+        (1, text.replace("I(7)", "R(7)"), true),
+        (2, text.to_owned(), false),
+    ] {
+        host.set_overlay(&bindings[&source], version, &changed)
+            .unwrap();
+        let after = host
+            .snapshot()
+            .analyze_project(&sources, &bindings, &policy, &cancel)
+            .unwrap();
+        assert_eq!(
+            after
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| diagnostic
+                    .message
+                    .contains("affine resource through a callback")),
+            should_fail,
+            "{:?}",
+            after.diagnostics()
+        );
+        assert!(before.diagnostics().is_empty());
+    }
+}

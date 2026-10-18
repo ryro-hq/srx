@@ -1,0 +1,13 @@
+fn make() -> Recipe {
+    Recipe {
+        package = Package {
+            id = "example";
+            dependencies = [];
+        };
+    }
+}
+pub let example = recipe_ref(make);
+pub let alias = example;
+outputs {
+    reference: RecipeRef<Recipe> = alias;
+}

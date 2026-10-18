@@ -708,6 +708,15 @@ impl Bus {
         r.end()?;
         Ok(v)
     }
+    pub fn get_strings(
+        &mut self,
+        path: &str,
+        interface: &str,
+        name: &str,
+        budget: &Budget<'_>,
+    ) -> Result<Vec<String>, SystemdError> {
+        decode_strings(&self.get(path, interface, name, budget)?)
+    }
     pub fn get_i32(
         &mut self,
         path: &str,
@@ -736,6 +745,28 @@ impl Bus {
         r.end()?;
         Ok(v)
     }
+}
+fn decode_strings(reply: &Reply) -> Result<Vec<String>, SystemdError> {
+    reply.signature("v")?;
+    let mut reader = reply.0.reader();
+    expect_variant(reader.sig()?, "as")?;
+    let end = reader.array_end(4)?;
+    let mut values = Vec::new();
+    while reader.pos < end {
+        if values.len() >= 128 {
+            return Err(SystemdError::Protocol(
+                "manager string array exceeds limit",
+            ));
+        }
+        values.push(reader.string()?.to_owned());
+    }
+    if reader.pos != end {
+        return Err(SystemdError::Protocol(
+            "manager string array framing differs",
+        ));
+    }
+    reader.end()?;
+    Ok(values)
 }
 fn decode_unit_job(reply: &Reply) -> Result<(u32, String), SystemdError> {
     reply.signature("v")?;
@@ -820,6 +851,25 @@ mod tests {
             signature: "uoss".into(),
             body: body.0,
             little: true,
+        }
+    }
+    #[test]
+    fn manager_strings_require_exact_variants_framing_and_bounded_entries() {
+        for count in [0, 1, 128, 129] {
+            let mut body = Writer::default();
+            body.sig("as").unwrap();
+            body.strings(&vec!["/units".into(); count])
+                .unwrap();
+            let mut frame = event(":1.2");
+            frame.signature = "v".into();
+            frame.body = body.0;
+            let mut reply = Reply(frame);
+            assert_eq!(decode_strings(&reply).is_ok(), count <= 128);
+            reply.0.body.push(0);
+            assert!(decode_strings(&reply).is_err());
+            reply.0.body.pop();
+            reply.0.signature = "as".into();
+            assert!(decode_strings(&reply).is_err());
         }
     }
     #[test]

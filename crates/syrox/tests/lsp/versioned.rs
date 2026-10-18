@@ -280,3 +280,51 @@ fn enum_selection_edits_refresh_inferred_settings_fields() {
     }
     client.stop();
 }
+
+#[test]
+fn global_callback_effect_diagnostics_refresh_after_body_edits() {
+    let temp = tempfile::tempdir().unwrap();
+    let initial = "resource R(int); value I(int); let callback = fn() -> I { let consumed = I(7); I(1) }; let answer = callback();";
+    let path = temp.path().join("main.srx");
+    std::fs::write(&path, initial).unwrap();
+    let document = uri(&path);
+    let mut client = Client::with_options(temp.path(), "utf-16", false, "none");
+    client.open(&document, initial);
+    for (version, text, invalid) in [
+        (2, initial.replace("I(7)", "R(7)"), true),
+        (3, initial.to_owned(), false),
+    ] {
+        client.notify("textDocument/didChange", json!({"textDocument":{"uri":document,"version":version},"contentChanges":[{"text":text}]}));
+        let message = client.wait(|message| {
+            message["method"] == "textDocument/publishDiagnostics"
+                && message["params"]["uri"] == document
+                && message["params"]["version"] == version
+                && (!invalid
+                    || message["params"]["diagnostics"]
+                        .to_string()
+                        .contains("affine resource through a callback"))
+        });
+        let diagnostics = message["params"]["diagnostics"]
+            .as_array()
+            .unwrap();
+        if invalid {
+            let diagnostic = diagnostics
+                .iter()
+                .find(|diagnostic| {
+                    diagnostic["message"]
+                        .as_str()
+                        .unwrap()
+                        .contains("affine resource through a callback")
+                })
+                .unwrap_or_else(|| panic!("{message}"));
+            assert_eq!(
+                diagnostic["range"]["start"]["character"],
+                initial.rfind("callback()").unwrap(),
+                "{diagnostic}"
+            );
+        } else {
+            assert!(diagnostics.is_empty(), "{message}");
+        }
+    }
+    client.stop();
+}

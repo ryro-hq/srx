@@ -88,7 +88,7 @@ jobs:
         run: |
           cargo test --locked -p syrox-lang
           cargo test --locked -p syrox --no-default-features --bins \
-            --test cli --test diagnostics --test public_bindings --test usability --test format --test lsp --test vm_harness
+            --test cli --test diagnostics --test public_bindings --test language_reference --test os_profiles --test usability --test format --test lsp --test vm_harness
 
   build:
     name: build (${{ matrix.target }})

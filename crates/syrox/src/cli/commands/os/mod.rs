@@ -10,11 +10,19 @@ use syrox_engine::{
 };
 
 mod apply;
+mod profile;
+mod profile_operations;
 mod reconciliation;
 mod status;
 
 #[derive(Debug, clap::Subcommand)]
 pub(crate) enum Command {
+    /// Configure an installation profile without building or starting services.
+    Init(profile::InitArguments),
+    /// Apply an empty generation to stop all resources managed by this profile.
+    Stop(profile_operations::StopArguments),
+    /// Read logs for recorded invocations through the optional journalctl program.
+    Logs(profile_operations::LogArguments),
     /// Realize an Os consumer and durably retain a prepared generation.
     Prepare(PrepareArguments),
     /// Apply a retained candidate through the explicitly selected service manager.
@@ -25,17 +33,24 @@ pub(crate) enum Command {
     Recover(reconciliation::RecoveryArguments),
     /// Clear a reconciled operation's desired selection without revoking authorizations or stopping services.
     Abandon(reconciliation::AbandonArguments),
-    /// Observe activation journal evidence without contacting the service manager.
+    /// Observe live profile units and journal evidence; --recorded reads only evidence.
     Status {
+        #[arg(long, required_unless_present = "profile", conflicts_with = "profile")]
+        installation: Option<PathBuf>,
         #[arg(long)]
-        installation: PathBuf,
+        profile: Option<String>,
+        /// Read journal evidence without contacting systemd.
+        #[arg(long)]
+        recorded: bool,
         #[arg(long)]
         json: bool,
     },
     /// Read candidate journal states without opening a Store.
     List {
+        #[arg(long, required_unless_present = "profile", conflicts_with = "profile")]
+        installation: Option<PathBuf>,
         #[arg(long)]
-        installation: PathBuf,
+        profile: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -78,43 +93,61 @@ pub(crate) struct PrepareArguments {
 }
 
 #[derive(Debug, clap::Args)]
-#[command(group(clap::ArgGroup::new("manager").required(true).args(["systemd_user_bus", "systemd_system"])))]
 struct ExecutionArguments {
-    #[arg(long)]
-    installation: PathBuf,
-    #[arg(long)]
-    store: PathBuf,
-    /// Explicit persistent unit-fragment directory.
-    #[arg(long)]
-    units: PathBuf,
-    #[arg(long)]
-    cwd: PathBuf,
-    #[arg(long)]
+    #[arg(long, conflicts_with_all = ["installation", "store", "units", "cwd", "systemd_user_bus", "systemd_system", "uid", "gid", "start_timeout_seconds", "stop_timeout_seconds"])]
+    profile: Option<String>,
+    #[arg(long, required_unless_present = "profile")]
+    installation: Option<PathBuf>,
+    #[arg(long, required_unless_present = "profile")]
+    store: Option<PathBuf>,
+    #[arg(long, required_unless_present = "profile")]
+    units: Option<PathBuf>,
+    #[arg(long, required_unless_present = "profile")]
+    cwd: Option<PathBuf>,
+    #[arg(long, conflicts_with = "systemd_system")]
     systemd_user_bus: Option<PathBuf>,
-    /// Use the local system manager; this does not elevate credentials.
-    #[arg(long)]
+    #[arg(long, required_unless_present_any = ["systemd_user_bus", "profile"])]
     systemd_system: bool,
-    #[arg(long)]
-    uid: u32,
-    #[arg(long)]
-    gid: u32,
-    #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..=300))]
-    start_timeout_seconds: u64,
-    #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..=60))]
-    stop_timeout_seconds: u64,
+    #[arg(long, required_unless_present = "profile")]
+    uid: Option<u32>,
+    #[arg(long, required_unless_present = "profile")]
+    gid: Option<u32>,
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..=300))]
+    start_timeout_seconds: Option<u64>,
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..=60))]
+    stop_timeout_seconds: Option<u64>,
     #[arg(long)]
     json: bool,
 }
-
 impl ExecutionArguments {
-    fn manager_scope(&self) -> Result<syrox_engine::systemd::SystemdScope, String> {
-        match (&self.systemd_user_bus, self.systemd_system) {
-            (Some(bus_socket), false) => Ok(syrox_engine::systemd::SystemdScope::User {
+    fn request(
+        &self,
+        candidate: ContentDigest,
+        expected: Option<ContentDigest>,
+    ) -> Result<syrox_engine::deployment::os::OsApplyRequest, String> {
+        let scope = match (&self.systemd_user_bus, self.systemd_system) {
+            (Some(bus_socket), false) => syrox_engine::systemd::SystemdScope::User {
                 bus_socket: bus_socket.clone(),
-            }),
-            (None, true) => Ok(syrox_engine::systemd::SystemdScope::System),
-            _ => Err("select exactly one explicit systemd manager".into()),
-        }
+            },
+            (None, true) => syrox_engine::systemd::SystemdScope::System,
+            _ => return Err("select exactly one explicit systemd manager".into()),
+        };
+        Ok(syrox_engine::deployment::os::OsApplyRequest {
+            installation: self
+                .installation
+                .clone()
+                .ok_or("--installation is required")?,
+            store: self.store.clone().ok_or("--store is required")?,
+            units: self.units.clone().ok_or("--units is required")?,
+            cwd: self.cwd.clone().ok_or("--cwd is required")?,
+            candidate,
+            expected,
+            scope,
+            uid: self.uid.ok_or("--uid is required")?,
+            gid: self.gid.ok_or("--gid is required")?,
+            start_timeout: Duration::from_secs(self.start_timeout_seconds.unwrap_or(30)),
+            stop_timeout: Duration::from_secs(self.stop_timeout_seconds.unwrap_or(5)),
+        })
     }
 }
 
@@ -139,22 +172,61 @@ fn execute(
     cancel: &Cancellation,
 ) -> Result<u8, String> {
     match command {
+        Command::Init(arguments) => profile::init(arguments, cancel),
+        Command::Stop(arguments) => profile_operations::stop(arguments, cancel),
+        Command::Logs(arguments) => profile_operations::logs(arguments, cancel),
         Command::Prepare(arguments) => prepare(arguments, checks, cancel),
-        Command::Apply(arguments) => apply::run(arguments, cancel),
+        Command::Apply(arguments) => apply::run(arguments, checks, cancel),
         Command::Rollback(arguments) => apply::rollback(arguments, cancel),
         Command::Recover(arguments) => reconciliation::recover(arguments, cancel),
         Command::Abandon(arguments) => reconciliation::abandon(arguments, cancel),
         Command::Status {
             installation,
-            json,
-        } => status::run(installation, *json, cancel),
-        Command::List {
-            installation,
+            profile,
+            recorded,
             json,
         } => {
-            let entries =
-                syrox_engine::deployment::os::list_os_generations(installation, cancel, deadline())
-                    .map_err(|error| error.to_string())?;
+            if let Some(name) = profile {
+                profile_operations::status(name, *recorded, *json, cancel)
+            } else {
+                status::run(
+                    installation
+                        .as_deref()
+                        .ok_or("--installation is required")?,
+                    *json,
+                    cancel,
+                )
+            }
+        }
+        Command::List {
+            installation,
+            profile,
+            json,
+        } => {
+            let selected = profile
+                .as_deref()
+                .map(|name| profile::Loaded::load(name, cancel))
+                .transpose()?;
+            let installation = selected
+                .as_ref()
+                .map(|loaded| loaded.profile.installation.as_path())
+                .or(installation.as_deref())
+                .ok_or("--installation or --profile is required")?;
+            let opened = syrox_engine::deployment::os::open_os_installation(
+                installation,
+                cancel,
+                deadline(),
+            )
+            .map_err(|error| error.to_string())?;
+            if selected
+                .as_ref()
+                .is_some_and(|loaded| loaded.profile.installation_id != opened.id())
+            {
+                return Err("profile installation identity differs".into());
+            }
+            let entries = opened
+                .list(cancel, deadline())
+                .map_err(|error| error.to_string())?;
             let mut failed = false;
             let mut rows = Vec::new();
             for entry in entries {

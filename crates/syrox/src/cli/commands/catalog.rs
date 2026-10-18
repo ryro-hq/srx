@@ -6,6 +6,17 @@ use syrox_engine::project::CheckConfiguration;
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
+    /// Verify local qualified bundles and write a descriptor for explicit trust.
+    AuthorizeArtifacts {
+        path: PathBuf,
+        #[arg(long)]
+        release: PathBuf,
+        #[arg(long)]
+        evidence: PathBuf,
+        /// Descriptor must be written beside the bundles it authorizes.
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// Generate only release data, retaining shared selectors and construction.
     Generate {
         path: PathBuf,

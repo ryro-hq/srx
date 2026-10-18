@@ -5,33 +5,7 @@ use super::{Checker, Expression, ExpressionKind, ResolvedTarget, StringPart};
 impl Checker<'_> {
     pub(super) fn string_constant(&self, expression: &Expression) -> Option<std::sync::Arc<str>> {
         match &expression.kind {
-            ExpressionKind::String(value) => {
-                let mut result = String::new();
-                for part in &value.parts {
-                    let StringPart::Text {
-                        source,
-                        ..
-                    } = part
-                    else {
-                        return None;
-                    };
-                    let mut chars = source.chars();
-                    while let Some(ch) = chars.next() {
-                        result.push(if ch == '\\' {
-                            match chars.next()? {
-                                'n' => '\n',
-                                'r' => '\r',
-                                't' => '\t',
-                                ch @ ('"' | '\\' | '$') => ch,
-                                _ => return None,
-                            }
-                        } else {
-                            ch
-                        });
-                    }
-                }
-                Some(result.into())
-            }
+            ExpressionKind::String(value) => decode_string(value),
             ExpressionKind::Group(value) => self.string_constant(value),
             ExpressionKind::Path(path) => match self.target(path.span) {
                 Some(ResolvedTarget::Item(item)) => match self.global_constants.get(item)? {
@@ -49,4 +23,32 @@ impl Checker<'_> {
             _ => None,
         }
     }
+}
+
+pub(super) fn decode_string(value: &crate::syntax::StringLiteral) -> Option<std::sync::Arc<str>> {
+    let mut result = String::new();
+    for part in &value.parts {
+        let StringPart::Text {
+            source,
+            ..
+        } = part
+        else {
+            return None;
+        };
+        let mut chars = source.chars();
+        while let Some(ch) = chars.next() {
+            result.push(if ch == '\\' {
+                match chars.next()? {
+                    'n' => '\n',
+                    'r' => '\r',
+                    't' => '\t',
+                    ch @ ('"' | '\\' | '$') => ch,
+                    _ => return None,
+                }
+            } else {
+                ch
+            });
+        }
+    }
+    Some(result.into())
 }

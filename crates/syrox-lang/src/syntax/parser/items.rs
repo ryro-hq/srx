@@ -152,6 +152,7 @@ impl Parser<'_> {
                     span: point(1),
                 },
                 type_arguments: Vec::new(),
+                record_span: point(1),
                 fields: Vec::new(),
                 recovery: Vec::new(),
             },
@@ -241,6 +242,7 @@ impl Parser<'_> {
                             kind: super::ExpressionKind::Struct {
                                 path: Self::generated_path(point(5), &["std", "Os"]),
                                 type_arguments: Vec::new(),
+                                record_span: span,
                                 fields,
                                 recovery: Vec::new(),
                             },

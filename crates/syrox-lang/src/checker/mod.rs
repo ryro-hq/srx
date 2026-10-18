@@ -20,6 +20,7 @@ mod editor;
 mod enums;
 mod expressions;
 mod functions;
+mod global_effects;
 mod globals;
 mod index;
 mod inference;
@@ -162,6 +163,7 @@ struct Checker<'a> {
     static_descriptions: Vec<String>,
     global_patterns: BTreeMap<(u32, u32, u32), CheckedPattern>,
     output_values: BTreeMap<ItemId, &'a Type>,
+    output_initializers: BTreeMap<ItemId, &'a Expression>,
     published_types: BTreeMap<ItemId, Ty>,
     carriers: BTreeSet<ItemId>,
     generic_instances: BTreeSet<Ty>,
@@ -224,6 +226,7 @@ impl<'a> Checker<'a> {
             static_descriptions: Vec::new(),
             global_patterns: BTreeMap::new(),
             output_values: BTreeMap::new(),
+            output_initializers: BTreeMap::new(),
             published_types: BTreeMap::new(),
             carriers: BTreeSet::new(),
             generic_instances: BTreeSet::new(),
@@ -297,6 +300,7 @@ impl<'a> Checker<'a> {
                 .into_values()
                 .filter(|fact| spans.insert(span_key(fact.span))),
         );
+        self.check_global_effects();
     }
 }
 

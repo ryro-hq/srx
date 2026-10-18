@@ -194,3 +194,64 @@ fn package_set_methods_complete_navigate_and_show_signatures_across_platform_edi
     }
     client.stop();
 }
+
+#[test]
+fn record_call_forms_complete_fields_show_signatures_and_navigate() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("main.srx");
+    let prefix = "value I(int); struct Options { port: I = 80; } fn make(options: Options) -> I { options.port } mod api { pub fn make(options: Options) -> I { options.port } } let callback = fn(options: Options) -> I { options.port }; ";
+    let initial = format!("{prefix}let answer = make {{  }};");
+    std::fs::write(&path, &initial).unwrap();
+    let document = uri(&path);
+    let mut client = Client::new(temp.path(), "utf-16");
+    client.open(&document, &initial);
+    for (revision, callee) in [
+        "make",
+        "api::make",
+        "api.make",
+        "callback",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let text = format!("{prefix}let answer = {callee} {{  }};");
+        client.notify("textDocument/didChange", json!({"textDocument":{"uri":document,"version":revision + 2},"contentChanges":[{"text":text}]}));
+        let at = |offset: usize| json!({"textDocument":{"uri":document},"position":{"line":0,"character":offset}});
+        let offset = text.rfind("{  }").unwrap() + 2;
+        let completion = client.request("textDocument/completion", at(offset));
+        assert!(
+            completion["result"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["label"] == "port"),
+            "{callee}: {completion}"
+        );
+        let signature = client.request("textDocument/signatureHelp", at(offset));
+        assert_eq!(
+            signature["result"]["activeParameter"], 0,
+            "{callee}: {signature}"
+        );
+        assert!(
+            signature["result"]["signatures"][0]["label"]
+                .as_str()
+                .unwrap()
+                .contains("Options"),
+            "{callee}: {signature}"
+        );
+        let position = text.rfind(callee).unwrap() + callee.len() - 1;
+        let definition = client.request("textDocument/definition", at(position));
+        assert!(
+            !definition["result"].is_null(),
+            "{callee}: {definition}"
+        );
+        assert!(
+            definition["result"]["range"]["start"]["character"]
+                .as_u64()
+                .unwrap()
+                < prefix.len() as u64,
+            "{callee}: {definition}"
+        );
+    }
+    client.stop();
+}
