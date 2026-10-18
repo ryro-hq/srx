@@ -40,6 +40,8 @@ mod bus;
 mod notify;
 pub use notify::{SystemdNotificationsProcessed, SystemdNotifier, SystemdNotifyEndpoint};
 mod build;
+mod contract;
+pub use contract::{SystemdInterfaceContract, interface_contract};
 pub(crate) mod fd_store;
 pub(crate) mod loaded;
 pub(crate) mod persistent;
@@ -366,7 +368,7 @@ impl SystemdManager {
             "org.freedesktop.DBus",
             "AddMatch",
         )?;
-        add_match.string("type='signal',sender='org.freedesktop.systemd1',path='/org/freedesktop/systemd1',interface='org.freedesktop.systemd1.Manager',member='JobRemoved'")?;
+        add_match.string(&contract::JOB_REMOVED.rule(Some(MANAGER_PATH)))?;
         bus.call(add_match, &budget)?.expect_empty()?;
         let mut owner_call = bus.method(
             "org.freedesktop.DBus",

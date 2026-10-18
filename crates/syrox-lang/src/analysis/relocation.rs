@@ -571,6 +571,40 @@ mod tests {
     }
 
     #[test]
+    fn static_enum_constants_relocate_identities_inside_shared_values() {
+        let text = r"
+            value I(int); enum Mode { Fast, Slow } enum Choice<T> { Selected(T) }
+            struct Settings { choices: [Choice<Mode>]; }
+            fn select(const number: I) -> Settings {
+                Settings { choices = [Choice::Selected(Mode::Fast), Choice::Selected(Mode::Slow)]; }
+            }
+            outputs { selected: Settings = select(1); }
+        ";
+        let before = analyze(&[("main.srx", text)]);
+        let after = analyze(&[(
+            "main.srx",
+            &format!("enum Earlier {{ Present }} {text}"),
+        )]);
+        assert!(
+            before.diagnostics().is_empty(),
+            "{:?}",
+            before.diagnostics()
+        );
+        assert!(
+            after.diagnostics().is_empty(),
+            "{:?}",
+            after.diagnostics()
+        );
+        let owner = key("selected");
+        let mapped = after
+            .remap_checked_body_from(&before, &owner, &AnalysisCancellation::default())
+            .unwrap()
+            .unwrap();
+        assert_eq!(mapped, cold(&after, &owner));
+        assert_ne!(mapped, cold(&before, &owner));
+    }
+
+    #[test]
     fn recovered_bodies_keep_unknown_status_and_movement_diagnostics() {
         let text = "value I(int); resource R(int); fn inspect(r: R) { let missing: I = ; let later=I(2); r; r; }";
         let before = analyze(&[("main.srx", text)]);

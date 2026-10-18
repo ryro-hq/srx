@@ -23,7 +23,8 @@ pub enum FormatError {
     Cancelled(#[from] AnalysisCancelled),
 }
 
-/// Format one syntactically complete source using four-space indentation.
+/// Format a complete source with four-space indentation and a soft 100-column
+/// limit for comma-separated calls and lists.
 /// Comments and strings retain their exact bytes. Invalid/incomplete sources
 /// produce diagnostics, never a partial edit. No project evaluation is needed.
 pub fn format_source(source: &Source) -> Result<String, FormatError> {
@@ -52,6 +53,7 @@ fn format(
         .filter(|token| token.kind != TokenKind::Whitespace)
         .copied()
         .collect();
+    let widths = collection_widths(source, &tokens, cancellation)?;
     let mut writer = Writer::default();
     let mut stack = Vec::new();
     for (index, token) in tokens.iter().enumerate() {
@@ -62,9 +64,11 @@ fn format(
         }
         let previous = index.checked_sub(1).map(|index| &tokens[index]);
         let next = tokens.get(index + 1);
-        if closes(token.kind) {
-            stack.pop(); // Parsing already validated matching delimiters.
-        }
+        let closing = if closes(token.kind) {
+            stack.pop() // Parsing already validated matching delimiters.
+        } else {
+            None
+        };
         if token.kind == TokenKind::Comment {
             // Preserve whether this comment belongs to the preceding line.
             let inline = previous.is_some_and(|previous| {
@@ -76,8 +80,10 @@ fn format(
             writer.newline = true;
             continue;
         }
-        if token.kind == TokenKind::RightBrace {
-            writer.newline = previous.is_some_and(|p| p.kind != TokenKind::LeftBrace);
+        if let Some((kind, multiline)) = closing
+            && (kind == TokenKind::LeftBrace || multiline)
+        {
+            writer.newline = previous.is_some_and(|previous| previous.kind != kind);
         }
         writer.token(
             text(source, token),
@@ -86,7 +92,11 @@ fn format(
         )?;
         match token.kind {
             TokenKind::LeftBrace | TokenKind::Semicolon => writer.newline = true,
-            TokenKind::Comma => writer.newline = stack.last() == Some(&TokenKind::LeftBrace),
+            TokenKind::Comma => {
+                writer.newline = stack
+                    .last()
+                    .is_some_and(|&(kind, multiline)| kind == TokenKind::LeftBrace || multiline);
+            }
             TokenKind::RightBrace => {
                 writer.newline = next.is_some_and(|next| {
                     !matches!(
@@ -103,7 +113,10 @@ fn format(
             _ => {}
         }
         if opens(token.kind) {
-            stack.push(token.kind);
+            let multiline =
+                widths[index] > 0 && writer.column.saturating_add(widths[index] - 1) > 100;
+            stack.push((token.kind, multiline));
+            writer.newline |= multiline;
         }
     }
     if !writer.output.is_empty() {
@@ -142,6 +155,46 @@ fn format(
         cancel.check()?;
     }
     Ok(writer.output)
+}
+
+// Compute flat collection widths once, independent of the input's whitespace.
+// Only collections with direct commas wrap; a sole record argument keeps `({`.
+fn collection_widths(
+    source: &Source,
+    tokens: &[Token],
+    cancellation: Option<&AnalysisCancellation>,
+) -> Result<Vec<usize>, FormatError> {
+    let mut widths = vec![0; tokens.len()];
+    let mut stack: Vec<(usize, bool)> = Vec::new();
+    let mut offsets = Vec::with_capacity(tokens.len() + 1);
+    offsets.push(0_usize);
+    for (index, token) in tokens.iter().enumerate() {
+        if index % 64 == 0
+            && let Some(cancel) = cancellation
+        {
+            cancel.check()?;
+        }
+        let spacing = usize::from(index > 0 && space(tokens[index - 1].kind, token.kind));
+        offsets.push(offsets[index] + text(source, token).len() + spacing);
+        if closes(token.kind) {
+            if let Some((open, comma)) = stack.pop()
+                && comma
+                && matches!(
+                    tokens[open].kind,
+                    TokenKind::LeftParen | TokenKind::LeftBracket
+                )
+            {
+                widths[open] = offsets[index + 1] - offsets[open];
+            }
+        } else if token.kind == TokenKind::Comma {
+            if let Some((_, comma)) = stack.last_mut() {
+                *comma = true;
+            }
+        } else if opens(token.kind) {
+            stack.push((index, false));
+        }
+    }
+    Ok(widths)
 }
 
 fn text<'a>(source: &'a Source, token: &Token) -> &'a str {
@@ -200,6 +253,7 @@ fn space(previous: TokenKind, current: TokenKind) -> bool {
 struct Writer {
     output: String,
     newline: bool,
+    column: usize,
 }
 impl Writer {
     fn append(&mut self, value: &str) -> Result<(), FormatError> {
@@ -207,6 +261,10 @@ impl Writer {
             return Err(FormatError::OutputLimit);
         }
         self.output.push_str(value);
+        self.column = value.rsplit_once('\n').map_or_else(
+            || self.column + value.len(),
+            |(_, tail)| tail.len(),
+        );
         Ok(())
     }
     fn token(&mut self, value: &str, depth: usize, space: bool) -> Result<(), FormatError> {
@@ -306,6 +364,29 @@ mod tests {
             assert_eq!(formatted(&result), result, "{input}");
             assert!(crate::syntax::analyze(&Source::new("formatted.srx", result).unwrap()).is_ok());
         }
+    }
+
+    #[test]
+    fn wraps_long_calls_and_lists_but_keeps_short_values_inline() {
+        let input = r#"fn build()->T{let args=["--configure-first-option","--configure-second-option","--configure-third-option","--configure-fourth-option"];run(BuildPath::Host("/usr/bin/make"),BuildPath::Work("source/package"),args,[environment("NAME","VALUE"),environment("OTHER_NAME","OTHER_VALUE")])}"#;
+        let result = formatted(input);
+        assert!(result.contains("let args = [\n"));
+        assert!(result.contains("    run(\n"));
+        assert!(result.contains("BuildPath::Host(\"/usr/bin/make\"),\n"));
+        assert_eq!(formatted(&result), result);
+        assert!(formatted("fn f()->T{[1,2,3]}").contains("[1, 2, 3]"));
+    }
+
+    #[test]
+    fn wrapped_comments_records_and_multiline_strings_keep_their_tokens() {
+        let input = r#"fn f()->T{call("a long first argument that forces this function call to wrap", // keep tail
+[Record{text="a long nested value";},Record{text="another long nested value";}],"""line one
+line two with $shell and \\slashes
+""")}"#;
+        let result = formatted(input);
+        assert!(result.contains(", // keep tail\n"));
+        assert!(result.contains("\"\"\"line one\nline two with $shell and \\\\slashes\n\"\"\""));
+        assert_eq!(formatted(&result), result);
     }
 
     #[test]

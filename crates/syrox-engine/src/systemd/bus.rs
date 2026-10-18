@@ -1,3 +1,4 @@
+use super::contract;
 use super::properties::Property;
 use super::wire::{self, Frame, Writer};
 use super::{Budget, MANAGER_INTERFACE, MANAGER_PATH, MAX_JOBS, SystemdError, job_id};
@@ -360,6 +361,7 @@ impl Bus {
         for value in [destination, path, interface, member] {
             super::text(value)?;
         }
+        contract::method(interface, member)?;
         Ok(Message {
             destination: destination.into(),
             path: path.into(),
@@ -397,7 +399,20 @@ impl Bus {
             return Err(disconnected());
         }
         budget.check()?;
-        let result = self.call_inner(&message, budget);
+        let specification = contract::method(&message.interface, &message.member)?;
+        if specification.is_some_and(|specification| specification.input != message.signature) {
+            return Err(SystemdError::Protocol(
+                "request differs from host interface signature",
+            ));
+        }
+        let result = self
+            .call_inner(&message, budget)
+            .and_then(|reply| {
+                if let Some(specification) = specification {
+                    reply.signature(specification.output)?;
+                }
+                Ok(reply)
+            });
         if matches!(&result,Err(e)if !matches!(e,SystemdError::Remote{..})) {
             self.healthy = false;
         }
@@ -539,9 +554,9 @@ impl Bus {
     pub fn watch_loaded(&mut self, path: &str, budget: &Budget<'_>) -> Result<(), SystemdError> {
         if !self.configuration_subscribed {
             for rule in [
-                "type='signal',sender='org.freedesktop.systemd1',interface='org.freedesktop.systemd1.Manager',member='Reloading'",
-                "type='signal',sender='org.freedesktop.systemd1',interface='org.freedesktop.systemd1.Manager',member='UnitRemoved'",
-                "type='signal',sender='org.freedesktop.systemd1',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged'",
+                contract::RELOADING.rule(None),
+                contract::UNIT_REMOVED.rule(None),
+                contract::PROPERTIES_CHANGED.rule(None),
             ] {
                 let mut call = self.method(
                     "org.freedesktop.DBus",
@@ -549,7 +564,7 @@ impl Bus {
                     "org.freedesktop.DBus",
                     "AddMatch",
                 )?;
-                call.string(rule)?;
+                call.string(&rule)?;
                 self.call(call, budget)?.expect_empty()?;
             }
             self.configuration_subscribed = true;
@@ -563,9 +578,9 @@ impl Bus {
             && watched.is_some()
             && frame.path == MANAGER_PATH
             && frame.interface == MANAGER_INTERFACE
-            && frame.member == "UnitRemoved"
+            && frame.member == contract::UNIT_REMOVED.name
         {
-            if frame.signature != "so" {
+            if frame.signature != contract::UNIT_REMOVED.signature {
                 return Err(SystemdError::Protocol(
                     "invalid UnitRemoved signature",
                 ));
@@ -583,11 +598,11 @@ impl Bus {
             && watched.is_some()
             && ((frame.path == MANAGER_PATH
                 && frame.interface == MANAGER_INTERFACE
-                && frame.member == "Reloading")
+                && frame.member == contract::RELOADING.name)
                 || removed_watched
                 || (Some(frame.path.as_str()) == watched
-                    && frame.interface == "org.freedesktop.DBus.Properties"
-                    && frame.member == "PropertiesChanged"))
+                    && frame.interface == contract::PROPERTIES_CHANGED.interface
+                    && frame.member == contract::PROPERTIES_CHANGED.name))
         {
             self.configuration_revision =
                 self.configuration_revision
@@ -599,11 +614,11 @@ impl Bus {
         if self.owner.as_deref() != Some(&frame.sender)
             || frame.path != MANAGER_PATH
             || frame.interface != MANAGER_INTERFACE
-            || frame.member != "JobRemoved"
+            || frame.member != contract::JOB_REMOVED.name
         {
             return Ok(());
         }
-        if frame.signature != "uoss" {
+        if frame.signature != contract::JOB_REMOVED.signature {
             return Err(SystemdError::Protocol(
                 "invalid JobRemoved signature",
             ));
@@ -641,6 +656,7 @@ impl Bus {
         name: &str,
         budget: &Budget<'_>,
     ) -> Result<Reply, SystemdError> {
+        let expected = contract::property_signature(interface, name)?;
         let mut m = self.method(
             self.owner
                 .as_deref()
@@ -653,6 +669,7 @@ impl Bus {
         m.string(name)?;
         let reply = self.call(m, budget)?;
         reply.signature("v")?;
+        expect_variant(reply.0.reader().sig()?, expected)?;
         Ok(reply)
     }
     pub fn get_unit_job(

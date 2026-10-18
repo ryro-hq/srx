@@ -241,7 +241,9 @@ impl SemanticAnalysis {
                 ResolvedItemKind::Function => SemanticSymbolKind::Function,
                 ResolvedItemKind::Struct => SemanticSymbolKind::Struct,
                 ResolvedItemKind::Enum => SemanticSymbolKind::Enum,
-                ResolvedItemKind::OutputValue => SemanticSymbolKind::Variable,
+                ResolvedItemKind::OutputValue | ResolvedItemKind::Binding => {
+                    SemanticSymbolKind::Variable
+                }
                 _ => SemanticSymbolKind::Type,
             };
             index.add(

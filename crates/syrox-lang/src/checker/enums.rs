@@ -1,4 +1,6 @@
-use super::{BTreeMap, Checker, Elaboration, ItemId, LocalId, Pattern, RawTy, Span, Ty, Type};
+use super::{
+    BTreeMap, Checker, Constant, Elaboration, ItemId, LocalId, Pattern, RawTy, Span, Ty, Type,
+};
 
 impl Checker<'_> {
     pub(super) fn bind_variant_pattern(
@@ -6,7 +8,7 @@ impl Checker<'_> {
         pattern: &Pattern,
         scrutinee: &Ty,
         index: u32,
-        span: Span,
+        constant: Option<&Constant>,
     ) {
         let payload = self.variant_payload(scrutinee, index);
         let bindings = match pattern {
@@ -16,12 +18,20 @@ impl Checker<'_> {
             } => bindings.as_slice(),
             _ => &[],
         };
-        if bindings.len() != payload.len() {
-            self.error("pattern payload binding count mismatch", span);
-        }
-        for (binding, ty) in bindings.iter().zip(payload) {
+        for (position, (binding, ty)) in bindings.iter().zip(payload).enumerate() {
             if let Some(local) = self.local_id(binding.span) {
                 self.bind_local(local, ty, binding.span, false);
+                if let Some(Constant::Variant {
+                    payload,
+                    ..
+                }) = constant
+                {
+                    self.body
+                        .bindings
+                        .get_mut(&local)
+                        .expect("bound pattern")
+                        .constant = payload.get(position).cloned().flatten();
+                }
             }
         }
     }

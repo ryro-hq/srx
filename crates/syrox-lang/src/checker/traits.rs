@@ -555,22 +555,32 @@ impl Checker<'_> {
         if let [function] = candidates.as_slice() {
             let mut arguments = arguments.to_vec();
             arguments.insert(0, receiver.clone());
+            let (parameters, mut result) = self.function_types[function].clone();
             if self.functions[function].declaration.is_static()
                 || self.functions[function].declaration.has_bounds()
             {
-                return self.check_static_call(
+                result = self.check_static_call(
                     *function,
                     &arguments,
                     context,
                     method.span,
                     elaboration,
                 );
+            } else {
+                self.check_arguments(&arguments, &parameters, context, method.span);
+                *elaboration = Some(Elaboration::TraitCall {
+                    implementation: *function,
+                });
             }
-            let (parameters, result) = self.function_types[function].clone();
-            self.check_arguments(&arguments, &parameters, context, method.span);
-            *elaboration = Some(Elaboration::TraitCall {
-                implementation: *function,
-            });
+            self.record_field(
+                method.span,
+                self.functions[function].declaration.name.span,
+                &Ty::Function {
+                    parameters,
+                    result: Box::new(result.clone()),
+                    once: false,
+                },
+            );
             return result;
         }
         if !candidates.is_empty() {

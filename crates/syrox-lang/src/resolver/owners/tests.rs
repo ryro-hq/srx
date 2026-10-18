@@ -319,6 +319,33 @@ fn namespace_observations_detect_variant_and_discovery_inventory_changes() {
 }
 
 #[test]
+fn contextual_variant_existence_is_an_incremental_namespace_dependency() {
+    let owner = key("selected", ResolutionOwnerPart::Declaration);
+    let source =
+        "enum E { Present } let selected: E = match E::Present { Present => Present, _ => Later };";
+    let before = query(&resolved(&[("main.srx", source)]), &owner);
+    let changed = source.replace("{ Present }", "{ Present, Later }");
+    let after = query(&resolved(&[("main.srx", &changed)]), &owner);
+    assert!(before.namespace_dependencies_complete && after.namespace_dependencies_complete);
+    assert!(
+        before
+            .namespace_dependencies
+            .iter()
+            .any(|dependency| {
+                dependency.query == NamespaceQuery::ContextualVariant
+                    && dependency.path == ["Later"]
+                    && dependency.outcome == NamespaceOutcome::Target(None)
+            })
+    );
+    assert_ne!(
+        before.namespace_dependencies,
+        after.namespace_dependencies
+    );
+    assert_eq!(before.diagnostics.len(), 1);
+    assert!(after.diagnostics.is_empty());
+}
+
+#[test]
 fn namespace_equality_does_not_claim_signature_or_type_interface_equality() {
     let text =
         "value I(int); value S(str); fn target() -> I { I(1) } fn inspect() -> I { target() }";

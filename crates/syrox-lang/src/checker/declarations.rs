@@ -55,6 +55,7 @@ impl Checker<'_> {
             }
             self.with_body(info.declaration.name.span, |checker| {
                 checker.body.bindings.clear();
+                checker.static_mode = false;
                 checker.body.type_parameters = checker.function_parameters(id);
                 let Some((parameter_types, result)) = checker.function_types.get(&id).cloned()
                 else {
@@ -157,6 +158,7 @@ impl Checker<'_> {
                         } => {
                             self.with_body(output.span, |checker| {
                                 checker.body.bindings.clear();
+                                checker.static_mode = true;
                                 let want = checker.resolve_type(ty, &BTreeMap::new(), 0);
                                 if let Some(id) = checker
                                     .item_at

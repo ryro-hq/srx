@@ -5,6 +5,10 @@ FROM ${RUST_IMAGE} AS rust
 
 # Build the setpriv version required by namespace and ioctl gates.
 FROM ${BASE_IMAGE} AS setpriv
+# Ubuntu 24.04's distribution headers predate the VM's Landlock IOCTL_DEV gate.
+# Use the UAPI header from the pinned Rust image to compile the test utility;
+# the running kernel remains the separately authenticated Linux VM kernel.
+COPY --from=rust /usr/include/linux/landlock.h /usr/local/include/linux/landlock.h
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
@@ -81,9 +85,20 @@ RUN curl --fail --location \
     && rm /tmp/node.tar.xz /tmp/nvim.tar.gz
 
 COPY --from=rust /usr/local/rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu /opt/rust
+# Some base images already reserve UID/GID 1000 (Ubuntu's default account).
+# Give that identity the guest's stable name instead of creating duplicate IDs.
 RUN /opt/rust/bin/rustc --version | grep 'rustc 1.98.1 ' \
-    && groupadd --gid ${TEST_GID} syrox \
-    && useradd --uid ${TEST_UID} --gid ${TEST_GID} --create-home syrox \
+    && existing_group="$(getent group "${TEST_GID}" | cut -d: -f1)" \
+    && if [ -z "$existing_group" ]; then groupadd --gid "${TEST_GID}" syrox; \
+       elif [ "$existing_group" != syrox ]; then groupmod --new-name syrox "$existing_group"; fi \
+    && existing_user="$(getent passwd "${TEST_UID}" | cut -d: -f1)" \
+    && if [ -z "$existing_user" ]; then \
+         useradd --uid "${TEST_UID}" --gid "${TEST_GID}" --create-home syrox; \
+       elif [ "$existing_user" != syrox ]; then \
+         usermod --login syrox --home /home/syrox --move-home --gid "${TEST_GID}" "$existing_user"; \
+       fi \
+    && test "$(id -u syrox)" = "${TEST_UID}" \
+    && test "$(id -g syrox)" = "${TEST_GID}" \
     && mkdir -p /var/lib/systemd/linger \
     && touch /var/lib/systemd/linger/syrox \
     && mkdir -p /etc/systemd/system/user@.service.d \

@@ -217,7 +217,7 @@ fn completion_handles_an_incomplete_namespace_after_unicode_text() {
 #[test]
 fn std_definitions_are_read_only_revisioned_virtual_sources() {
     let temp = tempfile::tempdir().unwrap();
-    let text = "fn example() -> std::PackageId { std::PackageId(\"hello\") }";
+    let text = "fn example() -> PackageId { std::PackageId(\"hello\") }";
     let path = temp.path().join("main.srx");
     std::fs::write(&path, text).unwrap();
     let document = uri(&path);
@@ -227,7 +227,7 @@ fn std_definitions_are_read_only_revisioned_virtual_sources() {
     client.diagnostics(&document, 1);
     let definition = client.request(
         "textDocument/definition",
-        at(&document, text, "std::PackageId", 0),
+        at(&document, text, "PackageId", 0),
     );
     let virtual_uri = definition["result"]["uri"]
         .as_str()

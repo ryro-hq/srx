@@ -145,11 +145,15 @@ impl Evaluator<'_> {
             }
             ExpressionKind::Path(path) => match metadata.elaboration() {
                 Some(Elaboration::ValueLiteral(item)) => {
-                    let Some(ResolvedTarget::Local(local)) = self.index.target(path.span).cloned()
-                    else {
-                        return self.fail(path.span, "constant literal has no local binding");
+                    let value = match self.index.target(path.span).cloned() {
+                        Some(ResolvedTarget::Local(local)) => self.local_value(local, path.span)?,
+                        Some(ResolvedTarget::Item(global))
+                            if self.index.output_values.contains_key(&global) =>
+                        {
+                            self.output_value(global, path.span)?
+                        }
+                        _ => return self.fail(path.span, "constant literal has no binding"),
                     };
-                    let value = self.local_value(local, path.span)?;
                     let Some(value) = super::primitive_value(value) else {
                         return self.fail(path.span, "constant is not primitive");
                     };

@@ -65,11 +65,7 @@ impl Resolver<'_> {
         };
         if let Some(path) = path {
             if path.segments.len() == 1 {
-                self.references.push(ResolvedReference {
-                    span: path.span,
-                    kind: ReferenceKind::Pattern,
-                    target: ResolvedTarget::ContextualEnumVariant,
-                });
+                self.resolve_contextual_variant(module, path, ReferenceKind::Pattern);
             } else {
                 self.resolve_qualified_value(module, path, ReferenceKind::Pattern);
             }
@@ -205,7 +201,7 @@ impl Resolver<'_> {
             }
             ItemKind::Inputs(inputs) => {
                 for input in &inputs.entries {
-                    self.resolve_string(&input.value, &BTreeMap::new());
+                    self.resolve_string(module, &input.value, &BTreeMap::new());
                 }
             }
             ItemKind::TypeAlias(alias) => {
@@ -311,7 +307,7 @@ impl Resolver<'_> {
                                     return;
                                 }
                                 if let Literal::String(string) = value {
-                                    self.resolve_string(string, &BTreeMap::new());
+                                    self.resolve_string(module, string, &BTreeMap::new());
                                 }
                             }
                         }
@@ -320,6 +316,17 @@ impl Resolver<'_> {
                         } => {}
                     }
                 }
+            }
+            ItemKind::Binding(binding) => {
+                if let Some(ty) = &binding.ty {
+                    self.resolve_type(module, ty, &BTreeMap::new());
+                }
+                self.resolve_expression(
+                    module,
+                    &binding.value,
+                    &BTreeMap::new(),
+                    &BTreeMap::new(),
+                );
             }
             ItemKind::Function(function) => self.resolve_function(module, function),
             ItemKind::Publication(publication) => {
@@ -630,7 +637,7 @@ impl Resolver<'_> {
                 }
                 ExpressionKind::Integer(_) => {}
                 ExpressionKind::String(string) => {
-                    self.resolve_string(string, value_locals);
+                    self.resolve_string(module, string, value_locals);
                 }
                 ExpressionKind::Path(path) => self.resolve_value_path(module, path, value_locals),
                 ExpressionKind::Memoize(value) => stack.push(value),
@@ -807,11 +814,7 @@ impl Resolver<'_> {
                     ReferenceKind::Value,
                 );
             } else {
-                self.references.push(ResolvedReference {
-                    span: path.span,
-                    kind: ReferenceKind::Value,
-                    target: ResolvedTarget::ContextualEnumVariant,
-                });
+                self.resolve_contextual_variant(module, path, ReferenceKind::Value);
             }
         } else if path
             .segments
@@ -825,6 +828,45 @@ impl Resolver<'_> {
         } else {
             self.resolve_qualified_value(module, path, ReferenceKind::Value);
         }
+    }
+
+    fn resolve_contextual_variant(&mut self, module: ModuleId, path: &Path, kind: ReferenceKind) {
+        if !self.charge(path.span) {
+            return;
+        }
+        let diagnostics = self.diagnostics.len();
+        let name = &path.segments[0].text;
+        let witness = self
+            .contextual_variants
+            .get(name)
+            .map(
+                |&(enumeration, index)| ResolvedTarget::EnumVariant {
+                    enumeration,
+                    index,
+                },
+            );
+        if witness.is_some() {
+            self.references.push(ResolvedReference {
+                span: path.span,
+                kind,
+                target: ResolvedTarget::ContextualEnumVariant,
+            });
+        } else {
+            self.error(
+                format!("unknown value or enum variant `{name}`"),
+                path.span,
+            );
+        }
+        // Record both positive and negative observations: adding/removing an
+        // enum variant must refresh diagnostics even inside a discarded branch.
+        self.observe_namespace(
+            module,
+            path,
+            path.span,
+            super::NamespaceQuery::ContextualVariant,
+            super::owners::ObservedNamespace::Target(witness.as_ref()),
+            diagnostics,
+        );
     }
 
     fn resolve_closure(
@@ -910,6 +952,7 @@ impl Resolver<'_> {
 
     pub(super) fn resolve_string(
         &mut self,
+        module: ModuleId,
         string: &StringLiteral,
         locals: &BTreeMap<String, LocalId>,
     ) {
@@ -931,7 +974,24 @@ impl Resolver<'_> {
                     target: ResolvedTarget::Local(local),
                 });
             } else {
-                self.error("unknown local in string interpolation", path.span);
+                let first = Path {
+                    segments: path.segments[..1].to_vec(),
+                    span: path.span,
+                };
+                if let Some(target @ ResolvedTarget::Item(_)) =
+                    self.lookup(module, &first, Expected::Value)
+                {
+                    self.references.push(ResolvedReference {
+                        span: path.span,
+                        kind: ReferenceKind::Interpolation,
+                        target,
+                    });
+                } else {
+                    self.error(
+                        "unknown local or global in string interpolation",
+                        path.span,
+                    );
+                }
             }
         }
     }

@@ -233,6 +233,12 @@ impl<'a> Checker<'a> {
                         );
                     }
                 }
+                ItemKind::Binding(binding) => {
+                    if let Some(id) = self.declaration_id(binding.name.span) {
+                        self.item_context.insert(id, context);
+                        self.global_values.insert(id, (binding, context));
+                    }
+                }
                 ItemKind::Outputs(outputs) => {
                     for output in &outputs.entries {
                         if !self.charge(output.span) {

@@ -232,6 +232,43 @@ fn locals_are_distinct_from_items_and_bare_variants_remain_contextual() {
 }
 
 #[test]
+fn discarded_branches_still_require_declared_value_or_variant_names() {
+    let declarations =
+        "value I(int); value S(str); enum Bool { False, True } enum Target { Gnu, Musl }";
+    for expression in [
+        "if Bool::True { Gnu } else { absent }",
+        "match \"gnu\" { \"gnu\" => Gnu, _ => absent }",
+        "match Target::Gnu { Gnu => Gnu, Musl => absent }",
+        "if Bool::True { Gnu } else { match Target::Gnu { absent => Gnu } }",
+    ] {
+        for declaration in [
+            format!("let selected: Target = {expression};"),
+            format!("outputs {{ selected: Target = {expression}; }}"),
+            format!(
+                "fn select(const key: S) -> Target {{ {expression} }} let selected = select(\"gnu\");"
+            ),
+        ] {
+            let source = format!("{declarations} {declaration}");
+            assert!(
+                errors(&[("main.srx", &source)])
+                    .iter()
+                    .any(|error| error.message == "unknown value or enum variant `absent`"),
+                "{source}"
+            );
+            // Resolution verifies existence only. The expected type chooses
+            // between variants sharing a name, even when declared later.
+            resolved(&[(
+                "main.srx",
+                &format!(
+                    "{} {declarations} enum Other {{ Musl }}",
+                    declaration.replace("absent", "Musl")
+                ),
+            )]);
+        }
+    }
+}
+
+#[test]
 fn canonical_ids_and_diagnostic_messages_do_not_depend_on_source_order() {
     let left = resolved(&[
         ("a.srx", "mod merged { struct A {} }"),
@@ -527,7 +564,7 @@ fn every_string_interpolation_is_resolved_in_its_context() {
     assert_eq!(
         diagnostics
             .iter()
-            .filter(|error| error.message == "unknown local in string interpolation")
+            .filter(|error| error.message == "unknown local or global in string interpolation")
             .count(),
         2
     );
@@ -588,4 +625,48 @@ fn every_resolution_pass_fails_closed_at_the_work_limit() {
         "name resolution work limit reached"
     );
     assert!(resolver.references.is_empty());
+}
+
+#[test]
+fn authenticated_public_std_interface_is_the_prelude_and_locals_win() {
+    let mut sources = SourceSet::new();
+    sources.add_standard_library("std.srx", r"mod std { pub struct Recipe {} struct Hidden {} pub enum BuildStep { Run } pub mod package_traits { pub trait Package {} } }").unwrap();
+    sources.add("main.srx", r"let short = Recipe {}; let explicit = std::Recipe {}; let step = BuildStep::Run; fn use_trait<T: package_traits::Package>(x: T) -> T { x } mod collision { struct Recipe {} let local = Recipe {}; let standard = std::Recipe {}; } mod imported { use other::Recipe; let imported = Recipe {}; } mod other { pub struct Recipe {} }").unwrap();
+    let program = resolve(parse_sources(&sources).unwrap()).unwrap();
+    for (name, path) in [
+        ("short", vec!["std", "Recipe"]),
+        ("local", vec!["collision", "Recipe"]),
+        ("imported", vec!["other", "Recipe"]),
+    ] {
+        let binding = program
+            .items()
+            .find(|item| {
+                item.path()
+                    .segments()
+                    .last()
+                    .is_some_and(|last| last == name)
+            })
+            .unwrap();
+        let source = program
+            .parsed()
+            .get(binding.span().source_id())
+            .unwrap();
+        assert!(!source.items.is_empty());
+        assert!(program.references().any(|reference| matches!(reference.target(), ResolvedTarget::Item(id) if program.item(*id).unwrap().path().segments().iter().map(String::as_str).eq(path.iter().copied()))));
+    }
+    sources
+        .add("invalid.srx", "let hidden = Hidden {};")
+        .unwrap();
+    assert!(
+        resolve(parse_sources(&sources).unwrap())
+            .unwrap_err()
+            .iter()
+            .any(|error| error.message.contains("Hidden"))
+    );
+    assert!(
+        errors(&[("main.srx", "let missing = Recipe {};")])
+            .iter()
+            .any(|error| error.message.contains("Recipe"))
+    );
+    assert!(errors(&[("main.srx", "value S(str); fn choose(const key: S) -> _ { match key { \"a\" => S(\"a\"), \"b\" => unknown() } } let result = choose(\"a\");")]).iter().any(|error| error.message.contains("unknown")));
 }

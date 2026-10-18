@@ -122,6 +122,12 @@ pub enum Constant {
     String(std::sync::Arc<str>),
     Integer(i64),
     Boolean(bool),
+    Variant {
+        enumeration: ItemId,
+        index: u32,
+        /// Unknown payloads retain the known variant, but prevent const arguments.
+        payload: std::sync::Arc<[Option<Constant>]>,
+    },
     Struct(std::sync::Arc<BTreeMap<String, Constant>>),
     List(std::sync::Arc<[Constant]>),
 }
@@ -214,6 +220,7 @@ pub(crate) struct EditorFacts {
     pub uses: Vec<OwnershipUse>,
     pub patterns: Vec<CheckedPattern>,
     pub shapes: BTreeMap<ItemId, super::NominalShape>,
+    pub methods: BTreeMap<Ty, Vec<ItemId>>,
     pub outputs: BTreeMap<ItemId, Ty>,
     pub fields: Vec<(Span, Span, Ty)>,
     pub units: usize,

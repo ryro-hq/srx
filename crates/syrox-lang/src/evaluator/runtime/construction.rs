@@ -274,11 +274,15 @@ impl Evaluator<'_> {
                     path,
                     span,
                 } => {
-                    let Some(ResolvedTarget::Local(local)) = self.index.target(path.span).cloned()
-                    else {
-                        return self.fail(*span, "checked interpolation has no local target");
+                    let mut value = match self.index.target(path.span).cloned() {
+                        Some(ResolvedTarget::Local(local)) => self.local_value(local, *span)?,
+                        Some(ResolvedTarget::Item(item))
+                            if self.index.output_values.contains_key(&item) =>
+                        {
+                            self.output_value(item, *span)?
+                        }
+                        _ => return self.fail(*span, "checked interpolation has no value target"),
                     };
-                    let mut value = self.local_value(local, *span)?;
                     for field in path.segments.iter().skip(1) {
                         value = self.project(value, &field.text, field.span)?;
                     }

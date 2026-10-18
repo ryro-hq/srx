@@ -255,6 +255,9 @@ impl Resolver<'_> {
                         self.error("too many enum variants", span);
                         break;
                     };
+                    self.contextual_variants
+                        .entry(name.clone())
+                        .or_insert((id, index));
                     if variants.insert(name, index).is_some() {
                         self.error("duplicate enum variant", span);
                     }
@@ -583,6 +586,11 @@ pub(super) fn declaration(item: &Item) -> Option<(&str, ResolvedItemKind, Span)>
         ItemKind::Value(declaration) => Some((
             &declaration.name.text,
             ResolvedItemKind::Value,
+            declaration.name.span,
+        )),
+        ItemKind::Binding(declaration) => Some((
+            &declaration.name.text,
+            ResolvedItemKind::Binding,
             declaration.name.span,
         )),
         ItemKind::Function(declaration) => Some((

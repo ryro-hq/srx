@@ -20,6 +20,8 @@ mod contextual;
 mod formatting;
 #[path = "support/github.rs"]
 mod github_fixture;
+#[path = "lsp/methods.rs"]
+mod methods;
 #[path = "lsp/presentation.rs"]
 mod presentation;
 #[path = "lsp/status.rs"]

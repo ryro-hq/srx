@@ -364,6 +364,7 @@ impl<'a> Parser<'a> {
                     | Keyword::Enum
                     | Keyword::Resource
                     | Keyword::Value
+                    | Keyword::Let
                     | Keyword::Fn,
                 ) if depth == 0 && cursor > start && reached_failure => break,
                 TokenKind::LeftBrace | TokenKind::LeftBracket | TokenKind::LeftParen => depth += 1,

@@ -102,35 +102,15 @@ impl Checker<'_> {
         expected: Option<&Ty>,
         context: Context,
     ) -> Ty {
-        if self.static_mode
-            && let Some(constant) = self.constant_value(value, 0)
-        {
-            for arm in arms {
-                if !self.charge(arm.span) {
-                    return Ty::Error;
-                }
-                if self.static_pattern_matches(&arm.pattern, &constant, arm.span) {
-                    return self.check_expr(&arm.value, expected, context, true);
-                }
-            }
-            self.error(
-                "static match has no applicable case",
-                *self.static_calls.first().expect("static call"),
-            );
-            return Ty::Error;
-        }
         let primitive = match ty {
             Ty::Int => Primitive::Int,
             Ty::Str => Primitive::Str,
             Ty::Nominal(id) => self.primitives[id].declaration.primitive,
             _ => return Ty::Error,
         };
-        let baseline = self.body.bindings.clone();
-        let mut merged = baseline.clone();
         let mut seen = BTreeSet::new();
         let mut wildcard = false;
-        let mut result = expected.cloned();
-        for (index, arm) in arms.iter().enumerate() {
+        for arm in arms {
             if !self.charge(arm.span) {
                 return Ty::Error;
             }
@@ -171,6 +151,44 @@ impl Checker<'_> {
                     "string and integer matches require literal patterns or `_`",
                     arm.span,
                 ),
+            }
+        }
+        if self.static_mode
+            && let Some(constant) = self.constant_value(value, 0)
+        {
+            for arm in arms {
+                if !self.charge(arm.span) {
+                    return Ty::Error;
+                }
+                if self.static_pattern_matches(&arm.pattern, &constant, arm.span) {
+                    return self.check_expr(&arm.value, expected, context, true);
+                }
+            }
+            let alternatives: Vec<_> = arms
+                .iter()
+                .map(|arm| match &arm.pattern {
+                    Pattern::Literal(Literal::String(string)) => string.source.clone(),
+                    Pattern::Literal(Literal::Integer(integer)) => integer.source.clone(),
+                    Pattern::Wildcard(_) => "_".into(),
+                    _ => "<invalid>".into(),
+                })
+                .collect();
+            let trace = self.static_descriptions.join(" -> ");
+            let requested = super::specialization::constant_description(&constant, self);
+            let span = self
+                .static_calls
+                .first()
+                .copied()
+                .unwrap_or(value.span);
+            self.error(format!("static match has no applicable case: {trace}; requested {requested}; alternatives: {}", alternatives.join(", ")), span);
+            return Ty::Error;
+        }
+        let baseline = self.body.bindings.clone();
+        let mut merged = baseline.clone();
+        let mut result = expected.cloned();
+        for (index, arm) in arms.iter().enumerate() {
+            if !self.charge(arm.span) {
+                return Ty::Error;
             }
             for _ in baseline.values() {
                 if !self.charge(arm.span) {

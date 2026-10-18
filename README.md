@@ -35,11 +35,11 @@ environment. With the catalog checked out beside your project, save this as
 ```srx
 inputs { pkgs = "path:../syrox-pkgs"; }
 
-use std::{Shell, select_command};
+let packages = pkgs.forPlatform { system = "linux-x86_64"; };
 
 outputs {
     dev: Shell = Shell {
-        pkgs = [select_command(std::package_recipe(pkgs.hello_version {
+        pkgs = [select_command(package_recipe(packages.hello_version {
             version = "2.12.1";
         }), "out", "hello")];
         services = [];
@@ -76,23 +76,37 @@ The selected package determines the configuration contract before acquisition:
 ```srx
 inputs { pkgs = "path:../syrox-pkgs"; }
 
+let packages = pkgs.forPlatform { system = "linux-x86_64"; };
+
 services.nginx = {
     enable = true;
-    package = pkgs.nginx { version = "1.30.5"; };
+    package = packages.nginx { version = "1.30.6"; };
     settings = { listen = 8080; proxyPass = "http://127.0.0.1:3000"; };
 };
 ```
 
-This declares an `os` output. Bind `pkgs.forSystem("linux-x86_64-musl")` to a
-variable and call its `nginx` method for musl; GNU and musl selections can share
-a project. Build tools and result systems are explicit. Exact literal versions
-and string constants are supported. Unknown versions, variants and fields fail
-before acquisition. `extraConfig` is checked by the selected nginx with `nginx -t`
-in an isolated runtime before a generation is frozen. `let/in`, contextual
-attribute sets, booleans and triple-quoted multiline strings are pure.
+This declares an `os` output. Omitted `libc` selects GNU; add `libc = "musl";`
+to select musl. The set exposes normalized `platform.system`/`platform.libc` and
+`buildPlatform` (Linux x86_64 GNU). Package calls inherit the set's platform;
+contradictory overrides fail before acquisition. Direct package calls default to
+Linux x86_64 GNU. `forSystem("linux-x86_64-musl")` remains supported.
+
+Root public names of the authenticated standard library are available directly;
+`std::Recipe` and other qualified names remain valid. Local declarations and
+explicit imports take precedence. Module `let` bindings are private by default,
+exported with `pub let`, immutable, reusable and shared during evaluation.
+Forward references are allowed and cycles are diagnosed. Known `if`/`match`
+conditions in module initializers and configurations check the selected branch.
+Names and syntax are resolved in every branch. Exact versions remain required.
+
+`linux-aarch64` is representable for conditions, with `gnu` or `musl`; this
+catalog has no ARM64 implementations. `linux` and `linux-arm` require an explicit
+architecture. Persisted package identities keep full target tags.
+`extraConfig` is checked by the selected nginx with `nginx -t` in an isolated
+runtime before a generation is frozen.
 
 Package modules use ordinary `if`, `==`/`!=`, literal `match` and static traits.
-`std::package_traits::Package` associates an implementation with `Settings`,
+`package_traits::Package` associates an implementation with `Settings`,
 recipe and rendering operations; `ServicePackage` adds service integration.
 Selectors such as `fn nginx(const selection: Selection) -> _` specialize their
 result from known arguments. An unsupported static case fails at the call;

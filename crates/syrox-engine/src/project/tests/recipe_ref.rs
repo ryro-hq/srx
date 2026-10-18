@@ -72,10 +72,11 @@ fn imported_homonymous_catalog_entries_are_distinct_and_reference_aliases_keep_i
         "consumer/main.srx",
         r#"
         inputs { left = "path:../left"; right = "path:../right"; }
+        let shared = left::hello;
         outputs {
-            left_ref: std::RecipeRef<std::Package> = left::hello;
+            left_ref: RecipeRef<Package> = shared;
             right_ref: std::RecipeRef<std::Package> = right::hello;
-            alias: std::RecipeRef<std::Package> = left_ref;
+            alias: RecipeRef<Package> = shared;
         }
     "#,
     );
@@ -1149,4 +1150,29 @@ fn recipe_references_are_opaque_and_cannot_be_serialized_as_persistent_plan_valu
         plan_project_with(&project.0, &config),
         Err(ProjectOperationError::InvalidConsumerOutput { .. })
     ));
+}
+
+#[test]
+fn public_module_bindings_export_without_exposing_private_bindings() {
+    let workspace = TempProject::new();
+    let config = package_configuration();
+    workspace.write(
+        "child/main.srx",
+        r#"let private = "hidden"; pub let selected: PackageId = "hello";"#,
+    );
+    let child = workspace.0.join("child");
+    lock_project_with(&child, &config).unwrap();
+    workspace.write("consumer/main.srx", r#"inputs { child = "path:../child"; } use child::selected; let name = selected; outputs { shell: Shell = Shell { pkgs = []; services = [Service { id = "selected"; files = [ConfigFile { path = "name"; text = "${name}"; }]; }]; }; }"#);
+    let consumer = workspace.0.join("consumer");
+    lock_project_with(&consumer, &config).unwrap();
+    let plan = plan_project_with(&consumer, &config).unwrap();
+    assert_eq!(
+        plan.consumers().next().unwrap().services()[0].files()[0].text(),
+        "hello"
+    );
+    workspace.write(
+        "consumer/main.srx",
+        r#"inputs { child = "path:../child"; } let name = child::private;"#,
+    );
+    assert!(check_path_with(&consumer, &config).is_err());
 }

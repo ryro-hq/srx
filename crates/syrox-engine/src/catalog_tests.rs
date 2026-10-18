@@ -134,7 +134,11 @@ fn factory_must_return_the_contract_registered_in_the_inventory() {
         "pub struct Settings {}",
     )
     .unwrap();
-    std::fs::write(root.path().join("toolchain.toml"), "").unwrap();
+    std::fs::write(
+        root.path().join("toolchain.toml"),
+        "build_system = \"linux-x86_64-gnu\"\nresult_system = \"linux-x86_64-gnu\"\n",
+    )
+    .unwrap();
     let factory = "pub fn nginx() -> std::PackageRef<contract::Settings> { missing() }";
     std::fs::write(root.path().join("recipe.srx"), factory).unwrap();
     assert!(catalog.lock(root.path()).is_ok());
@@ -224,4 +228,32 @@ fn generated_release_data_is_deterministic_and_contract_sensitive() {
         std::fs::read_to_string(root.path().join("recipe.srx")).unwrap(),
         "// shared recipe\n"
     );
+}
+
+#[test]
+fn normalized_platforms_must_agree_with_toolchain_target_tags() {
+    let root = tempfile::tempdir().unwrap();
+    let catalog = release_catalog();
+    std::fs::write(
+        root.path().join("contract.srx"),
+        "pub struct Settings {}\n",
+    )
+    .unwrap();
+    catalog
+        .generate_releases(root.path(), false)
+        .unwrap();
+    for toolchain in [
+        "build_system = \"linux-aarch64-gnu\"\nresult_system = \"linux-x86_64-gnu\"\n",
+        "build_system = \"linux-x86_64-gnu\"\nresult_system = \"linux-x86_64-musl\"\n",
+        "build_system = \"linux-x86_64-gnu\"\nresult_system = \"linux-x86_64\"\n",
+    ] {
+        std::fs::write(root.path().join("toolchain.toml"), toolchain).unwrap();
+        let error = catalog.lock(root.path()).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("must declare build_system"),
+            "{error}"
+        );
+    }
 }

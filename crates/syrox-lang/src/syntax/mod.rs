@@ -165,6 +165,14 @@ pub enum ItemKind {
     Resource(PrimitiveDeclaration),
     Value(PrimitiveDeclaration),
     Function(Function),
+    Binding(GlobalBinding),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GlobalBinding {
+    pub name: Ident,
+    pub ty: Option<Type>,
+    pub value: Expression,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

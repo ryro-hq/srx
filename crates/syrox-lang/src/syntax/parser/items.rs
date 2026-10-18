@@ -277,7 +277,7 @@ impl Parser<'_> {
         let TokenKind::Keyword(keyword) = declaration.kind else {
             self.error(
                 Diagnostic::error("expected a declaration", token.span).with_note(
-                    "declarations start with mod, use, inputs, outputs, type, struct, opaque, enum, resource, value or fn",
+                    "declarations start with mod, use, inputs, outputs, let, type, struct, opaque, enum, resource, value or fn",
                 ),
             );
             return None;
@@ -285,7 +285,8 @@ impl Parser<'_> {
         if public
             && !matches!(
                 keyword,
-                Keyword::Fn
+                Keyword::Let
+                    | Keyword::Fn
                     | Keyword::Mod
                     | Keyword::Struct
                     | Keyword::Type
@@ -306,6 +307,30 @@ impl Parser<'_> {
         }
         let start = token.span;
         let (kind, end) = match keyword {
+            Keyword::Let => {
+                let name = self.ident("expected binding name")?;
+                let ty = if self.consume(TokenKind::Colon).is_some() {
+                    Some(self.parse_type()?)
+                } else {
+                    None
+                };
+                self.expect(
+                    TokenKind::Equal,
+                    "expected `=` after binding name",
+                )?;
+                let value = self.parse_expression()?;
+                let end = self
+                    .expect(TokenKind::Semicolon, "expected `;` after binding")?
+                    .span;
+                (
+                    ItemKind::Binding(crate::syntax::GlobalBinding {
+                        name,
+                        ty,
+                        value,
+                    }),
+                    end,
+                )
+            }
             Keyword::Trait => self.parse_trait(start)?,
             Keyword::Impl => self.parse_impl(start)?,
             Keyword::Mod => self.parse_module(start)?,

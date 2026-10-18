@@ -79,6 +79,20 @@ impl Resolver<'_> {
                 }
                 current = self.parent(scope);
             }
+            if let Some(root) = self.prelude_root() {
+                let info = &self.module_info[root.index()];
+                if let Some(&item) = info.exports.get(name) {
+                    return self.check_kind(item, expected, path.span);
+                }
+                if info.public_children.contains(name)
+                    && let Some(&child) = info.children.get(name)
+                {
+                    if matches!(expected, Expected::Any) {
+                        return Some(ResolvedTarget::Module(child));
+                    }
+                    self.error("module used where an item is required", path.span);
+                }
+            }
             return None;
         }
 
@@ -140,6 +154,17 @@ impl Resolver<'_> {
                     break;
                 }
                 current = self.parent(scope);
+            }
+            if current.is_none()
+                && let Some(root) = self.prelude_root()
+            {
+                let info = &self.module_info[root.index()];
+                if info.public_children.contains(&written[0]) {
+                    bases.push((
+                        SourceDomainId::STANDARD_LIBRARY,
+                        vec!["std".into()],
+                    ));
+                }
             }
         }
         for (domain, mut candidate) in bases {
@@ -269,6 +294,7 @@ impl Resolver<'_> {
                 ResolvedItemKind::Function
                     | ResolvedItemKind::Resource
                     | ResolvedItemKind::Value
+                    | ResolvedItemKind::Binding
                     | ResolvedItemKind::OutputValue
                     | ResolvedItemKind::PublishedMember
             ),
@@ -276,6 +302,7 @@ impl Resolver<'_> {
                 actual,
                 ResolvedItemKind::Value
                     | ResolvedItemKind::Resource
+                    | ResolvedItemKind::Binding
                     | ResolvedItemKind::OutputValue
                     | ResolvedItemKind::PublishedMember
                     | ResolvedItemKind::Function
@@ -331,83 +358,33 @@ impl Resolver<'_> {
         if enum_segments.is_empty() {
             return None;
         }
-        if enum_segments.len() == 1 {
-            let name = &enum_segments[0].text;
-            let mut current = Some(module);
-            while let Some(scope) = current {
-                if !self.charge(path.span) {
-                    return None;
-                }
-                if let Some(&item) = self.module_info[scope.index()].imports.get(name)
-                    && self.items[item.index()].kind == ResolvedItemKind::Enum
-                {
-                    return Some((
-                        item,
-                        self.enum_variant_index(item, &variant.text)?,
-                    ));
-                }
-                current = self.parent(scope);
-            }
+        let enumeration = Path {
+            segments: enum_segments.to_vec(),
+            span: enum_segments
+                .first()?
+                .span
+                .join(enum_segments.last()?.span),
+        };
+        let Some(ResolvedTarget::Item(item)) = self.lookup(module, &enumeration, Expected::Any)
+        else {
+            return None;
+        };
+        if self.items[item.index()].kind != ResolvedItemKind::Enum {
+            return None;
         }
-        let mut bases = Vec::new();
-        let mut consumed = 0;
-        if enum_segments
-            .first()
-            .is_some_and(|segment| segment.text == "std")
-        {
-            bases.push((SourceDomainId::STANDARD_LIBRARY, Vec::new()));
-        } else if let Some(&domain) = self
-            .input_domains
-            .get(&self.modules[module.index()].domain)
-            .and_then(|aliases| aliases.get(&enum_segments[0].text))
-        {
-            bases.push((domain, Vec::new()));
-            consumed = 1;
-        } else {
-            let mut current = Some(module);
-            while let Some(scope) = current {
-                if !self.charge(path.span) {
-                    return None;
-                }
-                let resolved = &self.modules[scope.index()];
-                bases.push((resolved.domain, resolved.path.segments.clone()));
-                current = self.parent(scope);
-            }
-        }
-        for (domain, mut candidate) in bases {
-            if !self.charge(path.span) {
-                return None;
-            }
-            candidate.extend(
-                enum_segments[consumed..]
-                    .iter()
-                    .map(|segment| segment.text.clone()),
-            );
-            if let Some(&item) = self.item_ids.get(&(domain, candidate.clone()))
-                && self.items[item.index()].kind == ResolvedItemKind::Enum
-                && self
-                    .visible_item(module, item, &candidate, path.span)
-                    .is_some()
-            {
-                let index = self.enum_variant_index(item, &variant.text)?;
-                return Some((item, index));
-            }
-            if let Some((name, owner_path)) = candidate.split_last()
-                && let Some(&owner) = self
-                    .module_ids
-                    .get(&(domain, owner_path.to_vec()))
-                && let Some(&item) = self.module_info[owner.index()].exports.get(name)
-                && self.items[item.index()].kind == ResolvedItemKind::Enum
-            {
-                let visible =
-                    self.visible_from_module(module, owner, item, &candidate, path.span)?;
-                return Some((
-                    visible,
-                    self.enum_variant_index(visible, &variant.text)?,
-                ));
-            }
-        }
-        None
+        Some((
+            item,
+            self.enum_variant_index(item, &variant.text)?,
+        ))
+    }
+
+    pub(super) fn prelude_root(&self) -> Option<ModuleId> {
+        self.module_ids
+            .get(&(
+                SourceDomainId::STANDARD_LIBRARY,
+                vec!["std".into()],
+            ))
+            .copied()
     }
 
     pub(super) fn enum_variant_index(&self, item: ItemId, name: &str) -> Option<u32> {

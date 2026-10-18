@@ -34,6 +34,10 @@ impl Checker<'_> {
             }
             ExpressionKind::Group(value) => self.string_constant(value),
             ExpressionKind::Path(path) => match self.target(path.span) {
+                Some(ResolvedTarget::Item(item)) => match self.global_constants.get(item)? {
+                    super::Constant::String(value) => Some(value.clone()),
+                    _ => None,
+                },
                 Some(ResolvedTarget::Local(local)) => {
                     match self.body.bindings.get(local)?.constant.as_ref()? {
                         super::Constant::String(value) => Some(value.clone()),

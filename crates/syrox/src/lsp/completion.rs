@@ -61,7 +61,7 @@ impl Server {
                             ResolvedItemKind::Function => 3,
                             ResolvedItemKind::Struct => 22,
                             ResolvedItemKind::Enum => 13,
-                            ResolvedItemKind::OutputValue => 6,
+                            ResolvedItemKind::OutputValue | ResolvedItemKind::Binding => 6,
                             _ => 7,
                         };
                         let ty = analysis
@@ -113,10 +113,31 @@ impl Server {
         let Some((analysis, id)) = semantic else {
             return Value::Null;
         };
-        let Some((parts, active)) = call_at(parsed, offset) else {
+        let Some(call) = call_at(parsed, offset) else {
             return Value::Null;
         };
-        let Some(target) = analysis.lookup_path(id, offset, &parts) else {
+        let method = call.receiver_end.and_then(|end| {
+            let tokens: Vec<_> = parsed
+                .tokens()
+                .filter(|token| !token.kind.is_trivia() && token.span.end() <= end)
+                .collect();
+            let receiver = super::fields::receiver_type(
+                parsed.source().text(),
+                &tokens,
+                analysis,
+                id,
+                offset,
+            )?;
+            analysis
+                .methods_for_type(&receiver)
+                .into_iter()
+                .find(|method| method.path().segments().last() == call.parts.last())
+                .map(syrox_lang::resolver::ResolvedItem::id)
+        });
+        let Some(target) = method
+            .map(ResolvedTarget::Item)
+            .or_else(|| analysis.lookup_path(id, offset, &call.parts))
+        else {
             return Value::Null;
         };
         let signature = match target {
@@ -141,8 +162,9 @@ impl Server {
         let mut budget = 128;
         let labels: Vec<_> = parameters
             .iter()
-            .take(128)
             .enumerate()
+            .skip(usize::from(method.is_some()))
+            .take(128)
             .map(|(index, ty)| {
                 let name = names
                     .and_then(|parameters| parameters.get(index))
@@ -161,9 +183,23 @@ impl Server {
             .collect();
         let label = format!(
             "{}({}) -> {}",
-            path_label(&parts),
+            if call.receiver_end.is_some() {
+                call.parts.join(".")
+            } else {
+                path_label(&call.parts)
+            },
             labels.join(", "),
-            display_type(analysis, result, &mut budget, 0)
+            display_type(
+                analysis,
+                method
+                    .and(call.receiver_end)
+                    .and_then(|offset| analysis.expression_at(id, offset))
+                    .map(syrox_lang::checker::CheckedExpression::ty)
+                    .filter(|ty| ty.is_known())
+                    .unwrap_or(result),
+                &mut budget,
+                0
+            )
         );
         let parameters: Vec<_> = labels
             .into_iter()
@@ -172,7 +208,7 @@ impl Server {
         let active = if parameters.is_empty() {
             Value::Null
         } else {
-            json!(active.min(parameters.len() - 1))
+            json!(call.active.min(parameters.len() - 1))
         };
         json!({
             "signatures": [{
@@ -241,7 +277,10 @@ fn completion_path(parsed: &ParsedFile, offset: u32) -> Option<(Vec<String>, (u3
     }
     let mut parts = vec![prefix];
     while index >= 2
-        && tokens[index - 1].kind == Token::ColonColon
+        && matches!(
+            tokens[index - 1].kind,
+            Token::ColonColon | Token::Dot
+        )
         && tokens[index - 2].kind == Token::Ident
     {
         parts.push(
@@ -262,7 +301,14 @@ fn completion_path(parsed: &ParsedFile, offset: u32) -> Option<(Vec<String>, (u3
     Some((parts, (start, end)))
 }
 
-fn call_at(parsed: &ParsedFile, offset: u32) -> Option<(Vec<String>, usize)> {
+#[derive(Debug, PartialEq, Eq)]
+struct CallSite {
+    parts: Vec<String>,
+    receiver_end: Option<u32>,
+    active: usize,
+}
+
+fn call_at(parsed: &ParsedFile, offset: u32) -> Option<CallSite> {
     let tokens: Vec<_> = parsed
         .tokens()
         .filter(|token| !token.kind.is_trivia())
@@ -270,12 +316,23 @@ fn call_at(parsed: &ParsedFile, offset: u32) -> Option<(Vec<String>, usize)> {
     let calls: std::collections::BTreeSet<_> = parsed
         .syntax()
         .nodes()
-        .filter(|node| node.kind() == SyntaxKind::Arguments)
         .filter_map(|node| {
             let index = tokens.partition_point(|token| token.span.end() <= node.span().start());
-            index
-                .checked_sub(1)
-                .filter(|index| tokens[*index].kind == Token::LeftParen)
+            match node.kind() {
+                SyntaxKind::Arguments => index
+                    .checked_sub(1)
+                    .filter(|index| tokens[*index].kind == Token::LeftParen),
+                SyntaxKind::StructLiteral
+                    if tokens
+                        .get(index)
+                        .is_some_and(|token| token.kind == Token::LeftBrace)
+                        && index > 0
+                        && tokens[index - 1].kind == Token::Ident =>
+                {
+                    Some(index)
+                }
+                _ => None,
+            }
         })
         .collect();
     let mut stack = Vec::new();
@@ -300,11 +357,20 @@ fn call_at(parsed: &ParsedFile, offset: u32) -> Option<(Vec<String>, usize)> {
     let mut index = open;
     let text = parsed.source().text();
     let mut parts = Vec::new();
+    let receiver_end = open
+        .checked_sub(2)
+        .filter(|index| tokens[*index].kind == Token::Dot)
+        .map(|index| tokens[index].span.start());
     while index > 0 && tokens[index - 1].kind == Token::Ident {
         let span = tokens[index - 1].span;
         parts.push(text[span.start() as usize..span.end() as usize].into());
         index -= 1;
-        if index == 0 || tokens[index - 1].kind != Token::ColonColon {
+        if index == 0
+            || !matches!(
+                tokens[index - 1].kind,
+                Token::ColonColon | Token::Dot
+            )
+        {
             break;
         }
         index -= 1;
@@ -313,6 +379,7 @@ fn call_at(parsed: &ParsedFile, offset: u32) -> Option<(Vec<String>, usize)> {
         return None;
     }
     if index > 0
+        && receiver_end.is_none()
         && matches!(
             tokens[index - 1].kind,
             Token::Dot | Token::ColonColon
@@ -341,7 +408,11 @@ fn call_at(parsed: &ParsedFile, offset: u32) -> Option<(Vec<String>, usize)> {
             _ => {}
         }
     }
-    Some((parts, active))
+    Some(CallSite {
+        parts,
+        receiver_end,
+        active,
+    })
 }
 
 #[cfg(test)]
@@ -350,20 +421,21 @@ mod tests {
     use syrox_lang::{source::Source, syntax::parse_file};
 
     #[test]
-    fn completion_replaces_the_whole_identifier_and_ignores_comments_and_fields() {
-        let text = "fn run() { lib::maker(); value.field; } // lib::ma";
+    fn completion_replaces_the_whole_identifier_in_qualified_paths_and_ignores_comments() {
+        let text = "fn run() { lib::maker(); entry.field; } // lib::ma";
         let parsed = parse_file(&Source::new("test.srx", text).unwrap());
         let start = u32::try_from(text.find("maker").unwrap()).unwrap();
         let (parts, span) = completion_path(&parsed, start + 2).unwrap();
         assert_eq!(parts, ["lib", "ma"]);
         assert_eq!(span, (start, start + 5));
         assert!(completion_path(&parsed, u32::try_from(text.len()).unwrap()).is_none());
-        assert!(
-            completion_path(
-                &parsed,
-                u32::try_from(text.find("field").unwrap()).unwrap() + 2
-            )
-            .is_none()
+        let field = u32::try_from(text.find("field").unwrap()).unwrap();
+        assert_eq!(
+            completion_path(&parsed, field + 2),
+            Some((
+                vec!["entry".into(), "fi".into()],
+                (field, field + 5)
+            ))
         );
     }
 
@@ -374,12 +446,20 @@ mod tests {
         let offset = u32::try_from(text.find("I(3)").unwrap()).unwrap();
         assert_eq!(
             call_at(&parsed, offset),
-            Some((vec!["choose".into()], 2))
+            Some(CallSite {
+                parts: vec!["choose".into()],
+                receiver_end: None,
+                active: 2
+            })
         );
         let empty = u32::try_from(text.find("empty(").unwrap() + 6).unwrap();
         assert_eq!(
             call_at(&parsed, empty),
-            Some((vec!["empty".into()], 0))
+            Some(CallSite {
+                parts: vec!["empty".into()],
+                receiver_end: None,
+                active: 0
+            })
         );
         assert!(call_at(&parsed, 7).is_none());
     }

@@ -85,6 +85,12 @@ impl<'a> ProgramIndex<'a> {
                 budget.charge(0)?;
                 match &item.kind {
                     ItemKind::Module(module) => pending.extend(&module.items),
+                    ItemKind::Binding(binding) => {
+                        if let Some(&id) = index.item_at.get(&span_key(binding.name.span)) {
+                            budget.charge(size_of::<(ItemId, &crate::syntax::Expression)>())?;
+                            index.output_values.insert(id, &binding.value);
+                        }
+                    }
                     ItemKind::Outputs(outputs) => {
                         for output in &outputs.entries {
                             if let crate::syntax::OutputKind::Value {
@@ -253,7 +259,8 @@ impl<'a> ProgramIndex<'a> {
                         }
                     }
                 }
-                ItemKind::Publication(_)
+                ItemKind::Binding(_)
+                | ItemKind::Publication(_)
                 | ItemKind::Use(_)
                 | ItemKind::Inputs(_)
                 | ItemKind::Outputs(_)

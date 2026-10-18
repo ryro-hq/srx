@@ -44,7 +44,7 @@ impl Catalog {
                 ));
             }
             let mut text = String::from(
-                "// Generated from catalog.toml. Selection, construction and services belong to package modules.\n\npub fn source(const version: std::PackagePinText) -> support::Source {\nmatch version {\n",
+                "// Generated from catalog.toml. Selection, construction and services belong to package modules.\n\npub fn source(const version: PackagePinText) -> support::Source {\nmatch version {\n",
             );
             let mut previous = None;
             for package in &packages {
@@ -54,7 +54,7 @@ impl Catalog {
                 previous = Some(&package.version);
                 writeln!(text, "{} => support::Source {{ version = {}; url = {}; sha256 = {}; maximum_bytes = {}; }},", quoted(&package.version)?, quoted(&package.version)?, quoted(&package.source_url)?, quoted(&package.source_sha256)?, package.source_maximum_bytes).expect("String write");
             }
-            text.push_str("}\n}\n\npub fn compatibility(const version: std::PackagePinText, const variant: std::PackagePinText, const system: std::PackagePinText) -> support::Compatibility {\nmatch version {\n");
+            text.push_str("}\n}\n\npub fn compatibility(const version: PackagePinText, const variant: PackagePinText, const system: PackagePinText) -> support::Compatibility {\nmatch version {\n");
             let versions: std::collections::BTreeSet<_> = packages
                 .iter()
                 .map(|package| &package.version)

@@ -75,6 +75,18 @@ impl Evaluator<'_> {
         }
         self.expand(size_of::<(ItemId, CachedOutput)>(), span)?;
         let shareable = self.claim_effects == claim_effects && self.diagnostics.is_empty();
+        if self
+            .checked
+            .resolved()
+            .item(item)
+            .is_some_and(|item| item.kind() == crate::resolver::ResolvedItemKind::Binding)
+            && !shareable
+        {
+            return self.fail(
+                span,
+                "global initializer cannot consume an affine resource",
+            );
+        }
         self.memo_outputs.insert(
             item,
             CachedOutput {

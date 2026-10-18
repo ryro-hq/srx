@@ -33,10 +33,26 @@ impl Checker<'_> {
                 value,
                 arms,
             } => {
+                let scrutinee = self.expression_ty(value.span);
                 let value = self.constant_value(value, depth + 1)?;
                 for arm in arms {
                     if self.static_pattern_matches(&arm.pattern, &value, arm.span) {
-                        return self.constant_value(&arm.value, depth + 1);
+                        let bindings = self.body.bindings.clone();
+                        if let Constant::Variant {
+                            index,
+                            ..
+                        } = &value
+                        {
+                            self.bind_variant_pattern(
+                                &arm.pattern,
+                                &scrutinee,
+                                *index,
+                                Some(&value),
+                            );
+                        }
+                        let result = self.constant_value(&arm.value, depth + 1);
+                        self.body.bindings = bindings;
+                        return result;
                     }
                 }
                 None
@@ -75,14 +91,32 @@ impl Checker<'_> {
                 .map(Constant::String),
             ExpressionKind::Group(value) => self.constant_value(value, depth + 1),
             ExpressionKind::Path(path) => match self.target(path.span) {
+                Some(ResolvedTarget::Item(item)) if self.global_values.contains_key(item) => {
+                    let item = *item;
+                    self.check_global(item, path.span);
+                    self.global_constants.get(&item).cloned()
+                }
                 Some(ResolvedTarget::Local(local)) => {
                     self.body.bindings.get(local)?.constant.clone()
                 }
                 Some(ResolvedTarget::EnumVariant {
                     enumeration,
                     index,
-                }) if self.program.item(*enumeration)?.path().segments() == ["std", "Bool"] => {
-                    Some(Constant::Boolean(*index == 1))
+                }) => Some(self.variant_constant(*enumeration, *index, Vec::new())),
+                Some(ResolvedTarget::ContextualEnumVariant) => {
+                    let fact = self
+                        .expressions
+                        .iter()
+                        .rev()
+                        .find(|fact| fact.span == expression.span)?;
+                    let Some(Elaboration::ContextualVariant {
+                        enumeration,
+                        index,
+                    }) = fact.elaboration
+                    else {
+                        return None;
+                    };
+                    Some(self.variant_constant(enumeration, index, Vec::new()))
                 }
                 _ => None,
             },
@@ -140,20 +174,136 @@ impl Checker<'_> {
             }
             | ExpressionKind::MethodCall {
                 ..
-            } => self
-                .expressions
-                .iter()
-                .rev()
-                .find(|fact| fact.span == expression.span)
-                .and_then(|fact| match &fact.elaboration {
-                    Some(Elaboration::StaticCall {
-                        constant,
-                        ..
-                    }) => constant.clone(),
-                    _ => None,
-                }),
+            } => {
+                if let ExpressionKind::Call {
+                    callee,
+                    arguments,
+                } = &expression.kind
+                    && let Some(ResolvedTarget::EnumVariant {
+                        enumeration,
+                        index,
+                    }) = self.target(callee.span).cloned()
+                {
+                    let payload = arguments
+                        .iter()
+                        .map(|argument| self.constant_value(argument, depth + 1))
+                        .collect();
+                    return Some(self.variant_constant(enumeration, index, payload));
+                }
+                if let ExpressionKind::Call {
+                    callee,
+                    arguments,
+                } = &expression.kind
+                    && let Some(ResolvedTarget::Item(item)) = self.target(callee.span)
+                    && self.item_kind(*item) == Some(super::ResolvedItemKind::Value)
+                    && self.primitives.contains_key(item)
+                    && arguments.len() == 1
+                {
+                    return self.constant_value(&arguments[0], depth + 1);
+                }
+                self.expressions
+                    .iter()
+                    .rev()
+                    .find(|fact| fact.span == expression.span)
+                    .and_then(|fact| match &fact.elaboration {
+                        Some(Elaboration::StaticCall {
+                            constant,
+                            ..
+                        }) => constant.clone(),
+                        _ => None,
+                    })
+            }
+            ExpressionKind::Apply {
+                callee,
+                arguments,
+            } => {
+                let mut callee = callee.as_ref();
+                while let ExpressionKind::Group(inner) = &callee.kind {
+                    callee = inner;
+                }
+                let fact = self
+                    .expressions
+                    .iter()
+                    .rev()
+                    .find(|fact| fact.span == callee.span)?;
+                let Some(Elaboration::VariantConstructor {
+                    index,
+                }) = fact.elaboration
+                else {
+                    return None;
+                };
+                let enumeration = self
+                    .expression_ty(expression.span)
+                    .nominal_head()?;
+                let payload = arguments
+                    .iter()
+                    .map(|argument| self.constant_value(argument, depth + 1))
+                    .collect();
+                Some(self.variant_constant(enumeration, index, payload))
+            }
             _ => None,
         }
+    }
+
+    fn variant_constant(
+        &self,
+        enumeration: ItemId,
+        index: u32,
+        payload: Vec<Option<Constant>>,
+    ) -> Constant {
+        if self
+            .program
+            .item(enumeration)
+            .is_some_and(|item| {
+                item.domain() == crate::source::SourceDomainId::standard_library()
+                    && item.path().segments() == ["std", "Bool"]
+            })
+        {
+            Constant::Boolean(index == 1)
+        } else {
+            Constant::Variant {
+                enumeration,
+                index,
+                payload: payload.into(),
+            }
+        }
+    }
+
+    // A known discriminant may carry lazy/unknown values. It can select a
+    // match arm, but a const parameter still requires every payload to be known.
+    // Visit shared constant nodes once instead of expanding their graph.
+    fn complete_constant(&mut self, constant: &Constant, span: Span) -> bool {
+        let mut pending = vec![(constant, 0)];
+        let mut visited = std::collections::BTreeSet::new();
+        while let Some((value, depth)) = pending.pop() {
+            if !self.charge(span) || depth >= self.limits.max_specialization_depth {
+                return false;
+            }
+            if !visited.insert(std::ptr::from_ref(value)) {
+                continue;
+            }
+            match value {
+                Constant::Variant {
+                    payload,
+                    ..
+                } => {
+                    for value in payload.iter() {
+                        let Some(value) = value else {
+                            return false;
+                        };
+                        pending.push((value, depth + 1));
+                    }
+                }
+                Constant::List(values) => {
+                    pending.extend(values.iter().map(|value| (value, depth + 1)));
+                }
+                Constant::Struct(fields) => {
+                    pending.extend(fields.values().map(|value| (value, depth + 1)));
+                }
+                Constant::Integer(_) | Constant::String(_) | Constant::Boolean(_) => {}
+            }
+        }
+        true
     }
 
     pub(super) fn static_pattern_matches(
@@ -164,6 +314,37 @@ impl Checker<'_> {
     ) -> bool {
         match pattern {
             Pattern::Wildcard(_) => true,
+            Pattern::Path(path)
+            | Pattern::Variant {
+                path,
+                ..
+            } => {
+                let pattern = self
+                    .patterns
+                    .iter()
+                    .rev()
+                    .find(|pattern| pattern.span == path.span);
+                match (pattern, value) {
+                    (Some(pattern), Constant::Boolean(value)) => {
+                        self.program
+                            .item(pattern.enumeration)
+                            .is_some_and(|item| {
+                                item.domain() == crate::source::SourceDomainId::standard_library()
+                                    && item.path().segments() == ["std", "Bool"]
+                            })
+                            && pattern.index == u32::from(*value)
+                    }
+                    (
+                        Some(pattern),
+                        Constant::Variant {
+                            enumeration,
+                            index,
+                            ..
+                        },
+                    ) => pattern.enumeration == *enumeration && pattern.index == *index,
+                    _ => false,
+                }
+            }
             Pattern::Literal(literal) => {
                 let expression = Expression {
                     span,
@@ -174,7 +355,6 @@ impl Checker<'_> {
                 };
                 self.constant_value(&expression, 0).as_ref() == Some(value)
             }
-            _ => false,
         }
     }
 
@@ -236,7 +416,11 @@ impl Checker<'_> {
         let mut constants = Vec::with_capacity(arguments.len());
         for (parameter, argument) in info.declaration.parameters.iter().zip(arguments) {
             let constant = self.constant_value(argument, 0);
-            if parameter.constant && constant.is_none() {
+            if parameter.constant
+                && constant
+                    .as_ref()
+                    .is_none_or(|constant| !self.complete_constant(constant, argument.span))
+            {
                 self.error(
                     "const argument must be a known literal or constant",
                     argument.span,
@@ -264,6 +448,25 @@ impl Checker<'_> {
                 }
             });
         self.static_calls.push(span);
+        let name = self
+            .program
+            .item(item)
+            .expect("function")
+            .path()
+            .segments()
+            .join("::");
+        let arguments = constants
+            .iter()
+            .map(|value| {
+                value.as_ref().map_or_else(
+                    || "?".into(),
+                    |value| constant_description(value, self),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        self.static_descriptions
+            .push(format!("{name}({arguments})"));
         let expression_start = self.expressions.len();
         let pattern_start = self.patterns.len();
         for ((parameter, ty), constant) in info
@@ -321,6 +524,7 @@ impl Checker<'_> {
         };
         self.collection_metadata_units += facts.expressions.len() + facts.patterns.len();
         self.static_calls.pop();
+        self.static_descriptions.pop();
         self.static_mode = previous_mode;
         self.body.bindings = bindings;
         self.body.type_parameters = substitutions;
@@ -335,4 +539,80 @@ impl Checker<'_> {
             result
         }
     }
+}
+
+/// Diagnostics must not expand shared constant graphs without a bound.
+pub(super) fn constant_description(value: &Constant, checker: &Checker<'_>) -> String {
+    fn render(value: &Constant, checker: &Checker<'_>, left: &mut usize, depth: usize) -> String {
+        if *left == 0 || depth >= 8 {
+            return "…".into();
+        }
+        *left -= 1;
+        match value {
+            Constant::Integer(value) => value.to_string(),
+            Constant::Boolean(value) => value.to_string(),
+            Constant::Variant {
+                enumeration,
+                index,
+                payload,
+            } => {
+                let name = checker
+                    .program
+                    .item(*enumeration)
+                    .expect("constant enum")
+                    .path()
+                    .segments()
+                    .join("::");
+                let variant = &checker.enums[enumeration].variants[*index as usize]
+                    .name
+                    .text;
+                let name = format!("{name}::{variant}");
+                if payload.is_empty() {
+                    name
+                } else {
+                    format!(
+                        "{name}({})",
+                        payload
+                            .iter()
+                            .take(16)
+                            .map(|value| value.as_ref().map_or_else(
+                                || "?".into(),
+                                |value| render(value, checker, left, depth + 1)
+                            ))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                }
+            }
+            Constant::String(value) => {
+                let mut text: String = value.chars().take(160).collect();
+                if text.len() < value.len() {
+                    text.push('…');
+                }
+                format!("{text:?}")
+            }
+            Constant::List(values) => format!(
+                "[{}]",
+                values
+                    .iter()
+                    .take(16)
+                    .map(|value| render(value, checker, left, depth + 1))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Constant::Struct(fields) => format!(
+                "{{{}}}",
+                fields
+                    .iter()
+                    .take(16)
+                    .map(|(key, value)| format!(
+                        "{key} = {}",
+                        render(value, checker, left, depth + 1)
+                    ))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
+        }
+    }
+    render(value, checker, &mut 64, 0)
 }

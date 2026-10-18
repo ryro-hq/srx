@@ -5,11 +5,9 @@ pub mod std::package_traits {
         fn recipe(package: Self) -> std::RecipeRef<std::Recipe>;
         fn render(package: Self, settings: Self::Settings) -> std::ConfigText;
     }
-
     pub trait ServicePackage: Package {
         fn service(package: Self, settings: Self::Settings) -> std::Service;
     }
-
     pub fn reference<P: Package>(package: P) -> std::PackageRef<P::Settings> {
         P::reference(package)
     }

@@ -256,6 +256,12 @@ impl Checker<'_> {
             }
             ExpressionKind::Concat(parts) => self.check_concat(parts, expected, context),
         };
+        if self.global_initializer.is_some() && self.affine(&ty, expression.span) {
+            self.error(
+                "global initializer cannot consume or construct an affine resource",
+                expression.span,
+            );
+        }
         if self.reserve_metadata(expression.span) {
             self.expressions.push(CheckedExpression {
                 span: expression.span,
@@ -310,6 +316,8 @@ impl Checker<'_> {
         context: Context,
         span: Span,
     ) -> Ty {
+        let previous_global = self.global_initializer.take();
+        let previous_mode = std::mem::replace(&mut self.static_mode, false);
         let mut outer = self.body.bindings.clone();
         let mut captures = BTreeSet::new();
         let mut recorded = BTreeSet::new();
@@ -381,6 +389,8 @@ impl Checker<'_> {
             }
         }
         self.body.bindings = outer;
+        self.global_initializer = previous_global;
+        self.static_mode = previous_mode;
         Ty::Function {
             parameters: arguments,
             result: Box::new(return_type),
@@ -450,6 +460,14 @@ impl Checker<'_> {
                 self.empty_variant(enumeration, index, expected, path.span)
             }
             Some(ResolvedTarget::Item(item)) => {
+                if self.global_values.contains_key(&item) {
+                    let ty = self.check_global(item, path.span);
+                    return if self.global_constants.contains_key(&item) {
+                        self.lift_literal(ty, expected, elaboration)
+                    } else {
+                        ty
+                    };
+                }
                 if let Some(ty) = self.output_values.get(&item).copied() {
                     let resolved = self.resolve_type(ty, &BTreeMap::new(), 0);
                     if self.affine(&resolved, path.span) {
@@ -603,7 +621,7 @@ impl Checker<'_> {
             }
             return Ty::Error;
         };
-        if self.output_values.contains_key(&item) {
+        if self.output_values.contains_key(&item) || self.global_values.contains_key(&item) {
             let ty = self.check_path_value(callee, None, true, &mut None);
             if let Ty::Function {
                 parameters,
@@ -629,11 +647,11 @@ impl Checker<'_> {
                     elaboration,
                 );
             }
-            if self
-                .functions
-                .get(&item)
-                .is_some_and(|info| info.declaration.is_static() || info.declaration.has_bounds())
-            {
+            if self.functions.get(&item).is_some_and(|info| {
+                info.declaration.is_static()
+                    || info.declaration.has_bounds()
+                    || self.global_initializer.is_some()
+            }) {
                 return self.check_static_call(item, arguments, context, callee.span, elaboration);
             }
             self.record_arguments(item, arguments);
@@ -961,12 +979,12 @@ impl Checker<'_> {
             self.error("only an enum can be matched", value.span);
             return Ty::Error;
         }
+        // Validate every pattern before choosing a known branch. Discarded
+        // values may be target-specific; malformed patterns never are.
         let mut covered = BTreeSet::new();
         let mut wildcard = false;
-        let baseline = self.body.bindings.clone();
-        let mut merged = baseline.clone();
-        let mut result = expected.cloned();
-        for (arm_index, arm) in arms.iter().enumerate() {
+        let mut variants = Vec::with_capacity(arms.len());
+        for arm in arms {
             if !self.charge(arm.span) {
                 return Ty::Error;
             }
@@ -976,13 +994,18 @@ impl Checker<'_> {
                     arm.span,
                 );
             }
-            self.body.bindings = baseline.clone();
-            match &arm.pattern {
-                Pattern::Literal(_) => self.error(
-                    "literal pattern requires a string or integer",
-                    arm.span,
-                ),
-                Pattern::Wildcard(_) => wildcard = true,
+            let index = match &arm.pattern {
+                Pattern::Literal(_) => {
+                    self.error(
+                        "literal pattern requires a string or integer",
+                        arm.span,
+                    );
+                    None
+                }
+                Pattern::Wildcard(_) => {
+                    wildcard = true;
+                    None
+                }
                 Pattern::Path(path)
                 | Pattern::Variant {
                     path,
@@ -1009,7 +1032,19 @@ impl Checker<'_> {
                         _ => None,
                     };
                     if let Some(index) = index {
-                        self.bind_variant_pattern(&arm.pattern, &scrutinee, index, path.span);
+                        let bindings = match &arm.pattern {
+                            Pattern::Variant {
+                                bindings,
+                                ..
+                            } => bindings.len(),
+                            _ => 0,
+                        };
+                        if bindings != self.variant_payload(&scrutinee, index).len() {
+                            self.error(
+                                "pattern payload binding count mismatch",
+                                path.span,
+                            );
+                        }
                         if self.reserve_metadata(path.span) {
                             self.patterns.push(CheckedPattern {
                                 span: path.span,
@@ -1027,7 +1062,76 @@ impl Checker<'_> {
                         let name = path.segments.last().map_or("", |name| &name.text);
                         self.error(format!("enum has no variant `{name}`"), path.span);
                     }
+                    index
                 }
+            };
+            variants.push(index);
+        }
+        if self.static_mode
+            && let Some(constant) = self.constant_value(value, 0)
+        {
+            for (arm, index) in arms.iter().zip(&variants) {
+                if !self.charge(arm.span) {
+                    return Ty::Error;
+                }
+                if self.static_pattern_matches(&arm.pattern, &constant, arm.span) {
+                    let baseline: BTreeSet<_> = self.body.bindings.keys().copied().collect();
+                    if let Some(index) = index {
+                        self.bind_variant_pattern(
+                            &arm.pattern,
+                            &scrutinee,
+                            *index,
+                            Some(&constant),
+                        );
+                    }
+                    let result = self.check_expr(&arm.value, expected, context, true);
+                    self.body
+                        .bindings
+                        .retain(|local, _| baseline.contains(local));
+                    return result;
+                }
+            }
+            let trace = self.static_descriptions.join(" -> ");
+            let requested = super::specialization::constant_description(&constant, self);
+            let alternatives = arms
+                .iter()
+                .map(|arm| match &arm.pattern {
+                    Pattern::Path(path)
+                    | Pattern::Variant {
+                        path,
+                        ..
+                    } => path
+                        .segments
+                        .iter()
+                        .map(|part| part.text.as_str())
+                        .collect::<Vec<_>>()
+                        .join("::"),
+                    Pattern::Wildcard(_) => "_".into(),
+                    Pattern::Literal(_) => "<invalid>".into(),
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.error(
+                format!("static match has no applicable case: {trace}; requested {requested}; alternatives: {alternatives}"),
+                self.static_calls.first().copied().unwrap_or(value.span),
+            );
+            return Ty::Error;
+        }
+        let baseline = self.body.bindings.clone();
+        let mut merged = baseline.clone();
+        let mut result = expected.cloned();
+        for (arm_index, (arm, index)) in arms.iter().zip(variants).enumerate() {
+            if !self.charge(arm.span) {
+                return Ty::Error;
+            }
+            for _ in baseline.values() {
+                if !self.charge(arm.span) {
+                    return Ty::Error;
+                }
+            }
+            self.body.bindings = baseline.clone();
+            if let Some(index) = index {
+                self.bind_variant_pattern(&arm.pattern, &scrutinee, index, None);
             }
             let got = self.check_expr(&arm.value, result.as_ref(), context, true);
             if let Some(want) = &result {
@@ -1059,10 +1163,10 @@ impl Checker<'_> {
             else {
                 continue;
             };
-            let Some(ResolvedTarget::Local(local)) = self.target(path.span).cloned() else {
-                continue;
-            };
-            let mut ty = self.use_local(local, path.span, true);
+            // Interpolation reads the same value as a path expression. In
+            // particular, declarations are not values and affine outputs
+            // cannot become reusable through string interpolation.
+            let mut ty = self.check_path_value(path, None, true, &mut None);
             for field in path.segments.iter().skip(1) {
                 ty = self.project(&ty, &field.text, context, field.span);
             }

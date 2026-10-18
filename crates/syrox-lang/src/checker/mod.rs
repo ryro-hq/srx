@@ -20,6 +20,7 @@ mod editor;
 mod enums;
 mod expressions;
 mod functions;
+mod globals;
 mod index;
 mod inference;
 mod model;
@@ -150,6 +151,14 @@ struct Checker<'a> {
     enums: BTreeMap<ItemId, &'a Enum>,
     primitives: BTreeMap<ItemId, PrimitiveInfo<'a>>,
     functions: BTreeMap<ItemId, FunctionInfo<'a>>,
+    global_values: BTreeMap<ItemId, (&'a crate::syntax::GlobalBinding, Context)>,
+    global_types: BTreeMap<ItemId, Ty>,
+    global_constants: BTreeMap<ItemId, Constant>,
+    active_globals: Vec<ItemId>,
+    global_initializer: Option<ItemId>,
+    global_facts: BTreeMap<(u32, u32, u32), CheckedExpression>,
+    static_descriptions: Vec<String>,
+    global_patterns: BTreeMap<(u32, u32, u32), CheckedPattern>,
     output_values: BTreeMap<ItemId, &'a Type>,
     published_types: BTreeMap<ItemId, Ty>,
     carriers: BTreeSet<ItemId>,
@@ -202,6 +211,14 @@ impl<'a> Checker<'a> {
             enums: BTreeMap::new(),
             primitives: BTreeMap::new(),
             functions: BTreeMap::new(),
+            global_values: BTreeMap::new(),
+            global_types: BTreeMap::new(),
+            global_constants: BTreeMap::new(),
+            active_globals: Vec::new(),
+            global_initializer: None,
+            global_facts: BTreeMap::new(),
+            static_descriptions: Vec::new(),
+            global_patterns: BTreeMap::new(),
             output_values: BTreeMap::new(),
             published_types: BTreeMap::new(),
             carriers: BTreeSet::new(),
@@ -246,6 +263,7 @@ impl<'a> Checker<'a> {
         if self.exhausted {
             return;
         }
+        self.check_globals();
         self.check_defaults();
         if self.exhausted {
             return;
@@ -255,6 +273,26 @@ impl<'a> Checker<'a> {
             return;
         }
         self.check_outputs();
+        let mut spans: BTreeSet<_> = self
+            .expressions
+            .iter()
+            .map(|fact| span_key(fact.span))
+            .collect();
+        self.expressions.extend(
+            std::mem::take(&mut self.global_facts)
+                .into_values()
+                .filter(|fact| spans.insert(span_key(fact.span))),
+        );
+        let mut spans: BTreeSet<_> = self
+            .patterns
+            .iter()
+            .map(|fact| span_key(fact.span))
+            .collect();
+        self.patterns.extend(
+            std::mem::take(&mut self.global_patterns)
+                .into_values()
+                .filter(|fact| spans.insert(span_key(fact.span))),
+        );
     }
 }
 

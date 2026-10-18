@@ -1,7 +1,8 @@
 //! Exhaustive coordinate conversion of inspection facts; never constructs a
 //! `CheckedProgram` or publishes into a checker. Budget replay is a separate task.
 use super::{
-    CheckedExpression, CheckedLocal, CheckedPattern, Elaboration, OwnershipUse, ParameterHint, Ty,
+    CheckedExpression, CheckedLocal, CheckedPattern, Constant, Elaboration, OwnershipUse,
+    ParameterHint, Ty,
 };
 use crate::{diagnostic::Diagnostic, resolver::ItemId, resolver::LocalId, source::Span};
 use std::collections::BTreeMap;
@@ -99,7 +100,9 @@ pub(crate) trait FactMapper {
                         })
                         .collect::<Option<_>>()?,
                 }),
-                constant: constant.clone(),
+                constant: optional(constant.as_ref(), |constant| {
+                    self.constant(constant)
+                })?,
             },
             Elaboration::ModuleExports {
                 key,
@@ -134,6 +137,44 @@ pub(crate) trait FactMapper {
                     .map(|(id, ty)| Some((self.local(*id)?, self.ty(ty)?)))
                     .collect::<Option<_>>()?,
             },
+        })
+    }
+
+    fn constant(&mut self, constant: &Constant) -> Option<Constant> {
+        self.reserve(size_of::<Constant>())?;
+        Some(match constant {
+            Constant::String(text) => Constant::String(text.clone()),
+            Constant::Integer(number) => Constant::Integer(*number),
+            Constant::Boolean(value) => Constant::Boolean(*value),
+            Constant::Variant {
+                enumeration,
+                index,
+                payload,
+            } => Constant::Variant {
+                enumeration: self.item(*enumeration)?,
+                index: *index,
+                payload: payload
+                    .iter()
+                    .map(|value| optional(value.as_ref(), |value| self.constant(value)))
+                    .collect::<Option<Vec<_>>>()?
+                    .into(),
+            },
+            Constant::List(values) => Constant::List(
+                values
+                    .iter()
+                    .map(|value| self.constant(value))
+                    .collect::<Option<Vec<_>>>()?
+                    .into(),
+            ),
+            Constant::Struct(fields) => Constant::Struct(std::sync::Arc::new(
+                fields
+                    .iter()
+                    .map(|(name, value)| {
+                        self.reserve(name.len())?;
+                        Some((name.clone(), self.constant(value)?))
+                    })
+                    .collect::<Option<_>>()?,
+            )),
         })
     }
 

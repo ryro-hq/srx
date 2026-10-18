@@ -92,6 +92,9 @@ pub(super) struct Resolver<'a> {
     pub(super) project_owners: BTreeMap<SourceDomainId, SourceDomainId>,
     pub(super) public_imports: BTreeSet<(ModuleId, String)>,
     pub(super) enum_variants: BTreeMap<ItemId, BTreeMap<String, u32>>,
+    // A witness that a bare name can denote a variant. Its actual enum remains
+    // contextual, including when that type is obtained through inference.
+    pub(super) contextual_variants: BTreeMap<String, (ItemId, u32)>,
     pub(super) references: Vec<ResolvedReference>,
     pub(super) module_exports: BTreeMap<(usize, u32, u32), Arc<[ResolvedModuleExport]>>,
     pub(super) inventories: BTreeSet<Arc<[ResolvedModuleExport]>>,
@@ -207,6 +210,7 @@ impl<'a> Resolver<'a> {
             project_owners: BTreeMap::new(),
             public_imports: BTreeSet::new(),
             enum_variants: BTreeMap::new(),
+            contextual_variants: BTreeMap::new(),
             references: Vec::new(),
             module_exports: BTreeMap::new(),
             inventories: BTreeSet::new(),

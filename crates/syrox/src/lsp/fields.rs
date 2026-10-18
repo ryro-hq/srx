@@ -59,58 +59,7 @@ impl Server {
             return None;
         }
         let dot = index - 1;
-        if let Some(previous) = dot
-            .checked_sub(1)
-            .and_then(|index| tokens.get(index))
-            && matches!(
-                previous.kind,
-                Token::RightParen | Token::RightBracket
-            )
-        {
-            let ty = analysis
-                .expression_at(id, previous.span.start())
-                .map(syrox_lang::checker::CheckedExpression::ty)
-                .filter(|ty| ty.is_known())
-                .cloned()
-                .or_else(|| receiver_result(text, &tokens[..dot], analysis, id, offset));
-            if let Some(ty) = ty {
-                return self.field_candidates(
-                    parsed, offset, analysis, id, &ty, start, end, prefix,
-                );
-            }
-        }
-        let mut beginning = dot;
-        while beginning > 0
-            && matches!(
-                tokens[beginning - 1].kind,
-                Token::Ident | Token::Dot | Token::ColonColon
-            )
-        {
-            beginning -= 1;
-        }
-        let receiver = tokens[beginning..dot]
-            .iter()
-            .map(|token| &text[token.span.start() as usize..token.span.end() as usize])
-            .collect::<String>();
-        let mut segments = receiver.split('.');
-        let parts = segments
-            .next()?
-            .split("::")
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-        let target = analysis.lookup_path(id, offset, &parts)?;
-        let mut ty = match target {
-            ResolvedTarget::Local(local) => analysis.local_type(local)?.clone(),
-            ResolvedTarget::Item(item) => analysis.output_type(item)?.clone(),
-            _ => return None,
-        };
-        for field in segments {
-            ty = analysis
-                .fields_at(id, offset, &ty)
-                .into_iter()
-                .find(|candidate| candidate.name == field)?
-                .ty;
-        }
+        let ty = receiver_type(text, &tokens[..dot], analysis, id, offset)?;
         self.field_candidates(
             parsed, offset, analysis, id, &ty, start, end, prefix,
         )
@@ -130,18 +79,87 @@ impl Server {
     ) -> Option<Value> {
         let lines = LineIndex::new(parsed.source());
         let range = edit_range(&lines, start, end, self.encoding)?;
-        let items: Vec<_> = analysis
+        let methods = analysis.methods_for_type(ty);
+        let mut items: Vec<_> = analysis
             .fields_at(id, offset, ty)
             .into_iter()
             .filter(|field| field.name.starts_with(prefix))
+            .filter(|field| {
+                !methods
+                    .iter()
+                    .any(|method| method.path().segments().last() == Some(&field.name))
+            })
             .map(|field| {
                 let detail = analysis.display_type(&field.ty);
                 let edit = text_edit(range.clone(), field.name.clone());
                 json!({ "label": field.name, "kind": 5, "detail": detail, "textEdit": edit })
             })
             .collect();
-        Some(json!({"isIncomplete":false,"items":items}))
+        items.extend(methods.into_iter().filter_map(|method| {
+            let name = method.path().segments().last()?;
+            if !name.starts_with(prefix) {
+                return None;
+            }
+            let detail = analysis.function_type(method.id()).map(|ty| analysis.display_type(ty));
+            Some(json!({"label": name, "kind": 2, "detail": detail, "textEdit": text_edit(range.clone(), name.clone())}))
+        }));
+        let incomplete = items.len() >= 256 || analysis.editor_facts_truncated();
+        items.truncate(256);
+        Some(json!({"isIncomplete":incomplete,"items":items}))
     }
+}
+
+pub(super) fn receiver_type(
+    text: &str,
+    tokens: &[&SyntaxToken],
+    analysis: &SemanticAnalysis,
+    source: SourceId,
+    offset: u32,
+) -> Option<Ty> {
+    let previous = tokens.last()?;
+    if matches!(
+        previous.kind,
+        Token::RightParen | Token::RightBracket
+    ) {
+        return analysis
+            .expression_at(source, previous.span.start())
+            .map(syrox_lang::checker::CheckedExpression::ty)
+            .filter(|ty| ty.is_known())
+            .cloned()
+            .or_else(|| receiver_result(text, tokens, analysis, source, offset));
+    }
+    let mut beginning = tokens.len();
+    while beginning > 0
+        && matches!(
+            tokens[beginning - 1].kind,
+            Token::Ident | Token::Dot | Token::ColonColon
+        )
+    {
+        beginning -= 1;
+    }
+    let receiver = tokens[beginning..]
+        .iter()
+        .map(|token| &text[token.span.start() as usize..token.span.end() as usize])
+        .collect::<String>();
+    let mut segments = receiver.split('.');
+    let parts = segments
+        .next()?
+        .split("::")
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let mut ty = match analysis.lookup_path(source, offset, &parts)? {
+        ResolvedTarget::Local(local) => analysis.local_type(local)?.clone(),
+        ResolvedTarget::Item(item) => analysis.output_type(item)?.clone(),
+        _ => return None,
+    };
+    for field in segments {
+        ty = analysis
+            .fields_at(source, offset, &ty)
+            .into_iter()
+            .find(|candidate| candidate.name == field)?
+            .ty;
+    }
+    Some(ty)
 }
 
 fn receiver_result(

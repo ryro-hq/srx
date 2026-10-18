@@ -42,6 +42,12 @@ jobs:
           rustc --edition 2024 -D warnings --test tools/check_structure.rs -o /tmp/syrox-check-structure-tests
           /tmp/syrox-check-structure-tests
           /tmp/syrox-check-structure
+      - name: Format maintained .srx sources
+        run: |
+          cargo build --locked -p syrox --bin srx
+          while IFS= read -r -d '' source; do
+            "$CARGO_TARGET_DIR/debug/srx" fmt "$source" --check
+          done < <(rg --files std examples -g '*.srx' -0)
       - name: Rustdoc and examples
         env:
           RUSTDOCFLAGS: -D warnings

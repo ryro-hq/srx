@@ -83,6 +83,7 @@ pub enum ResolvedItemKind {
     Value,
     Function,
     OutputValue,
+    Binding,
     PublishedMember,
     OutputType,
 }
@@ -110,6 +111,7 @@ impl ResolvedItemKind {
             Self::Function => "function",
             Self::PublishedMember => "published member",
             Self::OutputValue => "output value",
+            Self::Binding => "global binding",
             Self::OutputType => "exported type",
         }
     }

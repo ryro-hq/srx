@@ -294,6 +294,7 @@ impl SemanticAnalysis {
                         pending.extend(&module.items);
                         continue;
                     }
+                    ItemKind::Binding(binding) => (binding.name.span, item.span.end(), Vec::new()),
                     ItemKind::Function(function) => (
                         function.name.span,
                         if function.is_static() || function.has_bounds() {

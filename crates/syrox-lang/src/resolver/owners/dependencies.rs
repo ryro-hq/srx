@@ -10,6 +10,8 @@ pub enum NamespaceQuery {
         expected: &'static str,
     },
     Variant,
+    /// Existence of a bare variant name; the checker chooses its actual enum.
+    ContextualVariant,
     ModuleExports {
         export: String,
     },

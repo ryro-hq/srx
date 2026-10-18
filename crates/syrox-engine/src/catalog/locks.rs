@@ -20,6 +20,26 @@ impl Catalog {
         for package in &self.packages {
             let mut inputs = BTreeMap::new();
             if self.schema == 2 {
+                let bytes = bounded_file(root, &package.toolchain)?;
+                let text =
+                    std::str::from_utf8(&bytes).map_err(|_| invalid("toolchain is not UTF-8"))?;
+                let toolchain: toml::Value =
+                    toml::from_str(text).map_err(|error| invalid(error.to_string()))?;
+                if toolchain
+                    .get("build_system")
+                    .and_then(toml::Value::as_str)
+                    != Some("linux-x86_64-gnu")
+                    || toolchain
+                        .get("result_system")
+                        .and_then(toml::Value::as_str)
+                        != Some(package.system.as_str())
+                {
+                    return Err(invalid(format!(
+                        "toolchain {} must declare build_system linux-x86_64-gnu and result_system {}",
+                        package.toolchain, package.system
+                    )));
+                }
+
                 inputs.insert(
                     "main.srx".to_owned(),
                     ContentDigest::sha256(&bounded_file(root, "main.srx")?).to_string(),

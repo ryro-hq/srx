@@ -618,6 +618,85 @@ fn fields_and_contextual_variants_share_definitions_and_opaque_authority() {
 }
 
 #[test]
+fn imported_methods_retain_definitions_and_specialized_types_across_overlays() {
+    let text = r#"inputs { dep = "path:dep"; } let packages = dep::PackageSet {}; outputs { ordinary: dep::I = packages.ordinary(7); selected: dep::I = packages.selected(8); }"#;
+    let library = "pub value I(int); pub struct PackageSet {} impl PackageSet { fn ordinary(packages: Self, n: I) -> I { n } fn selected(const packages: Self, const n: I) -> _ { n } }";
+    let mut sources = SourceSet::new();
+    let source = sources.add("main.srx", text).unwrap();
+    let domain = sources.create_input_domain("dep").unwrap();
+    let imported = sources
+        .add_to_input_domain(domain, "dep.srx", library)
+        .unwrap();
+    let (mut host, bindings) = host_for(&sources);
+    let cancel = AnalysisCancellation::default();
+    let policy = CheckPolicy::default();
+    let before = host
+        .snapshot()
+        .analyze_project(&sources, &bindings, &policy, &cancel)
+        .unwrap();
+    let shifted_text = format!("// caller overlay\n{text}");
+    let shifted_library = format!("// dependency overlay\n{library}");
+    host.set_overlay(&bindings[&source], 1, &shifted_text)
+        .unwrap();
+    host.set_overlay(&bindings[&imported], 1, &shifted_library)
+        .unwrap();
+    let after = host
+        .snapshot()
+        .analyze_project(&sources, &bindings, &policy, &cancel)
+        .unwrap();
+    for (analysis, caller, dependency) in [
+        (&before, text, library),
+        (
+            &after,
+            shifted_text.as_str(),
+            shifted_library.as_str(),
+        ),
+        (&before, text, library),
+    ] {
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{:?}",
+            analysis.diagnostics()
+        );
+        for method in ["ordinary", "selected"] {
+            let offset = u32::try_from(
+                caller
+                    .find(&format!("packages.{method}"))
+                    .unwrap()
+                    + "packages.".len(),
+            )
+            .unwrap();
+            let declaration = analysis.definition_at(source, offset).unwrap();
+            assert_eq!(declaration.source_id(), imported);
+            assert_eq!(
+                declaration.start() as usize,
+                dependency.find(&format!("fn {method}")).unwrap() + 3
+            );
+            let symbol = analysis
+                .symbol_at(source, offset, &cancel)
+                .unwrap()
+                .unwrap();
+            assert_eq!(symbol.name, method);
+            assert_eq!(
+                symbol.kind,
+                crate::analysis::SemanticSymbolKind::Function
+            );
+            let Ty::Function {
+                parameters,
+                result,
+                once,
+            } = analysis.type_at(source, offset).unwrap()
+            else {
+                panic!("method hover must retain the callable type");
+            };
+            assert_eq!(parameters.len(), 2);
+            assert!(!once);
+            assert_eq!(analysis.display_type(result), "I");
+        }
+    }
+}
+
+#[test]
 fn semantic_revalidation_uses_effective_text_and_cannot_mask_a_dependency_edit() {
     let mut sources = SourceSet::new();
     let root = sources
@@ -1132,5 +1211,145 @@ fn parsing_diagnostic_precedence_survives_later_resolution_and_checking() {
         analysis
             .items()
             .any(|item| item.path().segments() == ["later"])
+    );
+}
+
+#[test]
+fn global_known_values_participate_in_transitive_owner_dependencies() {
+    let mut sources = SourceSet::new();
+    let text = r#"value S(str); value I(int); let libc: S = "gnu"; fn select(const name: S) -> _ { match name { "gnu" => I(1), "musl" => S("musl") } } let selected = select(libc); fn inspect() -> I { selected }"#;
+    sources.add("main.srx", text).unwrap();
+    let (mut host, bindings) = host_for(&sources);
+    let policy = CheckPolicy::default();
+    let cancel = AnalysisCancellation::default();
+    let before = host
+        .snapshot()
+        .analyze_project(&sources, &bindings, &policy, &cancel)
+        .unwrap();
+    assert!(
+        before.diagnostics().is_empty(),
+        "{:?}",
+        before.diagnostics()
+    );
+    let key = crate::resolver::ResolutionOwnerKey {
+        domain: SourceDomainId::project(),
+        path: vec!["inspect".into()],
+        part: crate::resolver::ResolutionOwnerPart::Declaration,
+    };
+    let baseline = before
+        .owner_type_dependencies(&key, &cancel)
+        .unwrap()
+        .unwrap();
+    let source = sources.iter().next().unwrap().0;
+    host.set_overlay(
+        &bindings[&source],
+        1,
+        &text.replace("= \"gnu\"", "= \"musl\""),
+    )
+    .unwrap();
+    let after = host
+        .snapshot()
+        .analyze_project(&sources, &bindings, &policy, &cancel)
+        .unwrap();
+    assert!(!after.diagnostics().is_empty());
+    assert_ne!(
+        Some(baseline),
+        after
+            .owner_type_dependencies(&key, &cancel)
+            .unwrap()
+    );
+}
+
+#[test]
+fn variant_edits_refresh_unknown_names_in_discarded_global_branches() {
+    let mut sources = SourceSet::new();
+    let text =
+        "enum Target { Gnu } let selected: Target = match Target::Gnu { Gnu => Gnu, _ => Musl };";
+    let source = sources.add("main.srx", text).unwrap();
+    let (mut host, bindings) = host_for(&sources);
+    let policy = CheckPolicy::default();
+    let cancel = AnalysisCancellation::default();
+    for (version, text, missing) in [
+        (1, text.to_owned(), true),
+        (2, text.replace("{ Gnu }", "{ Gnu, Musl }"), false),
+        (3, text.to_owned(), true),
+    ] {
+        host.set_overlay(&bindings[&source], version, &text)
+            .unwrap();
+        let analysis = host
+            .snapshot()
+            .analyze_project(&sources, &bindings, &policy, &cancel)
+            .unwrap();
+        assert_eq!(
+            analysis
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| { diagnostic.message == "unknown value or enum variant `Musl`" }),
+            missing,
+            "{:?}",
+            analysis.diagnostics()
+        );
+        if !missing {
+            assert!(
+                analysis.diagnostics().is_empty(),
+                "{:?}",
+                analysis.diagnostics()
+            );
+        }
+    }
+}
+
+#[test]
+fn global_package_contract_is_available_in_output_configuration() {
+    let declaration = r#"
+        struct PlatformSelection { system: PackagePinText; libc: PackagePinText = "gnu"; }
+        struct Platform { system: PackagePinText; libc: PackagePinText; }
+        struct PackageSet { platform: Platform; }
+        fn forPlatform(const selection: PlatformSelection) -> PackageSet { PackageSet { platform = Platform { system = selection.system; libc = selection.libc; }; } }
+        struct Selection { version: PackagePinText; }
+        impl PackageSet { fn nginx(const packages: Self, const selection: Selection) -> _ { match packages.platform.libc { "gnu" => match selection.version { "1" => old(), "2" => newer() }, "musl" => old() } } }
+        value S(str); struct Old { listen: S = "old"; } struct New { listen: S = "new"; proxyPass: S = "http://localhost"; }
+        fn newer() -> PackageRef<New> { package_ref(recipe_ref(recipe), "2", "minimal", "linux-x86_64-gnu", "new", render_new) }
+        fn old() -> PackageRef<Old> { package_ref(recipe_ref(recipe), "1", "minimal", "linux-x86_64-musl", "old", render_old) }
+        fn recipe() -> Recipe { Recipe { package = Package { id = "nginx"; dependencies = []; }; } }
+        fn render_new(settings: New) -> ConfigText { "" } fn render_old(settings: Old) -> ConfigText { "" }
+        fn configure<C>(package: PackageRef<C>, settings: C) -> ConfigText { package_config(package, settings) }
+    "#.split_whitespace().collect::<Vec<_>>().join(" ");
+    let text = format!(
+        r#"{declaration} let packages = forPlatform({{ system = "linux-x86_64"; libc = "gnu"; }}); let selected = packages.nginx {{ version = "2"; }}; outputs {{ config: ConfigText = configure(selected, {{  }}); }}"#
+    );
+    let mut sources = SourceSet::new();
+    // Use the bundled std as authenticated sources, as the LSP does.
+    sources.add_standard_library("std.srx", "mod std { pub value PackagePinText(str); pub value ConfigText(str); pub struct Recipe { package: Package; } pub struct Package { id: PackagePinText; dependencies: [PackagePinText]; } pub struct PackageRef<T> { factory: fn() -> Recipe; } pub fn recipe_ref(factory: fn() -> Recipe) -> fn() -> Recipe { factory } pub fn package_ref<T>(factory: fn() -> Recipe, version: PackagePinText, variant: PackagePinText, system: PackagePinText, contract: PackagePinText, render: fn(T) -> ConfigText) -> PackageRef<T> { PackageRef<T> { factory = factory; } } pub fn package_config<T>(package: PackageRef<T>, settings: T) -> ConfigText { \"\" } }").unwrap();
+    let source = sources.add("main.srx", text.as_str()).unwrap();
+    let (host, bindings) = host_for(&sources);
+    let analysis = host
+        .snapshot()
+        .analyze_project(
+            &sources,
+            &bindings,
+            &CheckPolicy::default(),
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    assert!(
+        analysis.diagnostics().is_empty(),
+        "{:?}",
+        analysis.diagnostics()
+    );
+    let offset = u32::try_from(text.rfind("{  }").unwrap()).unwrap();
+    let ty = analysis
+        .expression_at(source, offset)
+        .unwrap()
+        .ty();
+    let fields = analysis.construction_fields_at(source, offset + 2, ty);
+    assert_eq!(
+        fields
+            .iter()
+            .map(|field| field.name.as_str())
+            .collect::<Vec<_>>(),
+        ["listen", "proxyPass"],
+        "type {ty:?}, expression {:?}",
+        analysis.expression_at(source, offset)
     );
 }
