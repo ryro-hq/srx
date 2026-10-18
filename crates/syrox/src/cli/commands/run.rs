@@ -54,7 +54,7 @@ fn execute(args: &Arguments, checks: &CheckConfiguration) -> Result<ExitCode, St
         .map_err(|e| e.to_string())?;
     let reference = crate::cli::reference::select(args.reference.as_deref(), args.file.as_deref())?;
     let app = resolve_command(&reference, args.command.as_deref(), &user, checks)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| crate::cli::presentation::command_error(&e))?;
     let signals = crate::signals::OperationSignals::install().map_err(|e| e.to_string())?;
     let worker = crate::cli::worker_path::build_candidate()?;
     let realized = realize_command(
@@ -75,7 +75,7 @@ fn execute(args: &Arguments, checks: &CheckConfiguration) -> Result<ExitCode, St
         ) => {
             return Ok(ExitCode::from(signals.cancelled_exit_code()));
         }
-        Err(error) => return Err(error.to_string()),
+        Err(error) => return Err(crate::cli::presentation::command_error(&error)),
     };
     let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
     let status =

@@ -167,7 +167,7 @@ fn acquire_source(
     configuration: &CheckConfiguration,
 ) -> Result<String, String> {
     let plan = plan_project_package_with(project, configuration, package)
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| crate::cli::presentation::project_error(&error))?;
     let (_, request) = select_source(&plan, package, source_index)?;
     if request.url() != allow_https {
         return Err("the exact planned source URL must match --allow-https".to_owned());
@@ -209,7 +209,7 @@ fn inspect(
     configuration: &CheckConfiguration,
 ) -> Result<String, String> {
     let plan = plan_project_package_with(project, configuration, package)
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| crate::cli::presentation::project_error(&error))?;
     let (package_id, source) = select_source(&plan, package, source_index)?;
     let store = Store::open(store_path).map_err(|error| error.to_string())?;
     let inventory = if plan.builds().any(|build| {

@@ -469,6 +469,17 @@ pub(in crate::build) fn acquire_producer_budget() -> Result<std::fs::File, Build
     Ok(file)
 }
 
+// Each fixture exercises the real per-UID producer budget, even though its
+// Store is private. Keep independent fixtures from consuming each other's
+// budget; producer/follower concurrency within a fixture remains unchanged.
+// Hold this in the parent across reexec isolation, whose fresh process has
+// its own uncontended mutex, so child fixtures cannot overlap parent tests.
+#[cfg(test)]
+pub(in crate::build) fn producer_fixture() -> std::sync::MutexGuard<'static, ()> {
+    static PRODUCER_FIXTURE: Mutex<()> = Mutex::new(());
+    PRODUCER_FIXTURE.lock().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::cache::tests::{action, retained};
@@ -478,6 +489,7 @@ mod tests {
 
     #[test]
     fn cancelling_either_consumer_keeps_the_single_producer_for_the_other() {
+        let _fixture = producer_fixture();
         for cancel_producer_consumer in [true, false] {
             let directory = tempfile::tempdir().unwrap();
             let store = Store::open(directory.path()).unwrap();
@@ -573,6 +585,7 @@ mod tests {
     #[test]
     fn last_consumer_waits_for_settlement_and_closing_rejects_late_admission() {
         use super::super::cancellation::BuildControl as _;
+        let _fixture = producer_fixture();
         // Unrelated harness forks can inherit the final observer OFD between the
         // coordinator's exit and the follower's drop. The deterministic fork test
         // below proves that Active is correct until that unrelated child exits.
@@ -689,6 +702,7 @@ mod tests {
 
     #[test]
     fn orphaned_producer_cannot_be_replaced_until_recovery_and_observers_block_deletion() {
+        let _fixture = producer_fixture();
         let directory = tempfile::tempdir().unwrap();
         let store = Store::open(directory.path()).unwrap();
         let lease = store.operation().unwrap();
@@ -724,6 +738,7 @@ mod tests {
 
     #[test]
     fn consumer_root_conflict_does_not_invalidate_the_shared_committed_result() {
+        let _fixture = producer_fixture();
         let directory = tempfile::tempdir().unwrap();
         let store = Store::open(directory.path()).unwrap();
         let lease = store.operation().unwrap();
@@ -762,6 +777,7 @@ mod tests {
     #[test]
     fn owned_producer_and_follower_allow_gc_and_keep_independent_interests() {
         use super::super::cancellation::BuildControl as _;
+        let _fixture = producer_fixture();
         let directory = tempfile::tempdir().unwrap();
         let store = Store::open(directory.path()).unwrap();
         let action = action();
@@ -861,6 +877,7 @@ mod tests {
 
     #[test]
     fn inherited_observer_prevents_recovery_until_the_fork_child_exits() {
+        let _fixture = producer_fixture();
         if fd::retention_fork_tests::isolate_test(
             "build::shared::tests::inherited_observer_prevents_recovery_until_the_fork_child_exits",
             "SYROX_SHARED_OBSERVER_FORK_ISOLATED",
@@ -929,6 +946,7 @@ mod tests {
 
     #[test]
     fn minimum_budget_refuses_other_actions_but_allows_followers_and_releases_on_drop() {
+        let _fixture = producer_fixture();
         let temporary = tempfile::tempdir().unwrap();
         let store = Store::open(temporary.path()).unwrap();
         let lease = store.operation().unwrap();

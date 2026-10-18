@@ -278,7 +278,6 @@ pub fn prepare_consumer(
         worker,
         offline,
     });
-    let store = context.store()?;
     let mut results = BTreeMap::new();
     let mut outputs = BTreeMap::new();
     for reference in &selection.outputs {
@@ -293,8 +292,11 @@ pub fn prepare_consumer(
                 |stage| progress(&reference.package, stage),
             )?);
         }
-        let (view, _) =
-            results[&reference.package].materialize(store, &reference.output, cancellation)?;
+        let (view, _) = results[&reference.package].materialize(
+            context.store()?,
+            &reference.output,
+            cancellation,
+        )?;
         outputs.insert(reference.clone(), view);
     }
     finish(prepared, selection, outputs, cancellation)

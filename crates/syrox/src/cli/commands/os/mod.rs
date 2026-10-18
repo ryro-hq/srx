@@ -239,7 +239,7 @@ fn prepare(
         );
     };
     let prepared = syrox_engine::project::prepare_project_consumer_with(path, checks, name)
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| crate::cli::presentation::project_error(&error))?;
     if syrox_engine::deployment::manifest::select_consumer(&prepared, name)
         .map_err(|error| error.to_string())?
         .consumer()

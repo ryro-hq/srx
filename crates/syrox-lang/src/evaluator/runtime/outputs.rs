@@ -35,7 +35,7 @@ impl Evaluator<'_> {
         Ok(value)
     }
 
-    pub(super) fn output_value(&mut self, item: ItemId, span: Span) -> Eval<Value> {
+    pub(in crate::evaluator) fn output_value(&mut self, item: ItemId, span: Span) -> Eval<Value> {
         self.ensure_output_cached(item, span)?;
         let output = self.memo_outputs.remove(&item).ok_or(Halt)?;
         if !output.shareable {

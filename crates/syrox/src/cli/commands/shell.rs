@@ -62,8 +62,8 @@ fn execute(arguments: &Arguments, checks: &CheckConfiguration) -> Result<ExitCod
     else {
         return Err("shell requires a locked project and Shell output, for example .#shell".into());
     };
-    let prepared =
-        prepare_project_consumer_with(path, checks, name).map_err(|error| error.to_string())?;
+    let prepared = prepare_project_consumer_with(path, checks, name)
+        .map_err(|error| crate::cli::presentation::project_error(&error))?;
     if arguments.session_state.is_some() {
         validate_managed_shell_command(&prepared, name, &arguments.command)
     } else {

@@ -120,7 +120,6 @@ pub fn realize_command(
         worker,
         offline,
     });
-    let store = context.store()?;
     let command = &resolved.command;
     let mut results = BTreeMap::new();
     let application = PlanOutputRef {
@@ -146,8 +145,11 @@ pub fn realize_command(
                 |stage| progress(&selected.package, stage),
             )?);
         }
-        let (view, _) =
-            results[&selected.package].materialize(store, &selected.output, cancellation)?;
+        let (view, _) = results[&selected.package].materialize(
+            context.store()?,
+            &selected.output,
+            cancellation,
+        )?;
         views.insert(selected.clone(), view);
     }
     Ok(verify_materialized_runtime(

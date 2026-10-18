@@ -103,7 +103,9 @@ impl Resolver<'_> {
                     if !self.charge(span) {
                         return std::collections::BTreeMap::new();
                     }
-                    if self.catalog_members.contains_key(&item) {
+                    if self.catalog_members.contains_key(&item)
+                        || self.items[item.index()].kind() == ResolvedItemKind::Binding
+                    {
                         let bytes = path.iter().map(String::len).sum::<usize>()
                             + name.len()
                             + path.len() * 2;

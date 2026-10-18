@@ -119,7 +119,7 @@ pub(super) fn receiver_type(
     let previous = tokens.last()?;
     if matches!(
         previous.kind,
-        Token::RightParen | Token::RightBracket
+        Token::RightParen | Token::RightBracket | Token::RightBrace
     ) {
         return analysis
             .expression_at(source, previous.span.start())
@@ -142,15 +142,27 @@ pub(super) fn receiver_type(
         .map(|token| &text[token.span.start() as usize..token.span.end() as usize])
         .collect::<String>();
     let mut segments = receiver.split('.');
-    let parts = segments
-        .next()?
-        .split("::")
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    let mut ty = match analysis.lookup_path(source, offset, &parts)? {
-        ResolvedTarget::Local(local) => analysis.local_type(local)?.clone(),
-        ResolvedTarget::Item(item) => analysis.output_type(item)?.clone(),
-        _ => return None,
+    let root = segments.next()?;
+    let mut ty = if root.is_empty() && beginning > 0 && tokens[beginning].kind == Token::Dot {
+        // A temporary receiver can have further fields, as in
+        // `forPlatform({...}).platform.system` or `Outer {...}.inner.field`.
+        receiver_type(
+            text,
+            &tokens[..beginning],
+            analysis,
+            source,
+            offset,
+        )?
+    } else {
+        let parts = root
+            .split("::")
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        match analysis.lookup_path(source, offset, &parts)? {
+            ResolvedTarget::Local(local) => analysis.local_type(local)?.clone(),
+            ResolvedTarget::Item(item) => analysis.output_type(item)?.clone(),
+            _ => return None,
+        }
     };
     for field in segments {
         ty = analysis

@@ -156,16 +156,18 @@ impl Checker<'_> {
                 let item = ty.nominal_head()?;
                 let declaration = self.structs.get(&item)?.declaration;
                 let mut values = BTreeMap::new();
-                for field in &declaration.fields {
-                    let expression = fields
+                for (index, field) in declaration.fields.iter().enumerate() {
+                    let given = fields
                         .iter()
                         .find(|given| given.name.text == field.name.text)
-                        .map(|given| &given.value)
-                        .or(field.default.as_ref())?;
-                    values.insert(
-                        field.name.text.clone(),
-                        self.constant_value(expression, depth + 1)?,
-                    );
+                        .map(|given| &given.value);
+                    let constant = if let Some(expression) = given {
+                        self.constant_value(expression, depth + 1)?
+                    } else {
+                        field.default.as_ref()?;
+                        self.default_constant(item, index)?
+                    };
+                    values.insert(field.name.text.clone(), constant);
                 }
                 Some(Constant::Struct(Arc::new(values)))
             }

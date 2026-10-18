@@ -532,7 +532,12 @@ impl Checker<'_> {
             };
             return self.check_call(&callee, arguments, expected, context, elaboration);
         }
+        // Even a non-consuming outer expression can call a function or project
+        // a field that moves a local. Lookup borrows the receiver's type; the
+        // chosen call below performs the actual consumption exactly once.
+        let bindings = self.body.bindings.clone();
         let receiver_ty = self.check_expr(receiver, None, context, false);
+        self.body.bindings = bindings;
         let modules = self
             .methods
             .get(&receiver_ty)

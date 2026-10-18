@@ -33,6 +33,139 @@ fn identity(path: &str) -> CanonicalItemIdentity {
 }
 
 #[test]
+fn computed_and_nested_defaults_are_constants_in_globals_and_outputs() {
+    checked(
+        r#"
+        value S(str); value I(int);
+        enum Mode { Old, New }
+        struct Inner { mode: Mode = choose("new"); }
+        struct Selection { inner: Inner = Inner {}; }
+        struct Old { port: I; } struct New { host: S; }
+        fn choose(const name: S) -> Mode { match name { "new" => Mode::New } }
+        fn select(const selection: Selection) -> _ {
+            match selection.inner.mode {
+                Old => Old { port = 7; }, New => New { host = "server"; }
+            }
+        }
+        let selected = select(Selection {});
+        outputs {
+            global: New = selected;
+            implicit: New = select(Selection {});
+            explicit: New = select(Selection { inner = Inner { mode = choose("new"); }; });
+        }
+        "#,
+    );
+    checked(
+        r#"
+        value S(str); value I(int);
+        let selected = select(Selection {});
+        struct Selection { name: S = later; }
+        let later: S = "new";
+        fn select(const selection: Selection) -> I { match selection.name { "new" => 1 } }
+        outputs { result: I = selected; }
+        "#,
+    );
+    assert!(
+        messages(
+            r#"value S(str); value I(int); struct Selection { name: S = choose("bad"); } fn choose(const name: S) -> S { name } fn select(const selection: Selection) -> I { match selection.name { "new" => 1 } } let selected = select(Selection {});"#
+        )
+        .iter()
+        .any(|message| message.contains("no applicable case"))
+    );
+}
+
+#[test]
+fn method_lookup_does_not_consume_computed_affine_receivers_twice() {
+    let declarations = r"
+        resource R(int); value I(int); struct Box { payload: R; }
+        impl R {
+            fn identity(r: R) -> R { r }
+            fn selected(r: R, const choice: I) -> R { match choice { 1 => r } }
+        }
+        fn pass(r: R) -> R { r }
+        struct Callback { run: once fn() -> R; }
+        fn callback(r: R) -> Callback { Callback { run = once fn() -> R { r }; } }
+    ";
+    checked(&format!(
+        "{declarations} fn call(r: R) -> R {{ pass(r).identity() }} fn projected(boxed: Box) -> R {{ boxed.payload.identity() }} fn selected(r: R) -> R {{ pass(r).selected(1) }} fn stored(r: R) -> R {{ callback(r).run() }}"
+    ));
+    for body in [
+        "pass(r).identity(); r",
+        "pass(r).selected(1); r",
+        "callback(r).run(); r",
+        "pass(r).identity().identity(); r",
+    ] {
+        assert!(
+            messages(&format!(
+                "{declarations} fn invalid(r: R) -> R {{ {body} }}"
+            ))
+            .iter()
+            .any(|message| message.contains("moved affine value")),
+            "{body}"
+        );
+    }
+}
+
+#[test]
+fn default_constant_dependencies_obey_depth_work_and_metadata_limits() {
+    use std::fmt::Write as _;
+
+    let mut text = String::from("value I(int); let first = Layer0 {}; ");
+    for index in 0..12 {
+        write!(
+            text,
+            "struct Layer{index} {{ next: Layer{} = Layer{} {{}}; }} ",
+            index + 1,
+            index + 1,
+        )
+        .unwrap();
+    }
+    text.push_str("struct Layer12 { number: I = 1; }");
+    checked(&text);
+    for (limits, expected) in [
+        (
+            CheckLimits {
+                max_specialization_depth: 4,
+                ..CheckLimits::default()
+            },
+            "default dependency depth limit",
+        ),
+        (
+            CheckLimits {
+                max_work: 100,
+                ..CheckLimits::default()
+            },
+            "work limit",
+        ),
+        (
+            CheckLimits {
+                max_metadata_units: 20,
+                ..CheckLimits::default()
+            },
+            "metadata limit",
+        ),
+    ] {
+        let errors =
+            check_with_limits(resolved(&text), &CheckPolicy::default(), limits).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message.contains(expected)),
+            "{errors:?}"
+        );
+    }
+    let errors = messages(
+        "value I(int); struct Recursive { next: Recursive = Recursive {}; } fn select(const argument: Recursive) -> I { 1 } let selected = select(Recursive {});",
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("const argument must be a known")),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn ordinary_control_flow_checks_coverage_branch_types_and_affine_moves() {
     checked(
         r#"mod std { pub enum Bool { False, True } } value S(str); value I(int); fn f(x: S) -> I { if x == "yes" { 1 } else { match x { "no" => 2, _ => 3 } } }"#,

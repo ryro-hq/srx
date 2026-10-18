@@ -1261,6 +1261,104 @@ fn global_known_values_participate_in_transitive_owner_dependencies() {
 }
 
 #[test]
+fn computed_default_edits_refresh_global_and_output_contracts() {
+    let text = r#"
+        value S(str); value I(int);
+        struct Inner { name: S = choose("new"); }
+        struct Selection { inner: Inner = Inner {}; }
+        struct Old { port: I; } struct New { host: S; }
+        fn choose(const name: S) -> S { name }
+        fn select(const selection: Selection) -> _ {
+            match selection.inner.name {
+                "old" => Old { port = 7; }, "new" => New { host = "server"; }
+            }
+        }
+        let selected = select(Selection {});
+        fn inspect() -> New { selected }
+        outputs { implicit: New = select(Selection {}); }
+    "#;
+    let mut sources = SourceSet::new();
+    let source = sources.add("main.srx", text).unwrap();
+    let (mut host, bindings) = host_for(&sources);
+    let policy = CheckPolicy::default();
+    let cancel = AnalysisCancellation::default();
+    let before = host
+        .snapshot()
+        .analyze_project(&sources, &bindings, &policy, &cancel)
+        .unwrap();
+    assert!(
+        before.diagnostics().is_empty(),
+        "{:?}",
+        before.diagnostics()
+    );
+    let key = crate::resolver::ResolutionOwnerKey {
+        domain: SourceDomainId::project(),
+        path: vec!["inspect".into()],
+        part: crate::resolver::ResolutionOwnerPart::Declaration,
+    };
+    let dependencies = before
+        .owner_type_dependencies(&key, &cancel)
+        .unwrap()
+        .unwrap();
+    let usage = u32::try_from(text.find("{ selected }").unwrap()).unwrap() + 2;
+    assert_eq!(
+        before.display_type(before.type_at(source, usage).unwrap()),
+        "New"
+    );
+    for (version, changed, expected, errors) in [
+        (
+            1,
+            text.replace("choose(\"new\")", "choose(\"old\")"),
+            "Old",
+            true,
+        ),
+        (2, text.to_owned(), "New", false),
+    ] {
+        host.set_overlay(&bindings[&source], version, &changed)
+            .unwrap();
+        let after = host
+            .snapshot()
+            .analyze_project(&sources, &bindings, &policy, &cancel)
+            .unwrap();
+        assert_eq!(
+            after.display_type(after.type_at(source, usage).unwrap()),
+            expected
+        );
+        assert_eq!(
+            !after.diagnostics().is_empty(),
+            errors,
+            "{:?}",
+            after.diagnostics()
+        );
+        if errors {
+            assert!(
+                after
+                    .diagnostics()
+                    .iter()
+                    .any(|diagnostic| diagnostic.message.contains("function return"))
+            );
+            assert!(
+                after
+                    .diagnostics()
+                    .iter()
+                    .any(|diagnostic| diagnostic.message.contains("output"))
+            );
+            assert_ne!(
+                Some(dependencies.clone()),
+                after
+                    .owner_type_dependencies(&key, &cancel)
+                    .unwrap()
+            );
+        }
+    }
+    assert!(before.diagnostics().is_empty());
+    assert_eq!(
+        before.display_type(before.type_at(source, usage).unwrap()),
+        "New"
+    );
+}
+
+#[test]
 fn variant_edits_refresh_unknown_names_in_discarded_global_branches() {
     let mut sources = SourceSet::new();
     let text =

@@ -294,8 +294,19 @@ impl ResolvedProgram {
             .flat_map(|entries| {
                 entries
                     .iter()
+                    .filter(|(_, id)| self.catalog_members.contains_key(id))
                     .map(|(name, id)| (name.as_str(), *id))
             })
+    }
+    /// Public global bindings visible at this domain root, including explicit
+    /// reexports and public modules, but excluding merely imported dependencies.
+    pub fn visible_bindings(&self, domain: SourceDomainId) -> impl Iterator<Item = (&str, ItemId)> {
+        self.visible_members
+            .get(&domain)
+            .into_iter()
+            .flat_map(|entries| entries.iter())
+            .filter(|(_, id)| self.items[id.index()].kind() == ResolvedItemKind::Binding)
+            .map(|(name, id)| (name.as_str(), *id))
     }
     pub fn published_member(&self, item: ItemId) -> Option<&PublishedMember> {
         self.catalog_members.get(&item)

@@ -229,7 +229,12 @@ mod tests {
             build = std::Option::Some(std::Build {{ profile = std::BuildProfile::Managed;
                 source_directory = "source"; timeout_seconds = 30; source_format = std::BuildSourceFormat::Raw;
                 steps = [std::BuildStep::Directory(std::BuildPath::Output("out", "proof"))]; }});
-        }} }} }} pub publish(factories, recipe): std::Recipe;"#)).unwrap();
+            commands = [std::Command {{ name = "test"; output = "out"; path = "bin/test"; }}];
+        }} }} }} pub publish(factories, recipe): std::Recipe;
+        outputs {{
+            os: std::Os = std::Os {{ pkgs = [std::select_package(recipe)]; services = []; }};
+            shell: std::Shell = std::Shell {{ pkgs = [std::select_package(recipe)]; services = []; }};
+        }}"#)).unwrap();
         let checks = CheckConfiguration {
             standard_library: Some(AuthenticatedStandardLibrary::bundled()),
             ..CheckConfiguration::default()
@@ -296,6 +301,78 @@ mod tests {
                 Err(RealizeError::MissingManagedConfiguration)
             ));
             assert!(!user.store().exists());
+        }
+    }
+
+    #[test]
+    fn command_and_consumer_reject_managed_configuration_before_store() {
+        let (temp, resolved) = fixture("https://example.invalid/source");
+        let checks = CheckConfiguration {
+            standard_library: Some(AuthenticatedStandardLibrary::bundled()),
+            ..CheckConfiguration::default()
+        };
+        let worker = temp.path().join("worker");
+        fs::write(&worker, static_image()).unwrap();
+        let users = [
+            UserConfiguration::parse("", temp.path().join("store")).unwrap(),
+            configuration(
+                temp.path(),
+                &worker,
+                ContentDigest::sha256(b"wrong pin"),
+            ),
+        ];
+        for user in users {
+            let reference = format!("{}#recipe", resolved.project().display());
+            let command =
+                crate::realize::resolve_command(&reference, Some("test"), &user, &checks).unwrap();
+            let error = crate::realize::realize_command(
+                &command,
+                &user,
+                Path::new("/unselected-host-worker"),
+                true,
+                &Cancellation::default(),
+                |_, _| {},
+            )
+            .unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    crate::realize::CommandError::Resolve(
+                        RealizeError::MissingManagedConfiguration | RealizeError::ManagedWorker(_)
+                    )
+                ),
+                "{error:?}"
+            );
+            assert!(!user.store().exists());
+            for name in ["os", "shell"] {
+                let prepared = crate::project::prepare_project_consumer_with(
+                    resolved.project(),
+                    &checks,
+                    name,
+                )
+                .unwrap();
+                let error = crate::deployment::manifest::prepare_consumer(
+                    prepared,
+                    name,
+                    &user,
+                    Path::new("/unselected-host-worker"),
+                    true,
+                    &Cancellation::default(),
+                    |_, _| {},
+                )
+                .unwrap_err();
+                assert!(
+                    matches!(
+                        error,
+                        crate::deployment::manifest::DeploymentError::Realize(
+                            RealizeError::MissingManagedConfiguration
+                                | RealizeError::ManagedWorker(_)
+                        )
+                    ),
+                    "{error:?}"
+                );
+                assert!(!user.store().exists());
+            }
         }
     }
 

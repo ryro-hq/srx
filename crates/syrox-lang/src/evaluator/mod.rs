@@ -30,7 +30,7 @@ pub use model::{
 };
 
 pub use runtime::MemoId;
-pub use session::{EvaluationQueryError, EvaluationSession, PublishedRoot};
+pub use session::{EvaluationQueryError, EvaluationSession, PublishedRoot, ReferenceBinding};
 
 pub fn evaluate(
     program: &CheckedProgram,

@@ -95,9 +95,27 @@ Root public names of the authenticated standard library are available directly;
 `std::Recipe` and other qualified names remain valid. Local declarations and
 explicit imports take precedence. Module `let` bindings are private by default,
 exported with `pub let`, immutable, reusable and shared during evaluation.
+Global initializers cannot consume affine resources. Effects hidden behind
+callbacks are also checked when the initializer is evaluated.
 Forward references are allowed and cycles are diagnosed. Known `if`/`match`
 conditions in module initializers and configurations check the selected branch.
 Names and syntax are resolved in every branch. Exact versions remain required.
+
+A public binding containing a `RecipeRef<Recipe>` is also a CLI export. Select
+the package once, then export its recipe:
+
+```srx
+pub let hello = package_recipe(packages.hello_version { version = "2.12.1"; });
+```
+
+```sh
+srx project lock .
+srx info .#hello
+srx build .#hello --dry-run
+```
+
+Public aliases share the same lazy recipe instance. Private bindings stay private;
+inspection and dry runs do not acquire sources or initialize a Store.
 
 `linux-aarch64` is representable for conditions, with `gnu` or `musl`; this
 catalog has no ARM64 implementations. `linux` and `linux-arm` require an explicit

@@ -355,9 +355,27 @@ fn call_at(parsed: &ParsedFile, offset: u32) -> Option<CallSite> {
         .rev()
         .find(|index| calls.contains(index))?;
     let mut index = open;
+    // Explicit type arguments sit between the callable path and its argument
+    // list. Skip the whole balanced list, including nested generic types.
+    if index > 0 && tokens[index - 1].kind == Token::RightAngle {
+        let mut depth = 0usize;
+        loop {
+            index = index.checked_sub(1)?;
+            match tokens[index].kind {
+                Token::RightAngle => depth += 1,
+                Token::LeftAngle => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
     let text = parsed.source().text();
     let mut parts = Vec::new();
-    let receiver_end = open
+    let receiver_end = index
         .checked_sub(2)
         .filter(|index| tokens[*index].kind == Token::Dot)
         .map(|index| tokens[index].span.start());

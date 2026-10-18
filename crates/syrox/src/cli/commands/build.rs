@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use crate::cli::presentation::render_message;
+use crate::cli::presentation::{realize_error, render_message};
 
 use syrox_engine::{
     build::BuildError, build::BuildExecution, cancellation::Cancellation,
@@ -132,7 +132,8 @@ fn execute(
             cancellation,
         );
     }
-    let resolved = resolve_build(&reference, &user, configuration).map_err(|e| e.to_string())?;
+    let resolved =
+        resolve_build(&reference, &user, configuration).map_err(|e| realize_error(&e))?;
     if args.dry_run {
         return Ok(format!(
             "would build {}\n{}",
@@ -178,7 +179,7 @@ fn execute(
             error,
             RealizeError::Cancelled | RealizeError::Build(BuildError::Cancelled)
         ),
-        message: error.to_string(),
+        message: realize_error(&error),
     })?;
     let (verb, execution) = match result.execution {
         BuildExecution::Built {
@@ -223,7 +224,7 @@ fn execute_all(
     configuration: &CheckConfiguration,
     cancellation: &Cancellation,
 ) -> Result<String, Failure> {
-    let builds = resolve_builds(reference, user, configuration).map_err(|e| e.to_string())?;
+    let builds = resolve_builds(reference, user, configuration).map_err(|e| realize_error(&e))?;
     if builds.is_empty() {
         return Err("project has no public buildable exports"
             .to_owned()
@@ -263,7 +264,7 @@ fn execute_all(
             error,
             RealizeError::Cancelled | RealizeError::Build(BuildError::Cancelled)
         ),
-        message: error.to_string(),
+        message: realize_error(&error),
     })?;
     Ok(builds
         .iter()
@@ -310,7 +311,7 @@ pub(crate) fn info(args: &ReferenceArguments, checks: &CheckConfiguration) -> Ex
             } else {
                 search_build_exports(query, &user, checks)
             }
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| realize_error(&e))?;
             return Ok(if names.is_empty() {
                 "no matching packages".into()
             } else {
@@ -319,7 +320,7 @@ pub(crate) fn info(args: &ReferenceArguments, checks: &CheckConfiguration) -> Ex
         }
         let reference =
             crate::cli::reference::select(args.reference.as_deref(), args.file.as_deref())?;
-        let resolved = resolve_build(&reference, &user, checks).map_err(|e| e.to_string())?;
+        let resolved = resolve_build(&reference, &user, checks).map_err(|e| realize_error(&e))?;
         Ok(format!(
             "{}\nsource-directory {}\ntimeout-seconds {}\nstore {}\nhost-toolchain {}",
             summary(&resolved),
