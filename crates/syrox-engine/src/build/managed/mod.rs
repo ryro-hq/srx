@@ -21,8 +21,8 @@ pub(crate) mod transfer;
 pub(crate) mod worker;
 pub(crate) use super::bootstrap::linux;
 pub(crate) use super::{
-    BuildError, BuildProfile, BuildResources, BuildResult, BuildSpecification,
-    MAX_LARGE_SOURCE_BYTES, MAX_SOURCE_BYTES, cancellation, journal, publication, records,
+    BuildError, BuildProfile, BuildResources, BuildResult, BuildSpecification, cancellation,
+    journal, publication, records,
 };
 pub(crate) use handshake::{ManagedBuildHandshake, ManagedBuildResourcesSent};
 pub(crate) use namespace::PreparedManagedBuildNamespace;

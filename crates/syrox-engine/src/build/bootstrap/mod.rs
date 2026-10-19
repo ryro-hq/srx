@@ -11,8 +11,8 @@ pub(crate) mod sandbox;
 pub(crate) mod worker;
 pub(crate) use super::{
     BuildError, BuildPart, BuildPath, BuildProfile, BuildProgram, BuildResources, BuildResult,
-    BuildSourceFormat, BuildSpecification, BuildStep, BuildText, MAX_LARGE_SOURCE_BYTES,
-    MAX_OUTPUT_BYTES, MAX_SOURCE_BYTES, cache, journal, policy, records, shared,
+    BuildSourceFormat, BuildSpecification, BuildStep, BuildText, MAX_OUTPUT_BYTES, cache, journal,
+    policy, records, shared,
 };
 
 pub(crate) use super::{

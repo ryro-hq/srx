@@ -12,6 +12,8 @@ use url::Url;
 mod actions;
 #[path = "lsp/completion.rs"]
 mod completion;
+#[path = "lsp/configuration.rs"]
+mod configuration;
 #[path = "lsp/construction.rs"]
 mod construction;
 #[path = "lsp/contextual.rs"]

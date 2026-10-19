@@ -1,0 +1,6 @@
+pub mod std::files {
+    // Reads only the caller project's authenticated assets retained by the engine.
+    pub fn read_text(path: ConfigText) -> ConfigText {
+        read_text(path)
+    }
+}

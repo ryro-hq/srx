@@ -66,6 +66,7 @@ pub(crate) trait FactMapper {
     fn elaboration(&mut self, elaboration: &Elaboration) -> Option<Elaboration> {
         self.reserve(0)?;
         Some(match elaboration {
+            Elaboration::PartialRecord => Elaboration::PartialRecord,
             Elaboration::TraitCall {
                 implementation,
             } => Elaboration::TraitCall {

@@ -121,6 +121,7 @@ pub struct LoadedProjectSource {
 
 #[derive(Debug)]
 pub struct LoadedProjectAsset {
+    content: std::sync::Arc<[u8]>,
     relative_path: PathBuf,
     size: u64,
     digest: [u8; 32],

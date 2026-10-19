@@ -1,3 +1,4 @@
+use crate::build::BuildResources;
 use super::*;
 
 fn fixture() -> (tempfile::TempDir, Plan, Store) {

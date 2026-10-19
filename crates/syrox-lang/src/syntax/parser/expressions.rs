@@ -229,7 +229,9 @@ impl Parser<'_> {
                 span: literal.span,
                 kind: ExpressionKind::String(literal),
             }),
-            TokenKind::Ident => self.parse_path_expression(allow_struct),
+            TokenKind::Ident | TokenKind::Keyword(Keyword::Value) => {
+                self.parse_path_expression(allow_struct)
+            }
             TokenKind::LeftBrace => {
                 let span = token.span;
                 self.parse_struct_literal(

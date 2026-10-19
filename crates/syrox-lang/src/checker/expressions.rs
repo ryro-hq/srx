@@ -189,8 +189,42 @@ impl Checker<'_> {
                     ..
                 } = ty
                 {
-                    self.check_arguments(arguments, &parameters, context, callee.span);
-                    *result
+                    let patch = if let ExpressionKind::Specialize {
+                        function,
+                        ..
+                    } = &callee.kind
+                    {
+                        match self.target(function.span).cloned() {
+                            Some(ResolvedTarget::Item(item))
+                                if self.configuration_operation(item).as_deref()
+                                    == Some("patch") =>
+                            {
+                                Some(item)
+                            }
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
+                    if let Some(item) = patch {
+                        let actual = self.check_configuration_patch(
+                            item,
+                            arguments,
+                            context,
+                            &mut elaboration,
+                            expression.span,
+                        );
+                        self.expect_same(
+                            &result,
+                            &actual,
+                            expression.span,
+                            "configuration document",
+                        );
+                        actual
+                    } else {
+                        self.check_arguments(arguments, &parameters, context, callee.span);
+                        *result
+                    }
                 } else {
                     self.error("callee is not a function value", callee.span);
                     Ty::Error
@@ -224,14 +258,12 @@ impl Checker<'_> {
                 fields,
                 recovery,
                 ..
-            } => self.check_struct_literal(
-                path,
-                type_arguments,
-                fields,
-                recovery,
-                expected,
-                context,
-            ),
+            } => {
+                if self.partial_record == Some(path.span) {
+                    elaboration = Some(Elaboration::PartialRecord);
+                }
+                self.check_struct_literal(path, type_arguments, fields, recovery, expected, context)
+            },
             ExpressionKind::List(items) => {
                 self.check_list(items, expected, context, expression.span)
             }
@@ -643,6 +675,15 @@ impl Checker<'_> {
             self.error("callee is not a function value", callee.span);
             return Ty::Error;
         }
+        if self.configuration_operation(item).as_deref() == Some("patch") {
+            return self.check_configuration_patch(
+                item,
+                arguments,
+                context,
+                elaboration,
+                callee.span,
+            );
+        }
         if let Some((parameters, result)) = self.function_types.get(&item).cloned() {
             if self.functions[&item].declaration.abstract_member {
                 let info = self.functions[&item];
@@ -835,7 +876,11 @@ impl Checker<'_> {
             self.recover_bindings(None, *gap);
         }
         for (name, (field, _)) in declared {
-            if recovery.is_empty() && field.default.is_none() && !seen.contains(&name) {
+            if self.partial_record != Some(path.span)
+                && recovery.is_empty()
+                && field.default.is_none()
+                && !seen.contains(&name)
+            {
                 self.error(format!("missing field `{name}`"), path.span);
             }
         }

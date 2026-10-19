@@ -319,7 +319,11 @@ impl<'a> Parser<'a> {
     }
 
     fn ident(&mut self, message: &str) -> Option<Ident> {
-        let token = self.expect(TokenKind::Ident, message)?;
+        let token = if self.at(TokenKind::Keyword(Keyword::Value)) {
+            self.advance()?
+        } else {
+            self.expect(TokenKind::Ident, message)?
+        };
         Some(Ident {
             text: self.text(token.span).to_owned(),
             span: token.span,

@@ -1,0 +1,25 @@
+pub mod std::yaml {
+    // The evaluator implements these entrypoints only for authenticated std identities.
+    pub opaque struct Document<T> {
+        text: ConfigText;
+        data: T;
+    }
+    pub fn encode<T>(data: T) -> ConfigText {
+        encode(data)
+    }
+    pub fn decode<T>(text: ConfigText) -> T {
+        decode<T>(text)
+    }
+    pub fn document<T>(text: ConfigText) -> Document<T> {
+        document<T>(text)
+    }
+    pub fn value<T>(doc: Document<T>) -> T {
+        doc.data
+    }
+    pub fn patch<T>(doc: Document<T>, changes: T) -> Document<T> {
+        patch(doc, changes)
+    }
+    pub fn render<T>(doc: Document<T>) -> ConfigText {
+        doc.text
+    }
+}

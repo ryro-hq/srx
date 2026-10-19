@@ -680,11 +680,7 @@ pub fn prepare_managed_build(
 }
 
 fn source_limit(plan: &Plan, request: &BuildSpecification) -> Result<u64, BuildError> {
-    let limit = if request.resources() == super::BuildResources::Large {
-        super::MAX_LARGE_SOURCE_BYTES
-    } else {
-        super::MAX_SOURCE_BYTES
-    };
+    let limit = request.program.maximum_source_bytes();
     let declared_limit = plan
         .acquisitions()
         .find(|entry| entry.package() == &request.package)

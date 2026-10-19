@@ -1,3 +1,4 @@
+use crate::syntax::decode_text_into;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Write as _,
@@ -21,6 +22,7 @@ use crate::{
 };
 
 mod calls;
+mod configuration;
 mod construction;
 mod expressions;
 mod memo;
@@ -313,26 +315,6 @@ fn literal_equals(literal: &Literal, value: &PrimitiveValue) -> bool {
         (Literal::String(left), PrimitiveValue::Str(right)) => static_string_equals(left, right),
         _ => false,
     }
-}
-
-fn decode_text_into(source: &str, result: &mut String) -> Option<()> {
-    let mut chars = source.chars();
-    while let Some(character) = chars.next() {
-        if character != '\\' {
-            result.push(character);
-            continue;
-        }
-        result.push(match chars.next()? {
-            '"' => '"',
-            '\\' => '\\',
-            'n' => '\n',
-            'r' => '\r',
-            't' => '\t',
-            '$' => '$',
-            _ => return None,
-        });
-    }
-    Some(())
 }
 
 fn decimal_len(value: i64) -> usize {

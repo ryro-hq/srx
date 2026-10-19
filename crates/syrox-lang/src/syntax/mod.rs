@@ -272,6 +272,7 @@ pub struct TypeParameter {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Field {
+    pub key: Option<String>,
     pub name: Ident,
     pub ty: Type,
     pub default: Option<Expression>,
@@ -615,4 +616,24 @@ pub enum StringPart {
         path: Path,
         span: Span,
     },
+}
+
+pub(crate) fn decode_text_into(source: &str, result: &mut String) -> Option<()> {
+    let mut chars = source.chars();
+    while let Some(character) = chars.next() {
+        if character != '\\' {
+            result.push(character);
+            continue;
+        }
+        result.push(match chars.next()? {
+            '"' => '"',
+            '\\' => '\\',
+            'n' => '\n',
+            'r' => '\r',
+            't' => '\t',
+            '$' => '$',
+            _ => return None,
+        });
+    }
+    Some(())
 }

@@ -744,10 +744,12 @@ pub fn open_locked_project_with(
         return Err(ProjectOperationError::GraphDrift);
     }
     let checked = analyze::check_loaded(&loaded, configuration)?;
+    let mut configuration = configuration.clone();
+    configuration.environment = analyze::asset_environment(&loaded, &configuration.environment);
     Ok(LockedProject {
         loaded,
         checked,
-        configuration: configuration.clone(),
+        configuration,
         digest: *actual.digest(),
     })
 }

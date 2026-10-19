@@ -302,7 +302,7 @@ impl Parser<'_> {
             )
         {
             self.error(Diagnostic::error(
-                "`pub` requires a type, value, function or import declaration",
+                "`pub` requires a module, type, value, function or import declaration",
                 declaration.span,
             ));
             return None;
@@ -783,6 +783,43 @@ impl Parser<'_> {
         }
         let (fields, valid) = self.semicolon_entries(SyntaxKind::Field, |parser| {
             let field_start = parser.peek()?.span;
+            let key = if parser.consume(TokenKind::Hash).is_some() {
+                parser.expect(TokenKind::LeftBracket, "expected `[` after `#`")?;
+                let attribute = parser.ident("expected field attribute")?;
+                if attribute.text != "key" {
+                    parser.error(Diagnostic::error(
+                        "unknown field attribute",
+                        attribute.span,
+                    ));
+                    return None;
+                }
+                parser.expect(TokenKind::LeftParen, "expected `(` after `key`")?;
+                let literal = parser.string_literal()?;
+                let mut key = String::new();
+                for part in &literal.parts {
+                    if let super::StringPart::Text {
+                        source,
+                        ..
+                    } = part
+                    {
+                        crate::syntax::decode_text_into(source, &mut key)?;
+                    } else {
+                        parser.error(Diagnostic::error(
+                            "external key must be a literal string",
+                            literal.span,
+                        ));
+                        return None;
+                    }
+                }
+                parser.expect(TokenKind::RightParen, "expected `)` after key")?;
+                parser.expect(
+                    TokenKind::RightBracket,
+                    "expected `]` after attribute",
+                )?;
+                Some(key)
+            } else {
+                None
+            };
             let field_name = parser.ident("expected field name")?;
             parser.expect(TokenKind::Colon, "expected `:` after field name")?;
             let ty = parser.parse_type()?;
@@ -793,6 +830,7 @@ impl Parser<'_> {
             };
             let end = parser.expect(TokenKind::Semicolon, "expected `;` after field")?;
             Some(Field {
+                key,
                 name: field_name,
                 ty,
                 default,

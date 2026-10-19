@@ -13,10 +13,11 @@ pub(super) fn validate_loaded(
 ) -> Result<ValidatedProject, CheckFailure> {
     let checked = check_loaded(&loaded, configuration)?;
     let declarations = checked.resolved().parsed().declaration_count();
+    let environment = asset_environment(&loaded, &configuration.environment);
     let realized = evaluate_with_limits(
         &checked,
         &configuration.policy,
-        &configuration.environment,
+        &environment,
         configuration.evaluation_limits,
     )
     .map_err(|source| CheckFailure::EvaluationSetup {
@@ -116,4 +117,29 @@ pub(super) fn check_sources(
         declarations,
         realized_roots,
     })
+}
+
+/// Bind retained asset bytes to the domains assigned by this loaded graph.
+pub(super) fn asset_environment(
+    loaded: &LoadedProject,
+    base: &syrox_lang::evaluator::EvaluationEnvironment,
+) -> syrox_lang::evaluator::EvaluationEnvironment {
+    let mut roots = std::collections::BTreeMap::new();
+    super::collect_project_roots(
+        loaded,
+        loaded,
+        syrox_lang::source::SourceDomainId::project(),
+        &mut roots,
+    );
+    let mut environment = base.clone();
+    for (domain, project) in roots {
+        for asset in project.assets() {
+            environment = environment.with_authenticated_asset(
+                domain,
+                asset.relative_path.to_string_lossy().into_owned(),
+                asset.content.clone(),
+            );
+        }
+    }
+    environment
 }

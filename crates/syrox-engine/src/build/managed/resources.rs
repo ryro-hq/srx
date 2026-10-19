@@ -300,11 +300,7 @@ fn validate_all(
     if program != action.program.encode() {
         return Err(BuildError::InputChanged);
     }
-    let source_limit = if action.program.resources == BuildResources::Large {
-        super::MAX_LARGE_SOURCE_BYTES
-    } else {
-        super::MAX_SOURCE_BYTES
-    };
+    let source_limit = action.program.maximum_source_bytes();
     let (_, source) = read_regular(
         descriptors[2].as_fd(),
         source_limit,

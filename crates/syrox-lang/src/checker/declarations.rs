@@ -366,6 +366,7 @@ impl Checker<'_> {
             .map(|parameter| (parameter, RawTy::Parameter(parameter)))
             .collect();
         let mut checked_fields = Vec::new();
+        let mut external_keys = BTreeSet::new();
         for field in &declaration.fields {
             if !self.charge(field.span) {
                 return;
@@ -375,6 +376,9 @@ impl Checker<'_> {
                     format!("duplicate field `{}`", field.name.text),
                     field.name.span,
                 );
+            }
+            if !external_keys.insert(field.key.as_deref().unwrap_or(&field.name.text)) {
+                self.error("duplicate external configuration key", field.span);
             }
             let ty = self.resolve_raw_type(&field.ty, &params, 0);
             if let Some(concrete) = self.concretize(ty.clone(), &BTreeMap::new(), field.span) {

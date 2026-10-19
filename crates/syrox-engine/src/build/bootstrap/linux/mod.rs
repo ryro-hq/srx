@@ -12,8 +12,7 @@ use sha2::{Digest as _, Sha256};
 
 mod inventory;
 use super::{
-    BuildError, BuildResources, BuildResult, BuildSpecification, Cancellation,
-    MAX_LARGE_SOURCE_BYTES, MAX_SOURCE_BYTES, cache, group,
+    BuildError, BuildResult, BuildSpecification, Cancellation, cache, group,
     journal::Operation,
     records::{Action, BuildDescription},
     sandbox, shared,
@@ -250,11 +249,7 @@ fn prepare_action(
     let source = acquisition.sources().next().unwrap();
     let source_digest = source.digest();
     let lease = store.operation()?;
-    let maximum_source = if request.resources() == BuildResources::Large {
-        MAX_LARGE_SOURCE_BYTES
-    } else {
-        MAX_SOURCE_BYTES
-    };
+    let maximum_source = request.program.maximum_source_bytes();
     // The Action is determined by the locked source digest, not by opening
     // source bytes. A retained hit validates the source through its receipt;
     // only a miss has to read the source for inspection and the payload.
@@ -896,7 +891,10 @@ mod tests {
         let action = Action::parse(record.as_bytes()).unwrap();
         let start = std::time::Instant::now();
         lease
-            .read_verified(action.source, MAX_LARGE_SOURCE_BYTES)
+            .read_verified(
+                action.source,
+                action.program.maximum_source_bytes(),
+            )
             .unwrap()
             .unwrap();
         let source_time = start.elapsed();

@@ -20,6 +20,7 @@ use super::loader::{
 use super::*;
 use crate::platform::linux::fd::OpenError;
 
+mod configuration;
 mod consumers;
 mod editor;
 mod evaluation;
