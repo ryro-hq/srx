@@ -195,7 +195,7 @@ fn empty_patch_preserves_bytes_and_none_removes_optional_values() {
         ("toml", "name = 'old' # keep\nother = 9\n"),
     ] {
         let result = run(&format!(
-            r#"
+            r"
             value Name(str); struct C {{ name: std::Option<Name> = std::Option::None; }}
             fn unchanged() -> std::ConfigText {{
                 std::{format}::render(std::{format}::patch(std::{format}::document<C>({literal}), {{}}))
@@ -204,7 +204,7 @@ fn empty_patch_preserves_bytes_and_none_removes_optional_values() {
                 std::{format}::value(std::{format}::patch(std::{format}::document<C>({literal}), {{name = std::Option::None;}}))
             }}
             outputs {{ text: std::ConfigText = unchanged(); cleared: C = clear_config(); }}
-        "#,
+        ",
             literal = serde_json::to_string(original).unwrap()
         ));
         assert_eq!(output(&result, "text"), original);
@@ -275,8 +275,8 @@ fn unsupported_schemas_are_rejected_even_for_empty_lists_and_defaults() {
     let result = run(r#"resource R(str); struct C { empty: [R] = []; }
         outputs { bad: C = std::yaml::decode<C>("{}"); }"#);
     assert!(!result.is_success());
-    let result = run(r#"resource R(str); struct C { empty: [R] = []; }
-        outputs { bad: std::ConfigText = std::yaml::encode(C {}); }"#);
+    let result = run(r"resource R(str); struct C { empty: [R] = []; }
+        outputs { bad: std::ConfigText = std::yaml::encode(C {}); }");
     assert!(!result.is_success());
 }
 

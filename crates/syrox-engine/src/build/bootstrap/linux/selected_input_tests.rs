@@ -1,5 +1,5 @@
-use crate::build::BuildResources;
 use super::*;
+use crate::build::BuildResources;
 
 fn fixture() -> (tempfile::TempDir, Plan, Store) {
     let temp = tempfile::tempdir().unwrap();

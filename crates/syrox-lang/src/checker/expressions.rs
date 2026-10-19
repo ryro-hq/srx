@@ -262,8 +262,15 @@ impl Checker<'_> {
                 if self.partial_record == Some(path.span) {
                     elaboration = Some(Elaboration::PartialRecord);
                 }
-                self.check_struct_literal(path, type_arguments, fields, recovery, expected, context)
-            },
+                self.check_struct_literal(
+                    path,
+                    type_arguments,
+                    fields,
+                    recovery,
+                    expected,
+                    context,
+                )
+            }
             ExpressionKind::List(items) => {
                 self.check_list(items, expected, context, expression.span)
             }
