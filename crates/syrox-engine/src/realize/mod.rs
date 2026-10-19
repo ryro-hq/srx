@@ -623,12 +623,7 @@ impl RealizeContext<'_> {
             .find(|acquisition| acquisition.package() == resolved.build.package())
             .and_then(|acquisition| acquisition.sources().next())
             .expect("validated build source");
-        let maximum_source =
-            if resolved.build.program().resources == crate::build::BuildResources::Large {
-                crate::build::MAX_LARGE_SOURCE_BYTES
-            } else {
-                crate::build::MAX_SOURCE_BYTES
-            };
+        let maximum_source = resolved.build.program().maximum_source_bytes();
         // Integrity failures are errors, never a trigger for silent replacement.
         #[cfg(target_os = "linux")]
         let cached = source_cached(

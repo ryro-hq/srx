@@ -67,6 +67,47 @@ srx shell .#dev --command hello --non-interactive \
 `build.toml` supplies the host toolchain and source permissions described in
 the [catalog's setup](https://github.com/ryro-hq/syrox-pkgs#build-and-select-a-command).
 
+## Typed configuration
+
+`std::yaml` and `std::toml` expose `encode`, `decode<T>`, `document<T>`,
+`value`, `patch` and `render`. Text uses the existing `std::ConfigText` type.
+Struct fields can declare an external key without changing their `.srx` name:
+
+```srx
+value NodeName(str);
+value NodeIp(str);
+struct HostConfig { name: NodeName; ip: NodeIp; }
+struct K3sConfig {
+    #[key("node-name")] nodeName: NodeName;
+    #[key("node-ip")] nodeIp: NodeIp;
+}
+fn configuration() -> std::ConfigText {
+    let host = std::toml::decode<HostConfig>(std::files::read_text("assets/host.toml"));
+    let original = std::yaml::document<K3sConfig>(std::files::read_text("assets/k3s.yaml"));
+    let updated = std::yaml::patch(original, { nodeName = host.name; nodeIp = host.ip; });
+    std::yaml::render(updated)
+}
+```
+
+`decode` rejects unknown keys and applies declared defaults. `document` validates
+known fields while retaining other content. `patch` accepts a partial record;
+omitted fields keep their values, including existing values that differ from a
+default. Documents are immutable, and rendering an untouched document returns
+its original bytes. Scalar edits preserve adjacent comments through `yaml-edit`
+and `toml_edit`. File writes remain explicit engine operations.
+
+Records, nominal strings and integers, booleans, lists, ordered maps and options
+are supported. `None` fields are omitted when encoding; TOML cannot represent
+`None` as a list element. Functions, recipes, resources and opaque data types
+are rejected, including inside empty lists or absent options. YAML tags and
+aliases, floats and TOML datetimes have no typed representation; unknown fields
+containing them can remain in a document.
+
+`read_text` reads UTF-8 bytes retained during project authentication, from that
+caller's `assets/` inventory. It never opens arbitrary paths during evaluation.
+Assets and the new standard modules enter `Syrox.lock`; refresh locks explicitly
+after changing them. Evaluation and loading budgets apply to parsing and conversion.
+
 ## Versioned services
 
 The selected package determines the configuration contract before acquisition:

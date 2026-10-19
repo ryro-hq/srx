@@ -24,6 +24,7 @@ impl fmt::Debug for PredicateCallback {
 #[derive(Clone, Debug)]
 pub struct EvaluationEnvironment {
     pub(super) policy: CheckPolicy,
+    pub(super) assets: BTreeMap<(crate::source::SourceDomainId, String), std::sync::Arc<[u8]>>,
     pub(super) predicates: BTreeMap<String, PredicateCallback>,
 }
 
@@ -32,7 +33,21 @@ impl EvaluationEnvironment {
         Self {
             policy: policy.clone(),
             predicates: BTreeMap::new(),
+            assets: BTreeMap::new(),
         }
+    }
+
+    /// Retained bytes supplied by the engine after authenticating a project graph.
+    /// No filesystem access takes place during language evaluation.
+    #[must_use]
+    pub fn with_authenticated_asset(
+        mut self,
+        domain: crate::source::SourceDomainId,
+        path: String,
+        bytes: std::sync::Arc<[u8]>,
+    ) -> Self {
+        self.assets.insert((domain, path), bytes);
+        self
     }
 
     pub const fn policy(&self) -> &CheckPolicy {

@@ -130,7 +130,7 @@ impl Checker<'_> {
                 || value.is_empty()
                 || !value
                     .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b'+'))
             {
                 self.error(
                     "package identity is not a bounded literal component",

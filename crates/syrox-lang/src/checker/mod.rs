@@ -13,6 +13,7 @@
 //! checking. Publishing those facts does not create a cache across revisions.
 
 mod bodies;
+mod configuration;
 mod declarations;
 mod editor;
 mod enums;
@@ -146,6 +147,7 @@ struct Checker<'a> {
     struct_fields: BTreeMap<ItemId, Vec<(String, RawTy, bool)>>,
     function_types: BTreeMap<ItemId, (Vec<Ty>, Ty)>,
     body: BodyState,
+    partial_record: Option<Span>,
     prior_diagnostics: usize,
     prior_metadata: usize,
     #[cfg(test)]
@@ -191,6 +193,7 @@ impl<'a> Checker<'a> {
             struct_fields: BTreeMap::new(),
             function_types: BTreeMap::new(),
             body: BodyState::default(),
+            partial_record: None,
             prior_diagnostics: 0,
             prior_metadata: 0,
             #[cfg(test)]

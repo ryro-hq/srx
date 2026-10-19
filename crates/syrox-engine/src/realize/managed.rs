@@ -154,13 +154,9 @@ fn ensure_source(
         .find(|entry| entry.package() == resolved.build.package())
         .and_then(|entry| entry.sources().next())
         .expect("validated build source");
-    let limit = source.maximum_bytes().min(
-        if resolved.build.program().resources == crate::build::BuildResources::Large {
-            crate::build::MAX_LARGE_SOURCE_BYTES
-        } else {
-            crate::build::MAX_SOURCE_BYTES
-        },
-    );
+    let limit = source
+        .maximum_bytes()
+        .min(resolved.build.program().maximum_source_bytes());
     {
         let lease = store.operation()?;
         if super::source_cached(&lease, source.digest(), limit, cancellation)? {

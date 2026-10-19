@@ -40,6 +40,7 @@ impl Resolver<'_> {
                             }
                             child.push(segment.text.clone());
                             module_paths.insert((domain, child.clone()));
+                            if item.public { public_paths.insert((domain, child.clone())); }
                         }
                         for nested in module.items.iter().rev() {
                             stack.push((nested, child.clone()));

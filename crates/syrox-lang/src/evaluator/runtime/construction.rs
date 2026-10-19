@@ -59,6 +59,13 @@ impl Evaluator<'_> {
                 self.expand(field.name.text.len(), field.span)?;
                 let value = if let Some(value) = supplied.remove(field.name.text.as_str()) {
                     value
+                } else if matches!(
+                    self.checked
+                        .expression(span)
+                        .and_then(|m| m.elaboration()),
+                    Some(Elaboration::PartialRecord)
+                ) {
+                    continue;
                 } else if let Some(default) = &field.default {
                     self.expression(default, &type_substitutions)?
                 } else {

@@ -195,6 +195,9 @@ impl Evaluator<'_> {
         supplied: &BTreeMap<LocalId, Ty>,
         span: Span,
     ) -> Eval<Value> {
+        if let Some(result) = self.configuration_call(item, &mut values, supplied, span) {
+            return result;
+        }
         if self.index.primitives.contains_key(&item) {
             if values.len() != 1 {
                 return self.fail(

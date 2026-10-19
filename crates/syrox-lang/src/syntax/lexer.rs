@@ -33,6 +33,7 @@ pub enum TokenKind {
     Arrow,
     PlusPlus,
     Semicolon,
+    Hash,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -266,6 +267,7 @@ fn lex_with_checkpoint(
             b'=' => single(&mut at, TokenKind::Equal),
             b'-' if bytes.get(at + 1) == Some(&b'>') => double(&mut at, TokenKind::Arrow),
             b'+' if bytes.get(at + 1) == Some(&b'+') => double(&mut at, TokenKind::PlusPlus),
+            b'#' => single(&mut at, TokenKind::Hash),
             b';' => single(&mut at, TokenKind::Semicolon),
             _ => {
                 at += source.text()[at..]

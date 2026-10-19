@@ -114,6 +114,14 @@ impl BuildPath {
 }
 
 impl BuildProgram {
+    pub(crate) const fn maximum_source_bytes(&self) -> u64 {
+        match (self.resources, self.source_format) {
+            (BuildResources::Large, BuildSourceFormat::Raw) => super::MAX_LARGE_RAW_SOURCE_BYTES,
+            (BuildResources::Large, _) => super::MAX_LARGE_SOURCE_BYTES,
+            _ => super::MAX_SOURCE_BYTES,
+        }
+    }
+
     pub fn validate(&self) -> Result<(), BuildError> {
         if self.outputs.is_empty()
             || self.outputs.len() > 9
@@ -625,6 +633,21 @@ impl Decoder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn large_raw_sources_have_a_bounded_envelope_without_expanding_archive_limits() {
+        let mut program = data_program();
+        assert_eq!(program.maximum_source_bytes(), 16 * 1024 * 1024);
+        program.resources = BuildResources::Large;
+        assert_eq!(program.maximum_source_bytes(), 128 * 1024 * 1024);
+        for format in [
+            BuildSourceFormat::Gzip,
+            BuildSourceFormat::Xz,
+        ] {
+            program.source_format = format;
+            assert_eq!(program.maximum_source_bytes(), 32 * 1024 * 1024);
+        }
+    }
 
     fn data_program() -> BuildProgram {
         BuildProgram {

@@ -17,6 +17,8 @@ mod session;
 mod types;
 
 #[cfg(test)]
+mod configuration_tests;
+#[cfg(test)]
 mod tests;
 
 use crate::{checker::CheckPolicy, checker::CheckedProgram, source::Span};

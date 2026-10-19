@@ -691,8 +691,9 @@ fn load_assets(
                     let digest = hash_asset(opened, &display, budget)?;
                     assets.push(LoadedProjectAsset {
                         relative_path: Path::new("assets").join(relative),
-                        size: digest.1,
-                        digest: digest.0,
+                        size: digest.size,
+                        digest: digest.digest,
+                        content: digest.content,
                     });
                 }
                 FileType::Other => {
@@ -708,12 +709,20 @@ fn load_assets(
 }
 
 #[cfg(target_os = "linux")]
+struct AuthenticatedAsset {
+    digest: [u8; 32],
+    size: u64,
+    content: Arc<[u8]>,
+}
+
+#[cfg(target_os = "linux")]
 fn hash_asset(
     opened: OpenedPath,
     path: &Path,
     budget: &mut LoadBudget,
-) -> Result<([u8; 32], u64), CheckFailure> {
+) -> Result<AuthenticatedAsset, CheckFailure> {
     let mut hasher = Sha256::new();
+    let mut content = Vec::new();
     let mut reader = opened.into_file();
     let mut buffer = [0_u8; 16 * 1024];
     let mut size = 0_u64;
@@ -731,8 +740,13 @@ fn hash_asset(
         budget.reserve_bytes(read)?;
         size += read as u64;
         hasher.update(&buffer[..read]);
+        content.extend_from_slice(&buffer[..read]);
     }
-    Ok((hasher.finalize().into(), size))
+    Ok(AuthenticatedAsset {
+        digest: hasher.finalize().into(),
+        size,
+        content: content.into(),
+    })
 }
 
 #[cfg(target_os = "linux")]

@@ -72,6 +72,7 @@ impl Ty {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Elaboration {
+    PartialRecord,
     PackageSelection {
         factory: ItemId,
     },

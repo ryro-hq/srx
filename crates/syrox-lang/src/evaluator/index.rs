@@ -19,6 +19,7 @@ pub(super) struct ProgramIndex<'a> {
     items: BTreeMap<ItemId, &'a crate::resolver::ResolvedItem>,
     item_at: BTreeMap<SpanKey, ItemId>,
     identities: BTreeMap<ItemId, Arc<CanonicalItemIdentity>>,
+    identity_items: BTreeMap<Arc<CanonicalItemIdentity>, ItemId>,
     canonical_types: BTreeMap<Ty, Arc<CanonicalType>>,
     targets: BTreeMap<SpanKey, ResolvedTarget>,
     locals: BTreeMap<SpanKey, LocalId>,
@@ -26,6 +27,7 @@ pub(super) struct ProgramIndex<'a> {
     pub(super) functions: BTreeMap<ItemId, &'a Function>,
     pub(super) output_values: BTreeMap<ItemId, &'a crate::syntax::Expression>,
     pub(super) structures: BTreeMap<ItemId, &'a Struct>,
+    pub(super) aliases: BTreeMap<ItemId, &'a crate::syntax::TypeAlias>,
     pub(super) primitives: BTreeMap<ItemId, PrimitiveInfo<'a>>,
     pub(super) predicate_names: BTreeMap<SpanKey, Arc<str>>,
     scope_names: BTreeMap<String, Arc<str>>,
@@ -42,6 +44,7 @@ impl<'a> ProgramIndex<'a> {
             items: BTreeMap::new(),
             item_at: BTreeMap::new(),
             identities: BTreeMap::new(),
+            identity_items: BTreeMap::new(),
             canonical_types: BTreeMap::new(),
             targets: BTreeMap::new(),
             locals: BTreeMap::new(),
@@ -49,6 +52,7 @@ impl<'a> ProgramIndex<'a> {
             functions: BTreeMap::new(),
             output_values: BTreeMap::new(),
             structures: BTreeMap::new(),
+            aliases: BTreeMap::new(),
             primitives: BTreeMap::new(),
             predicate_names: BTreeMap::new(),
             scope_names: BTreeMap::new(),
@@ -76,6 +80,10 @@ impl<'a> ProgramIndex<'a> {
                     .item_at
                     .insert(span_key(item.span()), item.id());
             }
+            budget.allocate(size_of::<(Arc<CanonicalItemIdentity>, ItemId)>())?;
+            index
+                .identity_items
+                .insert(identity.clone(), item.id());
             index.identities.insert(item.id(), identity);
             index.items.insert(item.id(), item);
         }
@@ -191,6 +199,12 @@ impl<'a> ProgramIndex<'a> {
                         self.functions.insert(id, declaration);
                     }
                 }
+                ItemKind::TypeAlias(declaration) => {
+                    if let Some(id) = self.item_at(declaration.name.span) {
+                        budget.allocate(size_of::<(ItemId, &crate::syntax::TypeAlias)>())?;
+                        self.aliases.insert(id, declaration);
+                    }
+                }
                 ItemKind::Struct(declaration) => {
                     if let Some(id) = self.item_at(declaration.name.span) {
                         budget.allocate(size_of::<(ItemId, &Struct)>())?;
@@ -243,7 +257,6 @@ impl<'a> ProgramIndex<'a> {
                 | ItemKind::Use(_)
                 | ItemKind::Inputs(_)
                 | ItemKind::Outputs(_)
-                | ItemKind::TypeAlias(_)
                 | ItemKind::Enum(_) => {}
             }
         }
@@ -276,6 +289,10 @@ impl<'a> ProgramIndex<'a> {
 
     pub(super) fn local(&self, span: Span) -> Option<LocalId> {
         self.locals.get(&span_key(span)).copied()
+    }
+
+    pub(super) fn item_for_identity(&self, identity: &CanonicalItemIdentity) -> Option<ItemId> {
+        self.identity_items.get(identity).copied()
     }
 
     pub(super) fn identity(&self, item: ItemId) -> Option<Arc<CanonicalItemIdentity>> {

@@ -816,7 +816,7 @@ fn validate_tree(directory: &OpenedPath) -> Result<(), BuildError> {
 fn validate_stage(stage: &OpenedPath) -> Result<(), BuildError> {
     for name in entries(stage, MAX_FILES)? {
         let limit = match name.as_str() {
-            "source" => super::MAX_LARGE_SOURCE_BYTES,
+            "source" => super::MAX_LARGE_RAW_SOURCE_BYTES,
             "build-action" => super::records::MAX_RECORD_BYTES,
             "build-program" => super::MAX_BUILD_PROGRAM_BYTES as u64,
             "worker" => 128 * 1024 * 1024,
