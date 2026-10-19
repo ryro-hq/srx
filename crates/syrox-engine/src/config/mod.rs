@@ -1,7 +1,9 @@
 //! Local configuration for Store, network and worker access.
 //!
 //! The user chooses these paths and permissions before the operation. Recipes
-//! cannot read this file or change those choices during evaluation.
+//! cannot read this file or change those choices during evaluation. Exact source
+//! URLs and optional HTTPS redirect origins are separate grants; origin grants
+//! never authorize an initial source URL.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -43,6 +45,7 @@ pub struct UserConfiguration {
     managed_build: Option<ManagedBuildConfiguration>,
     shell_secrets: ShellSecretSources,
     allow_https: Vec<String>,
+    https_redirect_origins: Vec<String>,
     artifacts: ArtifactConfiguration,
 }
 
@@ -164,6 +167,27 @@ impl UserConfiguration {
         }
         allow_https.sort();
         allow_https.dedup();
+        let mut https_redirect_origins = Vec::new();
+        if let Some(value) = network.remove("allow-https-redirect-origins") {
+            let toml::Value::Array(origins) = value else {
+                return Err(invalid(
+                    "network.allow-https-redirect-origins must be an array of HTTPS origins",
+                ));
+            };
+            if origins.len() > 64 {
+                return Err(invalid("at most 64 redirect origins are allowed"));
+            }
+            for value in origins {
+                let toml::Value::String(origin) = value else {
+                    return Err(invalid("redirect origins must be strings"));
+                };
+                let origin = crate::acquire::https::validate_https_origin(&origin)
+                    .map_err(|_| invalid("redirect grants require an HTTPS origin without paths, queries or credentials"))?;
+                https_redirect_origins.push(origin.ascii_serialization());
+            }
+        }
+        https_redirect_origins.sort();
+        https_redirect_origins.dedup();
         empty(&network)?;
         let artifacts = table(&mut root, "artifacts")?
             .map(ArtifactConfiguration::parse)
@@ -177,6 +201,7 @@ impl UserConfiguration {
             managed_build,
             shell_secrets,
             allow_https,
+            https_redirect_origins,
             artifacts,
         })
     }
@@ -198,6 +223,9 @@ impl UserConfiguration {
     }
     pub const fn shell_secrets(&self) -> &ShellSecretSources {
         &self.shell_secrets
+    }
+    pub fn https_redirect_origins(&self) -> &[String] {
+        &self.https_redirect_origins
     }
     pub fn permits_https(&self, url: &str) -> bool {
         self.allow_https
@@ -337,6 +365,46 @@ mod tests {
                 UserConfiguration::parse(text, "/home/user/store".into()).is_err(),
                 "{text}"
             );
+        }
+    }
+
+    #[test]
+    fn redirect_grants_are_bounded_origins_and_do_not_grant_initial_sources() {
+        let config = UserConfiguration::parse(
+            "[network]\nallow-https=['https://github.com/source']\nallow-https-redirect-origins=['https://cdn.example:443/', 'https://cdn.example']",
+            "/tmp/store".into(),
+        ).unwrap();
+        assert_eq!(
+            config.https_redirect_origins(),
+            &["https://cdn.example"]
+        );
+        assert!(!config.permits_https("https://cdn.example/source"));
+        assert!(
+            UserConfiguration::parse("", "/tmp/store".into())
+                .unwrap()
+                .https_redirect_origins()
+                .is_empty()
+        );
+        for value in [
+            "http://cdn.example",
+            "https://cdn.example/path",
+            "https://cdn.example/?query",
+            "https://cdn.example/#fragment",
+            "https://user@cdn.example",
+        ] {
+            let text = format!("[network]\nallow-https-redirect-origins=['{value}']");
+            assert!(
+                UserConfiguration::parse(&text, "/tmp/store".into()).is_err(),
+                "{value}"
+            );
+        }
+        for value in [
+            "true",
+            "[42]",
+            &format!("[{}]", ["'https://cdn.example'"; 65].join(",")),
+        ] {
+            let text = format!("[network]\nallow-https-redirect-origins={value}");
+            assert!(UserConfiguration::parse(&text, "/tmp/store".into()).is_err());
         }
     }
 

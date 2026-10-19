@@ -63,6 +63,7 @@ pub(super) fn download(url: &str, limit: u64, origin: &str) -> Result<Vec<u8>, C
             test_certificate: None,
             accept: None,
             hosts: Some(&[host]),
+            redirect_origins: None,
         },
         std::time::Instant::now(),
         &crate::cancellation::Cancellation::default(),

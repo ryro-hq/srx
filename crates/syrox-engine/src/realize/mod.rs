@@ -778,6 +778,7 @@ impl RealizeContext<'_> {
                     source.digest(),
                     source.maximum_bytes().min(maximum_source),
                     &root,
+                    user.https_redirect_origins(),
                     cancellation,
                 )?;
             }
@@ -869,17 +870,16 @@ fn acquire_build_https(
     digest: ContentDigest,
     maximum_bytes: u64,
     root: &RootName,
+    redirect_origins: &[String],
     cancellation: &Cancellation,
 ) -> Result<(), RealizeError> {
-    let request = HttpsSourceRequest::new(url, digest, maximum_bytes)?;
+    let request = HttpsSourceRequest::new(url, digest, maximum_bytes)?
+        .with_redirect_origins(redirect_origins)?;
     acquire_https_with_cancellation(
         store,
         &request,
         root,
-        HttpsTransportPolicy {
-            maximum_redirects: 0,
-            ..HttpsTransportPolicy::default()
-        },
+        HttpsTransportPolicy::default(),
         cancellation,
     )
     .map_err(|error| match error {

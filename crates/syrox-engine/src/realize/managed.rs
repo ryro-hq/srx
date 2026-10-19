@@ -200,6 +200,7 @@ fn ensure_source(
             source.digest(),
             limit,
             &root,
+            user.https_redirect_origins(),
             cancellation,
         )?;
     }

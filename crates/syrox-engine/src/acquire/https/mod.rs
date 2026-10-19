@@ -30,6 +30,7 @@ pub struct HttpsSourceRequest {
     url: String,
     digest: ContentDigest,
     maximum_bytes: u64,
+    redirect_origins: Option<Vec<url::Origin>>,
 }
 
 impl HttpsSourceRequest {
@@ -42,7 +43,23 @@ impl HttpsSourceRequest {
             url: url.to_owned(),
             digest,
             maximum_bytes,
+            redirect_origins: None,
         })
+    }
+
+    /// Adds the caller's explicit redirect authority, independently of source bytes.
+    /// An empty list refuses every redirect, including redirects on the same host.
+    pub fn with_redirect_origins(mut self, origins: &[String]) -> Result<Self, HttpsError> {
+        if origins.len() > 64 {
+            return Err(HttpsError::InvalidPolicy);
+        }
+        self.redirect_origins = Some(
+            origins
+                .iter()
+                .map(|origin| validate_https_origin(origin))
+                .collect::<Result<_, _>>()?,
+        );
+        Ok(self)
     }
 
     pub fn url(&self) -> &str {
@@ -158,6 +175,14 @@ pub(crate) fn validate_https_url(value: &str) -> Result<url::Url, HttpsError> {
     Ok(url)
 }
 
+pub(crate) fn validate_https_origin(value: &str) -> Result<url::Origin, HttpsError> {
+    let url = validate_https_url(value)?;
+    if url.path() != "/" || url.query().is_some() {
+        return Err(HttpsError::InvalidUrl);
+    }
+    Ok(url.origin())
+}
+
 /// Rehashes cache hits, or streams a fully completed TLS response to private staging before
 /// publishing it. A durable flat named root is committed under the same shared Store lease.
 pub fn acquire_https(
@@ -270,8 +295,7 @@ fn acquire_https_cancellable(
             return Err(abort_with_error(staging, HttpsError::Transport));
         };
         let staging = runtime.block_on(stream_https(
-            &request.url,
-            request.maximum_bytes,
+            request,
             policy,
             test_certificate,
             start,
@@ -308,8 +332,7 @@ fn validate_policy(policy: HttpsTransportPolicy) -> Result<(), HttpsError> {
 
 #[cfg(target_os = "linux")]
 async fn stream_https(
-    requested_url: &str,
-    maximum_bytes: u64,
+    request: &HttpsSourceRequest,
     policy: HttpsTransportPolicy,
     test_certificate: Option<rustls::pki_types::CertificateDer<'static>>,
     start: std::time::Instant,
@@ -318,12 +341,13 @@ async fn stream_https(
 ) -> Result<StoreStaging, HttpsError> {
     let result = download_https(
         DownloadRequest {
-            url: requested_url,
-            maximum_bytes,
+            url: &request.url,
+            maximum_bytes: request.maximum_bytes,
             policy,
             test_certificate,
             accept: None,
             hosts: None,
+            redirect_origins: request.redirect_origins.as_deref(),
         },
         start,
         cancellation,
@@ -344,6 +368,7 @@ pub(crate) struct DownloadRequest<'a> {
     pub(crate) test_certificate: Option<rustls::pki_types::CertificateDer<'static>>,
     pub(crate) accept: Option<&'a str>,
     pub(crate) hosts: Option<&'a [&'a str]>,
+    pub(crate) redirect_origins: Option<&'a [url::Origin]>,
 }
 
 /// The caller explicitly authenticates the origin of these initially unpinned
@@ -387,6 +412,7 @@ async fn download_https(
         test_certificate,
         accept,
         hosts,
+        redirect_origins,
     } = request;
     let mut url = validate_https_url(requested_url)?;
     let mut roots = rustls::RootCertStore::empty();
@@ -475,7 +501,11 @@ async fn download_https(
             let next = url
                 .join(location)
                 .map_err(|_| HttpsError::UnsafeRedirect)?;
-            url = validate_https_url(next.as_str()).map_err(|_| HttpsError::UnsafeRedirect)?;
+            let next = validate_https_url(next.as_str()).map_err(|_| HttpsError::UnsafeRedirect)?;
+            if redirect_origins.is_some_and(|allowed| !allowed.contains(&next.origin())) {
+                return Err(HttpsError::UnsafeRedirect);
+            }
+            url = next;
             continue;
         }
         if status != 200 {
@@ -737,6 +767,7 @@ mod tests {
                 test_certificate: Some(certificate),
                 accept: Some("application/vnd.github.sha"),
                 hosts: None,
+                redirect_origins: None,
             },
             std::time::Instant::now(),
             &cancellation,
@@ -752,6 +783,7 @@ mod tests {
                 test_certificate: None,
                 accept: None,
                 hosts: Some(&["api.github.com", "codeload.github.com"]),
+                redirect_origins: None,
             },
             std::time::Instant::now(),
             &cancellation,
@@ -1170,6 +1202,74 @@ mod tests {
                 .join("roots/retained/mismatch")
                 .exists()
         );
+    }
+
+    #[test]
+    fn source_redirect_requires_an_explicit_origin_before_connecting() {
+        let fixture = Fixture::new();
+        for allowed in [
+            Vec::new(),
+            vec!["https://localhost".to_owned()],
+        ] {
+            let (url, certificate, server) = serve(vec![b"HTTP/1.1 302 Found\r\nLocation: /final\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec()]);
+            let request = HttpsSourceRequest::new(&url, ContentDigest::sha256(b"absent"), 6)
+                .unwrap()
+                .with_redirect_origins(&allowed)
+                .unwrap();
+            // The second policy has a different port from the admitted source.
+            assert!(matches!(
+                acquire_https_impl(
+                    &fixture.store,
+                    &request,
+                    &RootName::new("denied-redirect").unwrap(),
+                    HttpsTransportPolicy::default(),
+                    Some(certificate)
+                ),
+                Err(HttpsError::UnsafeRedirect)
+            ));
+            server.join().unwrap();
+            assert!(
+                !fixture
+                    .path
+                    .join("roots/retained/denied-redirect")
+                    .exists()
+            );
+            assert!(
+                fixture
+                    .store
+                    .operation()
+                    .unwrap()
+                    .verify(request.digest())
+                    .unwrap()
+                    .is_none()
+            );
+        }
+    }
+
+    #[test]
+    fn explicitly_authorized_origin_preserves_tls_digest_and_redirect_bounds() {
+        let fixture = Fixture::new();
+        let redirect = b"HTTP/1.1 302 Found\r\nLocation: /final\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec();
+        let (url, certificate, server) = serve(vec![redirect, response(b"authorized")]);
+        let origin = url::Url::parse(&url)
+            .unwrap()
+            .origin()
+            .ascii_serialization();
+        let request = HttpsSourceRequest::new(&url, ContentDigest::sha256(b"authorized"), 10)
+            .unwrap()
+            .with_redirect_origins(&[origin])
+            .unwrap();
+        let acquired = acquire_https_impl(
+            &fixture.store,
+            &request,
+            &RootName::new("allowed-redirect").unwrap(),
+            HttpsTransportPolicy::default(),
+            Some(certificate),
+        )
+        .unwrap();
+        server.join().unwrap();
+        assert_eq!(acquired.object().digest(), request.digest());
+        assert_eq!(acquired.object().size(), 10);
     }
 
     #[test]
