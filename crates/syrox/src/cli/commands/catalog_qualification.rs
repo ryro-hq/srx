@@ -13,7 +13,10 @@ use sha2::{Digest as _, Sha256};
 use syrox_engine::{
     bundle::{export_bundle, import_bundle},
     cancellation::Cancellation,
-    catalog::{Catalog, CatalogLock, LOCK_FILE, LockedVersion},
+    catalog::{
+        Catalog, CatalogLock, HttpQualification, LOCK_FILE, LockedVersion, Qualification,
+        ServiceQualification,
+    },
     config::UserConfiguration,
     project::{CheckConfiguration, check_project_lock_with},
     realize::{RealizeOptions, realize_build, realize_command, resolve_build, resolve_command},
@@ -51,6 +54,7 @@ pub(super) fn qualify(
         .iter()
         .find(|entry| entry.identity == identity)
         .ok_or("unknown required combination")?;
+    let qualification = Qualification::load(path, &entry.package)?;
     let source_catalog = Catalog {
         schema: 1,
         defaults: BTreeMap::from([(
@@ -85,7 +89,7 @@ pub(super) fn qualify(
     )?;
     let command = resolve_command(
         &reference,
-        Some(&entry.package.name),
+        Some(&qualification.command),
         &user,
         checks,
     )?;
@@ -97,13 +101,21 @@ pub(super) fn qualify(
         cancellation,
         |_, _| {},
     )?;
-    if entry.package.name == "nginx" {
-        qualify_service_configuration(path, entry, checks, &user, &worker, cancellation)?;
+    if let Some(service) = &qualification.service {
+        qualify_service_configuration(
+            path,
+            entry,
+            service,
+            checks,
+            &user,
+            &worker,
+            cancellation,
+        )?;
     }
-    qualify_runtime(&closure, entry, cancellation)?;
+    qualify_runtime(&closure, path, &qualification, cancellation)?;
     fs::create_dir_all(output)?;
     let producer = Store::open(store_path)?;
-    let manifest = manifest(&closure, &entry.package.name)?;
+    let manifest = manifest(&closure, &qualification.command)?;
     let digest = manifest.digest()?;
     let root = RootName::new(format!("catalog_{identity}"))?;
     admit_result(&producer, &root, &manifest, digest, cancellation)?;
@@ -130,11 +142,16 @@ pub(super) fn qualify(
         cancellation,
     )?;
     let imported_runtime = imported
-        .command(&entry.package.name)
+        .command(&qualification.command)
         .ok_or("import lost runtime command")?
         .open(&receiver, cancellation)?;
     drop(imported);
-    qualify_runtime(&imported_runtime, entry, cancellation)?;
+    qualify_runtime(
+        &imported_runtime,
+        path,
+        &qualification,
+        cancellation,
+    )?;
     let evidence = serde_json::json!({
         "schema": 1, "identity": identity, "name": entry.package.name,
         "version": entry.package.version, "variant": entry.package.variant, "system": entry.package.system,
@@ -142,7 +159,7 @@ pub(super) fn qualify(
         "toolchain": result.toolchain.map(|pin| pin.to_string()), "manifest": digest.to_string(),
         "bundle_sha256": file_digest(&bundle_path, cancellation)?, "provenance": provenance,
         "native_execution": true, "offline_import_and_execution": true,
-        "service_preparation": entry.package.name == "nginx",
+        "service_preparation": qualification.service.is_some(),
     });
     let mut report = OpenOptions::new()
         .write(true)
@@ -214,19 +231,19 @@ fn manifest(closure: &RuntimeClosure, name: &str) -> Result<ResultManifest> {
 
 fn qualify_runtime(
     closure: &RuntimeClosure,
-    entry: &LockedVersion,
+    path: &Path,
+    qualification: &Qualification,
     cancellation: &Cancellation,
 ) -> Result<()> {
     let configuration = RuntimeConfiguration::default();
     let working_directory = tempfile::tempdir()?;
-    let argument = if entry.package.name == "hello" {
-        "--version"
-    } else {
-        "-v"
-    };
     if !run_runtime_configured_with_cancellation(
         closure,
-        &[OsString::from(argument)],
+        &qualification
+            .version_arguments
+            .iter()
+            .map(OsString::from)
+            .collect::<Vec<_>>(),
         working_directory.path(),
         &configuration,
         cancellation,
@@ -235,50 +252,57 @@ fn qualify_runtime(
     {
         return Err("native version command failed".into());
     }
-    if entry.package.name == "nginx" {
-        nginx_http(closure, cancellation)?;
+    if let Some(http) = &qualification.http {
+        qualify_http(closure, path, http, cancellation)?;
     }
     Ok(())
 }
 
-fn nginx_http(closure: &RuntimeClosure, cancellation: &Cancellation) -> Result<()> {
+fn qualify_http(
+    closure: &RuntimeClosure,
+    path: &Path,
+    http: &HttpQualification,
+    cancellation: &Cancellation,
+) -> Result<()> {
     let working_directory = tempfile::tempdir()?;
     let port_reservation = TcpListener::bind("127.0.0.1:0")?;
     let port = port_reservation.local_addr()?.port();
-    let directory = NativeConfiguration::new(&format!(
-        "daemon off; error_log stderr; pid /tmp/nginx.pid; events {{}} http {{ access_log off; server {{ listen 127.0.0.1:{port}; location / {{ root /syrox/config/qualification; }} }} }}"
-    ))?;
+    let text =
+        Qualification::text(path, &http.configuration)?.replace("@{port}", &port.to_string());
+    let directory = NativeConfiguration::new(&http.filename, &text, &http.response)?;
     let configuration = directory.configuration()?;
-    let config_argument = OsString::from("/syrox/config/qualification/nginx.conf");
+    let config_argument = format!("/syrox/config/qualification/{}", http.filename);
+    let arguments = |values: &[String]| {
+        values
+            .iter()
+            .map(|value| OsString::from(value.replace("@{config}", &config_argument)))
+            .collect::<Vec<_>>()
+    };
     let valid = run_runtime_configured_with_cancellation(
         closure,
-        &[
-            "-t".into(),
-            "-c".into(),
-            config_argument.clone(),
-        ],
+        &arguments(&http.validate_arguments),
         working_directory.path(),
         &configuration,
         cancellation,
     )?;
     if !valid.success() {
-        return Err("native nginx validator rejected valid configuration".into());
+        return Err("native HTTP service validator rejected valid configuration".into());
     }
-    let invalid_directory = NativeConfiguration::new("invalid_syrox_directive;")?;
+    let invalid_directory = NativeConfiguration::new(
+        &http.filename,
+        &Qualification::text(path, &http.invalid_configuration)?,
+        &http.response,
+    )?;
     let invalid_configuration = invalid_directory.configuration()?;
     let invalid = run_runtime_configured_with_cancellation(
         closure,
-        &[
-            "-t".into(),
-            "-c".into(),
-            config_argument.clone(),
-        ],
+        &arguments(&http.validate_arguments),
         working_directory.path(),
         &invalid_configuration,
         cancellation,
     )?;
     if invalid.success() {
-        return Err("native nginx validator accepted invalid extraConfig".into());
+        return Err("native HTTP service validator accepted invalid extraConfig".into());
     }
     drop(port_reservation);
     let stop = Cancellation::default();
@@ -287,7 +311,7 @@ fn nginx_http(closure: &RuntimeClosure, cancellation: &Cancellation) -> Result<(
         let server = scope.spawn(|| {
             run_runtime_configured_with_cancellation(
                 closure,
-                &["-c".into(), config_argument],
+                &arguments(&http.run_arguments),
                 working_directory.path(),
                 &configuration,
                 &stop,
@@ -297,7 +321,7 @@ fn nginx_http(closure: &RuntimeClosure, cancellation: &Cancellation) -> Result<(
             loop {
                 cancellation.check()?;
                 if Instant::now() >= deadline {
-                    return Err("nginx HTTP qualification deadline elapsed".into());
+                    return Err("HTTP service HTTP qualification deadline elapsed".into());
                 }
                 if let Ok(mut stream) = TcpStream::connect_timeout(
                     &format!("127.0.0.1:{port}").parse()?,
@@ -308,10 +332,10 @@ fn nginx_http(closure: &RuntimeClosure, cancellation: &Cancellation) -> Result<(
                     let mut bytes = Vec::new();
                     stream.take(4096).read_to_end(&mut bytes)?;
                     if !bytes
-                        .windows(b"syrox-qualified".len())
-                        .any(|window| window == b"syrox-qualified")
+                        .windows(http.response.len())
+                        .any(|window| window == http.response.as_bytes())
                     {
-                        return Err("nginx HTTP response differs".into());
+                        return Err("HTTP service HTTP response differs".into());
                     }
                     return Ok(());
                 }
@@ -321,7 +345,7 @@ fn nginx_http(closure: &RuntimeClosure, cancellation: &Cancellation) -> Result<(
         stop.cancel();
         match server
             .join()
-            .map_err(|_| "nginx runtime thread failed")?
+            .map_err(|_| "HTTP service runtime thread failed")?
         {
             Ok(_) | Err(RuntimeError::Cancelled) => {}
             Err(error) => return Err(error.into()),
@@ -333,7 +357,7 @@ fn nginx_http(closure: &RuntimeClosure, cancellation: &Cancellation) -> Result<(
         )
         .is_ok()
         {
-            return Err("nginx listener survived runtime settlement".into());
+            return Err("HTTP service listener survived runtime settlement".into());
         }
         Ok(())
     })
@@ -435,11 +459,7 @@ impl SelectedProject {
             let mut main = OpenOptions::new()
                 .append(true)
                 .open(project_path.join("main.srx"))?;
-            writeln!(
-                main,
-                "services.nginx = {{ enable = true; package = pkgs.nginx {{ version = {:?}; variant = {:?}; system = {:?}; }}; settings = {{ extraConfig = {:?}; }}; }};",
-                package.version, package.variant, package.system, extra
-            )?;
+            writeln!(main, "{extra}")?;
         }
         syrox_engine::project::lock_project_with(&project_path, checks)?;
         Ok(Self(temporary))
@@ -449,6 +469,7 @@ impl SelectedProject {
 fn qualify_service_configuration(
     path: &Path,
     entry: &LockedVersion,
+    service: &ServiceQualification,
     checks: &CheckConfiguration,
     user: &UserConfiguration,
     worker: &Path,
@@ -458,11 +479,21 @@ fn qualify_service_configuration(
         deployment::manifest::{DeploymentError, prepare_consumer},
         project::prepare_project_consumer_with,
     };
-    for (text, valid) in [
-        ("server_tokens off;", true),
-        ("syrox_invalid_directive;", false),
+    for (settings, valid) in [
+        (&service.valid_settings, true),
+        (&service.invalid_settings, false),
     ] {
-        let selection = SelectedProject::with_configuration(path, entry, checks, Some(text))?;
+        let literal =
+            |text: &str| -> Result<String> { Ok(serde_json::to_string(text)?.replace('$', "\\$")) };
+        let project = Qualification::text(path, &service.project)?
+            .replace("@{version}", &literal(&entry.package.version)?)
+            .replace("@{variant}", &literal(&entry.package.variant)?)
+            .replace("@{system}", &literal(&entry.package.system)?)
+            .replace(
+                "@{settings}",
+                &Qualification::text(path, settings)?,
+            );
+        let selection = SelectedProject::with_configuration(path, entry, checks, Some(&project))?;
         let plan = prepare_project_consumer_with(&selection.path(), checks, "os")?;
         match prepare_consumer(
             plan,
@@ -479,7 +510,8 @@ fn qualify_service_configuration(
             }) if !valid => {}
             Ok(_) => {
                 return Err(
-                    "selected nginx accepted invalid extraConfig during service preparation".into(),
+                    "selected HTTP service accepted invalid extraConfig during service preparation"
+                        .into(),
                 );
             }
             Err(error) => return Err(error.into()),
@@ -489,11 +521,11 @@ fn qualify_service_configuration(
 }
 
 impl NativeConfiguration {
-    fn new(text: &str) -> Result<Self> {
+    fn new(filename: &str, text: &str, response: &str) -> Result<Self> {
         let result = Self(tempfile::tempdir()?);
         for (name, content) in [
-            ("nginx.conf", text),
-            ("index.html", "syrox-qualified"),
+            (filename, text),
+            ("index.html", response),
         ] {
             let path = result.0.path().join(name);
             fs::write(&path, content)?;

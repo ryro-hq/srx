@@ -93,7 +93,10 @@ pub fn authorize_artifacts(
             || report["system"] != locked.package.system
             || report["native_execution"] != true
             || report["offline_import_and_execution"] != true
-            || (locked.package.name == "nginx" && report["service_preparation"] != true)
+            || (crate::catalog::Qualification::load(catalog_path, &locked.package)?
+                .service
+                .is_some()
+                && report["service_preparation"] != true)
         {
             return Err(invalid(
                 "package lacks successful qualification for this exact target",

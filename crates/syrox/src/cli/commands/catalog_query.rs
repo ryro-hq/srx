@@ -16,6 +16,9 @@ pub(super) fn execute(
     command: Command,
     checks: &CheckConfiguration,
 ) -> Result<String, Box<dyn std::error::Error>> {
+    if let Command::New(arguments) = command {
+        return super::catalog_authoring::generate(&arguments, checks);
+    }
     if let Command::AuthorizeArtifacts {
         path,
         release,
@@ -87,7 +90,8 @@ pub(super) fn execute(
         ));
     }
     let path = match &command {
-        Command::AuthorizeArtifacts {
+        Command::New(..)
+        | Command::AuthorizeArtifacts {
             ..
         }
         | Command::Qualify {
@@ -189,7 +193,8 @@ pub(super) fn execute(
         Command::Generate {
             ..
         } => unreachable!("handled before admission"),
-        Command::AuthorizeArtifacts {
+        Command::New(..)
+        | Command::AuthorizeArtifacts {
             ..
         }
         | Command::Qualify {

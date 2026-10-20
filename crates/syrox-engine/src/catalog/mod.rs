@@ -8,6 +8,8 @@ mod files;
 mod locks;
 mod model;
 mod provenance;
+mod qualification;
+pub use qualification::{HttpQualification, Qualification, ServiceQualification};
 mod releases;
 mod updates;
 mod validation;

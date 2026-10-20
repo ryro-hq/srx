@@ -15,7 +15,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 const PROPERTIES_INTERFACE: &str = "org.freedesktop.DBus.Properties";
-type Members = BTreeMap<String, BTreeMap<String, String>>;
+pub(super) type Members = BTreeMap<String, BTreeMap<String, String>>;
 
 /// Versioned host interfaces, derived from the engine's request and observation specifications.
 #[derive(Clone, Debug, Serialize)]
@@ -23,16 +23,16 @@ pub struct SystemdInterfaceContract {
     schema: u32,
     id: &'static str,
     provider: &'static str,
-    profiles: BTreeMap<&'static str, Profile>,
+    pub(super) profiles: BTreeMap<&'static str, Profile>,
 }
 
 #[derive(Clone, Debug, Serialize)]
-struct Profile {
+pub(super) struct Profile {
     upstream_baseline: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     extends: Option<&'static str>,
     #[serde(flatten)]
-    members: Members,
+    pub(super) members: Members,
 }
 
 pub(super) struct Method {

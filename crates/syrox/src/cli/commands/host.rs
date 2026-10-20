@@ -23,6 +23,12 @@ pub(crate) struct Arguments {
     /// Inspect the system manager through its local system bus.
     #[arg(long)]
     systemd_system: bool,
+    /// Compare the actual interfaces with the canonical supervision or managed profile.
+    #[arg(long, default_value = "managed", value_parser = ["supervision", "managed"])]
+    systemd_profile: String,
+    /// An already loaded service; inspection never loads or starts it.
+    #[arg(long, default_value = "dbus.service")]
+    systemd_unit: String,
 }
 
 fn absolute_bus(text: &str) -> Result<PathBuf, String> {
@@ -49,7 +55,7 @@ fn manager_scope(args: &Arguments) -> Option<SystemdScope> {
         })
 }
 
-fn inspect_manager(scope: SystemdScope) {
+fn inspect_manager(scope: SystemdScope, args: &Arguments) -> ExitCode {
     match &scope {
         SystemdScope::User {
             bus_socket,
@@ -66,23 +72,36 @@ fn inspect_manager(scope: SystemdScope) {
         &cancellation,
     )
     .and_then(|mut manager| {
-        manager.observe_identity(
+        manager.inspect_interfaces(
+            &args.systemd_profile,
+            &syrox_engine::systemd::SystemdUnitName::new(args.systemd_unit.clone())?,
             deadline.saturating_duration_since(Instant::now()),
             &cancellation,
         )
     });
-    match result {
-        Ok(identity) => println!(
-            "systemd API: available (bus {}; owner {}; identity {})",
-            identity.bus_guid(),
-            identity.owner(),
-            identity.fingerprint()
-        ),
-        Err(error) => println!("systemd API: unavailable ({error})"),
-    }
     println!(
         "systemd execution permissions, FDSTORE, journald, logout and boot: not verified; require operation-specific probes"
     );
+    match result {
+        Ok(report) => {
+            match serde_json::to_string_pretty(&report) {
+                Ok(text) => println!("{text}"),
+                Err(error) => {
+                    eprintln!("{error}");
+                    return ExitCode::FAILURE;
+                }
+            }
+            if report.missing.is_empty() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            }
+        }
+        Err(error) => {
+            println!("systemd API: unavailable ({error})");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -127,9 +146,29 @@ pub(crate) fn inspect(args: &Arguments) -> ExitCode {
         }
     };
     if let Some(scope) = manager_scope(args) {
-        inspect_manager(scope);
+        let result = inspect_manager(scope, args);
+        if result != ExitCode::SUCCESS {
+            return result;
+        }
     }
     outcome
+}
+
+/// The engine owns this contract; catalogs never maintain a second copy.
+#[cfg(target_os = "linux")]
+pub(crate) fn contract() -> ExitCode {
+    match syrox_engine::systemd::interface_contract().and_then(|contract| {
+        Ok(serde_json::to_string_pretty(&contract).map_err(std::io::Error::other)?)
+    }) {
+        Ok(text) => {
+            println!("{text}");
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1,4 +1,10 @@
 <p align="center">
+
+Developer entry point: `cargo xtask check`. Use `cargo xtask fmt` to format explicitly
+and `cargo xtask test --suite portable` for local tests. See [testing](docs/testing.md),
+[contributing](CONTRIBUTING.md) and [security](SECURITY.md). The related package
+catalog is [srx-pkgs](https://github.com/ryro-hq/srx-pkgs); runtime ryro-bot is separate.
+
   <img src="assets/syrox.png" width="180" alt="Syrox mascot: a penguin in a package box" />
 </p>
 

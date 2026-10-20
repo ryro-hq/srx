@@ -6,6 +6,8 @@ use syrox_engine::project::CheckConfiguration;
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
+    /// Create a package from a reviewed source pin without downloading or building.
+    New(super::catalog_authoring::Arguments),
     /// Verify local qualified bundles and write a descriptor for explicit trust.
     AuthorizeArtifacts {
         path: PathBuf,
@@ -31,7 +33,7 @@ pub(crate) enum Command {
         #[arg(long)]
         output: PathBuf,
     },
-    /// Build and run an exact combination, test nginx HTTP and verify offline transport.
+    /// Build and run an exact combination, test declared HTTP behavior and verify offline transport.
     Qualify {
         path: PathBuf,
         #[arg(long)]

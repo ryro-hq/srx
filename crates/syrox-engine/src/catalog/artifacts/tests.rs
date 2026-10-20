@@ -100,6 +100,7 @@ impl Fixture {
             contract: "contract.srx".into(),
             contract_type: "Settings".into(),
             toolchain: "toolchain.toml".into(),
+            qualification: None,
             recipe_inputs: vec![],
         };
         let inputs = BTreeMap::from([(

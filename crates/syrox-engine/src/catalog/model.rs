@@ -52,7 +52,10 @@ struct Combination {
     export: String,
     contract: String,
     contract_type: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     toolchain: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    qualification: Option<String>,
     #[serde(default)]
     recipe_inputs: Vec<String>,
 }
@@ -97,6 +100,7 @@ impl TryFrom<CatalogDocument> for Catalog {
                             contract: combination.contract,
                             contract_type: combination.contract_type,
                             toolchain: combination.toolchain,
+                            qualification: combination.qualification,
                             recipe_inputs: combination.recipe_inputs,
                         });
                     }
@@ -154,6 +158,7 @@ impl From<Catalog> for CatalogDocument {
                 contract: package.contract,
                 contract_type: package.contract_type,
                 toolchain: package.toolchain,
+                qualification: package.qualification,
                 recipe_inputs: package.recipe_inputs,
             });
         }
@@ -197,7 +202,10 @@ pub struct PackageVersion {
     pub source: String,
     pub contract: String,
     pub contract_type: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub toolchain: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qualification: Option<String>,
     #[serde(default)]
     pub recipe_inputs: Vec<String>,
 }

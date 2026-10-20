@@ -73,6 +73,12 @@ pub enum BuildStep {
         destination: BuildPath,
     },
     Extract(BuildPath),
+    ValidateStaticElf(BuildPath),
+    ReplaceShebang {
+        path: BuildPath,
+        expected: String,
+        interpreter: BuildPath,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -188,6 +194,19 @@ impl BuildProgram {
                 BuildStep::Extract(path) => {
                     writable(path) && self.source_format != BuildSourceFormat::Raw
                 }
+                BuildStep::ValidateStaticElf(value) => path(value),
+                BuildStep::ReplaceShebang {
+                    path: value,
+                    expected,
+                    interpreter,
+                } => {
+                    writable(value)
+                        && path(interpreter)
+                        && expected.starts_with("#!")
+                        && expected.ends_with('\n')
+                        && expected.len() <= 127
+                        && !expected[..expected.len() - 1].contains(['\n', '\r', '\0'])
+                }
             };
             if !valid {
                 return Err(BuildError::InvalidRequest);
@@ -254,7 +273,14 @@ impl BuildProgram {
                         text: word,
                         ..
                     } => path(destination) + text(word) + 1,
-                    BuildStep::Directory(value) | BuildStep::Extract(value) => path(value),
+                    BuildStep::Directory(value)
+                    | BuildStep::Extract(value)
+                    | BuildStep::ValidateStaticElf(value) => path(value),
+                    BuildStep::ReplaceShebang {
+                        path: value,
+                        expected,
+                        interpreter,
+                    } => path(value) + 4 + expected.len() + path(interpreter),
                     BuildStep::Copy {
                         source,
                         destination,
@@ -310,7 +336,17 @@ impl BuildProgram {
                     visit(path);
                     text(word, &mut visit);
                 }
-                BuildStep::Directory(path) | BuildStep::Extract(path) => visit(path),
+                BuildStep::Directory(path)
+                | BuildStep::Extract(path)
+                | BuildStep::ValidateStaticElf(path) => visit(path),
+                BuildStep::ReplaceShebang {
+                    path,
+                    interpreter,
+                    ..
+                } => {
+                    visit(path);
+                    visit(interpreter);
+                }
                 BuildStep::Copy {
                     source,
                     destination,
@@ -397,6 +433,20 @@ impl BuildProgram {
                     out.byte(5);
                     out.path(path);
                 }
+                BuildStep::ValidateStaticElf(path) => {
+                    out.byte(6);
+                    out.path(path);
+                }
+                BuildStep::ReplaceShebang {
+                    path,
+                    expected,
+                    interpreter,
+                } => {
+                    out.byte(7);
+                    out.path(path);
+                    out.string(expected);
+                    out.path(interpreter);
+                }
             }
         }
         out.0
@@ -471,6 +521,12 @@ impl BuildProgram {
                     destination: input.path()?,
                 },
                 5 => BuildStep::Extract(input.path()?),
+                6 => BuildStep::ValidateStaticElf(input.path()?),
+                7 => BuildStep::ReplaceShebang {
+                    path: input.path()?,
+                    expected: input.string()?,
+                    interpreter: input.path()?,
+                },
                 _ => return Err(BuildError::InvalidRequest),
             });
         }
@@ -633,6 +689,68 @@ impl Decoder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_operations_round_trip_and_respect_input_authority() {
+        let mut program = data_program();
+        program.profile = BuildProfile::Managed;
+        let input = BuildPath::Input {
+            index: 3,
+            path: "bin/sh".into(),
+        };
+        program.steps = vec![
+            BuildStep::ValidateStaticElf(input.clone()),
+            BuildStep::ReplaceShebang {
+                path: BuildPath::Work("source/script".into()),
+                expected: "#! /bin/sh\n".into(),
+                interpreter: input.clone(),
+            },
+        ];
+        program.validate().unwrap();
+        assert_eq!(
+            program
+                .input_indices()
+                .into_iter()
+                .collect::<Vec<_>>(),
+            vec![3]
+        );
+        assert_eq!(program.encoded_size(), program.encode().len());
+        assert_eq!(
+            BuildProgram::decode(&program.encode()).unwrap(),
+            program
+        );
+        let BuildStep::ReplaceShebang {
+            path,
+            ..
+        } = &mut program.steps[1]
+        else {
+            panic!("replacement");
+        };
+        *path = input;
+        assert!(program.validate().is_err());
+        let BuildStep::ReplaceShebang {
+            path,
+            expected,
+            ..
+        } = &mut program.steps[1]
+        else {
+            panic!("replacement");
+        };
+        *path = BuildPath::Work("source/script".into());
+        *expected = "#!/bin/sh\necho injected\n".into();
+        assert!(program.validate().is_err());
+        let BuildStep::ReplaceShebang {
+            expected,
+            interpreter,
+            ..
+        } = &mut program.steps[1]
+        else {
+            panic!("replacement");
+        };
+        *expected = "#!/bin/sh\n".into();
+        *interpreter = BuildPath::Host("/bin/sh".into());
+        assert!(program.validate().is_err());
+    }
 
     #[test]
     fn large_raw_sources_have_a_bounded_envelope_without_expanding_archive_limits() {
