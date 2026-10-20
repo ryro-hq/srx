@@ -65,6 +65,7 @@ fn lock(identity: &str) -> CatalogLock {
                 contract: "contract.srx".into(),
                 contract_type: "Settings".into(),
                 toolchain: "toolchain.toml".into(),
+                qualification: None,
                 recipe_inputs: vec![],
             },
         }],
@@ -104,6 +105,77 @@ fn signing_authority_changes_require_explicit_admission() {
     assert!(changed.retain_previous(&previous, false).is_err());
     changed.retain_previous(&previous, true).unwrap();
     changed.preserves(&previous).unwrap();
+}
+
+#[test]
+fn qualification_validates_fixtures_and_authenticates_their_bytes() {
+    use super::catalog::Qualification;
+    let root = tempfile::tempdir().unwrap();
+    let mut package = lock("1").versions.remove(0).package;
+    package.toolchain.clear();
+    package.qualification = Some("checks.toml".into());
+    let catalog = Catalog {
+        schema: 1,
+        defaults: BTreeMap::from([("nginx".into(), "1.30.5".into())]),
+        channels: vec![channel("even-minor")],
+        packages: vec![package.clone()],
+    };
+    for (name, text) in [
+        (
+            "recipe.srx",
+            "pub fn nginx() -> std::PackageRef<contract::Settings> { missing() }".to_owned(),
+        ),
+        (
+            "source.srx",
+            format!(
+                "\"{}\" \"{}\"",
+                package.source_url, package.source_sha256
+            ),
+        ),
+        ("contract.srx", "pub struct Settings {}".into()),
+        ("valid.conf", "# retained fixture\n".into()),
+        ("invalid.conf", "invalid\n".into()),
+    ] {
+        std::fs::write(root.path().join(name), text).unwrap();
+    }
+    let description = "command = 'nginx'\nversion_arguments = ['-v']\n[http]\nfilename = 'server.conf'\nconfiguration = 'valid.conf'\ninvalid_configuration = 'invalid.conf'\nvalidate_arguments = ['-t']\nrun_arguments = ['-c', '@{config}']\nresponse = 'ready'\n";
+    std::fs::write(
+        root.path().join("catalog.toml"),
+        toml::to_string(&catalog).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(root.path().join("checks.toml"), description).unwrap();
+    Qualification::load(root.path(), &package).unwrap();
+    let original = catalog.lock(root.path()).unwrap();
+    std::fs::write(root.path().join("valid.conf"), "changed\n").unwrap();
+    let changed = catalog.lock(root.path()).unwrap();
+    assert_ne!(
+        original.versions[0].identity,
+        changed.versions[0].identity
+    );
+    assert_eq!(
+        original.versions[0].inputs["invalid.conf"],
+        changed.versions[0].inputs["invalid.conf"]
+    );
+    for invalid in [
+        description.replace("command = 'nginx'", "command = '../nginx'"),
+        description.replace(
+            "configuration = 'valid.conf'",
+            "configuration = '../valid.conf'",
+        ),
+        description.replace(
+            "version_arguments = ['-v']",
+            "version_arguments = []",
+        ),
+        format!("unexpected = true\n{description}"),
+    ] {
+        std::fs::write(root.path().join("checks.toml"), invalid).unwrap();
+        assert!(Qualification::load(root.path(), &package).is_err());
+    }
+    std::fs::write(root.path().join("checks.toml"), description).unwrap();
+    std::fs::remove_file(root.path().join("valid.conf")).unwrap();
+    std::os::unix::fs::symlink("invalid.conf", root.path().join("valid.conf")).unwrap();
+    assert!(Qualification::load(root.path(), &package).is_err());
 }
 
 #[test]

@@ -6,5 +6,5 @@ __pycache__/
 *.py[cod]
 /nvim.log
 
-# Developer-specific Cargo limits do not constrain CI or other checkouts.
-/.cargo/config.toml
+/fuzz/corpus/
+/fuzz/artifacts/

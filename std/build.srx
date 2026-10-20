@@ -67,6 +67,8 @@ mod std::pkg {
         Copy(BuildPath, BuildPath),
         Move(BuildPath, BuildPath),
         Extract(BuildPath),
+        ValidateStaticElf(BuildPath),
+        ReplaceShebang(BuildPath, BuildLiteral, BuildPath),
     }
     struct Build {
         source_directory: SourceDirectory;

@@ -332,6 +332,7 @@ pub(crate) fn validate_static_worker_image(bytes: &[u8]) -> Result<(), RuntimeEr
     let entry = u64_at(bytes, 24)?;
     let table = usize::try_from(u64_at(bytes, 32)?).map_err(|_| invalid("ELF offset overflow"))?;
     let count = usize::from(u16_at(bytes, 56)?);
+    let mut executable_entry = false;
     for index in 0..count {
         let start = table + index * 56;
         let header = checked(bytes, start, 56)?;
@@ -339,6 +340,31 @@ pub(crate) fn validate_static_worker_image(bytes: &[u8]) -> Result<(), RuntimeEr
         let flags = u32_at(header, 4)?;
         let address = u64_at(header, 16)?;
         let length = u64_at(header, 32)?;
+        if kind == 2 {
+            let offset =
+                usize::try_from(u64_at(header, 8)?).map_err(|_| invalid("ELF offset overflow"))?;
+            let size = usize::try_from(length).map_err(|_| invalid("ELF length overflow"))?;
+            for slot in (0..size).step_by(16) {
+                let tag = u64_at(bytes, offset + slot)?;
+                if tag == 0 {
+                    break;
+                }
+                if matches!(
+                    tag,
+                    0x6fff_fefa
+                        | 0x6fff_fefb
+                        | 0x6fff_fefc
+                        | 0x6fff_fffe
+                        | 0x6fff_ffff
+                        | 0x7fff_fffd
+                        | 0x7fff_ffff
+                ) {
+                    return Err(invalid(
+                        "static executable contains an external loader directive",
+                    ));
+                }
+            }
+        }
         if kind == 1
             && flags & 1 != 0
             && entry >= address
@@ -346,12 +372,16 @@ pub(crate) fn validate_static_worker_image(bytes: &[u8]) -> Result<(), RuntimeEr
                 .checked_add(length)
                 .is_some_and(|end| entry < end)
         {
-            return Ok(());
+            executable_entry = true;
         }
     }
-    Err(invalid(
-        "managed build worker has no executable entry",
-    ))
+    if executable_entry {
+        Ok(())
+    } else {
+        Err(invalid(
+            "static executable has no file-backed executable entry",
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -384,5 +414,27 @@ mod tests {
         assert!(validate_static_worker_image(&bytes).is_err());
         bytes.truncate(80);
         assert!(validate_static_worker_image(&bytes).is_err());
+    }
+
+    #[test]
+    fn static_entry_cannot_hide_later_external_dynamic_directives() {
+        for tag in [
+            0x6fff_fefa_u64,
+            0x6fff_fefb,
+            0x6fff_fefc,
+            0x6fff_fffe,
+            0x6fff_ffff,
+            0x7fff_fffd,
+            0x7fff_ffff,
+        ] {
+            let mut bytes = executable(3, None, &[]);
+            // PT_LOAD with a valid entry precedes PT_DYNAMIC. Checking only
+            // until the entry would miss these loader directives.
+            bytes[0x200..0x208].copy_from_slice(&tag.to_le_bytes());
+            assert!(
+                validate_static_worker_image(&bytes).is_err(),
+                "tag {tag:x}"
+            );
+        }
     }
 }

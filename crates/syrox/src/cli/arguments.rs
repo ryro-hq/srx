@@ -147,6 +147,9 @@ pub(crate) enum StoreCommand {
 pub(crate) enum HostCommand {
     /// Inspect kernel and cgroup v2 capabilities; active probes are opt-in.
     Inspect(host::Arguments),
+    /// Export the canonical systemd interface contract as JSON.
+    #[cfg(target_os = "linux")]
+    Contract,
     /// Internal, gated process used exclusively for the cgroup migration probe.
     #[cfg(target_os = "linux")]
     #[command(hide = true)]

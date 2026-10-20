@@ -163,7 +163,7 @@ fn production_modules(source: &str) -> Vec<String> {
             "mod"
                 if depth == 0 && !test_only && tokens.get(index + 2).is_some_and(|t| t == ";") =>
             {
-                modules.push(tokens[index + 1].clone())
+                modules.push(tokens[index + 1].clone());
             }
             "{" => depth += 1,
             "}" => {
@@ -233,18 +233,16 @@ fn check(root: &Path) -> io::Result<Vec<String>> {
     Ok(errors)
 }
 
-fn main() -> io::Result<()> {
-    let root = std::env::args_os()
-        .nth(1)
-        .map_or_else(|| PathBuf::from("."), PathBuf::from);
-    let errors = check(&root)?;
+pub(super) fn run(root: &Path) -> io::Result<()> {
+    let errors = check(root)?;
     for error in &errors {
         eprintln!("{error}");
     }
-    if !errors.is_empty() {
-        std::process::exit(1);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(io::Error::other("module structure check failed"))
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -312,7 +310,7 @@ mod tests {
     fn test_only_helpers_and_literal_modules_do_not_justify_a_directory() {
         assert_eq!(
             production_modules(
-                r###"
+                r##"
             //! mod forged;
             /* nested /* mod fake; */ comment */
             const SOURCE: &str = r#"mod forged; { }"#;
@@ -321,7 +319,7 @@ mod tests {
             #[cfg(all(target_os = "linux", test))] mod another_fixture;
             #[cfg(test)] mod tests { mod nested; }
             #[cfg(target_os = "linux")] pub(crate) mod retained;
-        "###
+        "##
             ),
             ["retained"]
         );

@@ -1,0 +1,39 @@
+name: Bounded parser fuzzing
+on:
+  workflow_call:
+  schedule:
+    - cron: '19 2 * * 0'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fuzz:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [language, configuration, manifests, archives]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install pinned sanitizer toolchain and driver
+        run: |
+          rustup toolchain install nightly-2026-10-18 --profile minimal
+          cargo +nightly-2026-10-18 install cargo-fuzz --version 0.13.2 --locked
+      - name: Run bounded parser campaign
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          seconds=60
+          if [ "$GITHUB_EVENT_NAME" = schedule ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then seconds=900; fi
+          cargo +nightly-2026-10-18 fuzz run "$TARGET" -- -max_total_time="$seconds" -timeout=10 -rss_limit_mb=2048 -max_len=65536
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: fuzz-${{ matrix.target }}
+          path: |
+            fuzz/artifacts
+            fuzz/corpus
+          if-no-files-found: warn

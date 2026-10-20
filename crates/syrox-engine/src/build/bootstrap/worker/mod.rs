@@ -10,6 +10,7 @@ use super::{
 };
 
 mod files;
+mod operations;
 
 #[cfg(test)]
 mod tests;
@@ -266,6 +267,20 @@ pub(in crate::build) fn execute(
                     matches!(step, BuildStep::Move { .. }),
                     program.resources,
                     &mut || Ok(()),
+                )?;
+            }
+            BuildStep::ValidateStaticElf(path) => {
+                operations::validate_static_elf(&paths.path(path)?)?;
+            }
+            BuildStep::ReplaceShebang {
+                path,
+                expected,
+                interpreter,
+            } => {
+                operations::replace_shebang(
+                    &paths.path(path)?,
+                    expected,
+                    &paths.path(interpreter)?,
                 )?;
             }
             BuildStep::Extract(destination) => {

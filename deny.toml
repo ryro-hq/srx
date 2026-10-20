@@ -1,6 +1,6 @@
 [graph]
 all-features = true
-targets = ["x86_64-unknown-linux-gnu"]
+targets = ["x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl"]
 
 [advisories]
 yanked = "deny"
@@ -8,7 +8,7 @@ yanked = "deny"
 # This informational maintenance advisory has no patched release. Track it
 # explicitly until the pinned SDK replaces its codec; security advisories remain
 # checked. https://rustsec.org/advisories/RUSTSEC-2025-0141.html
-ignore = [{ id = "RUSTSEC-2025-0141", reason = "Required by the pinned local VM test SDK; unmaintained codec is tracked in docs/PLANO.md and is not a Syrox release dependency." }]
+ignore = [{ id = "RUSTSEC-2025-0141", reason = "Required by the pinned local VM test SDK; unmaintained codec is tracked in security/exceptions.json and is not a Syrox release dependency." }]
 
 [bans]
 multiple-versions = "warn"
@@ -29,7 +29,10 @@ allow = [
 ]
 # The local Microsandbox development SDK uses dirs -> option-ext. Keep the
 # file-level copyleft exception confined to the exact locked helper release.
-exceptions = [{ name = "option-ext", version = "=0.2.0", allow = ["MPL-2.0"] }]
+exceptions = [
+    { name = "option-ext", version = "=0.2.0", allow = ["MPL-2.0"] },
+    { name = "libfuzzer-sys", version = "=0.4.13", allow = ["NCSA"] },
+]
 
 [sources]
 unknown-registry = "deny"

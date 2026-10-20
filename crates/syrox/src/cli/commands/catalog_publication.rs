@@ -45,7 +45,10 @@ pub(super) fn release_manifest(
             || report["version"] != entry.package.version
             || report["native_execution"] != true
             || report["offline_import_and_execution"] != true
-            || (entry.package.name == "nginx" && report["service_preparation"] != true)
+            || (syrox_engine::catalog::Qualification::load(path, &entry.package)?
+                .service
+                .is_some()
+                && report["service_preparation"] != true)
         {
             return Err("required combination lacks successful native qualification".into());
         }

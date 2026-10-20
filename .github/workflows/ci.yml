@@ -8,7 +8,7 @@ on:
     types: [checks_requested]
   workflow_dispatch:
   schedule:
-    - cron: '23 4 * * *'
+    - cron: '23 4 * * 0'
 
 permissions:
   contents: read
@@ -26,37 +26,80 @@ env:
   RUST_BACKTRACE: '1'
 
 jobs:
-  quality:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      heavy: ${{ steps.changes.outputs.heavy }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = schedule ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || ! [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BASE_SHA^{commit}"; then
+            echo 'heavy=true' >> "$GITHUB_OUTPUT"
+          else
+            cargo xtask ci classify "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+            cargo xtask ci commits "$BASE_SHA" "$HEAD_SHA"
+          fi
+  fuzz:
+    uses: ./.github/workflows/fuzz.yml
+    permissions:
+      contents: read
+  security:
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+      security-events: write
+  workflow-policy:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install authenticated workflow linter
+        run: |
+          cargo xtask security tools --output "$RUNNER_TEMP/srx-tools" --tool workflows
+          echo "$RUNNER_TEMP/srx-tools" >> "$GITHUB_PATH"
+      - run: cargo xtask security workflows
+  quality:
+    needs: [changes, build]
+    if: always() && needs.changes.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/rust
         with:
           cache-key: quality
       - name: Format and module layout
         run: |
           cargo fmt --all -- --check
-          rustfmt --edition 2024 --check tools/check_structure.rs tests/fixtures/stalled-test.rs
-          rustc --edition 2024 -D warnings tools/check_structure.rs -o /tmp/syrox-check-structure
-          rustc --edition 2024 -D warnings --test tools/check_structure.rs -o /tmp/syrox-check-structure-tests
-          /tmp/syrox-check-structure-tests
-          /tmp/syrox-check-structure
-      - name: Format maintained .srx sources
+          rustfmt --edition 2024 --check tests/fixtures/stalled-test.rs
+          cargo xtask structure
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        if: needs.changes.outputs.heavy == 'true'
+        with:
+          name: release-x86_64-unknown-linux-gnu
+          path: target/ci-candidates
+      - name: Check maintained sources with the authenticated candidate
+        if: needs.changes.outputs.heavy == 'true'
+        env:
+          SRX: ${{ github.workspace }}/target/ci-candidates/srx
         run: |
-          cargo build --locked -p syrox --bin srx
-          while IFS= read -r -d '' source; do
-            "$CARGO_TARGET_DIR/debug/srx" fmt "$source" --check
-          done < <(rg --files std examples -g '*.srx' -0)
+          chmod 700 "$SRX"
+          cargo xtask check
       - name: Rustdoc and examples
         env:
           RUSTDOCFLAGS: -D warnings
         run: |
           cargo doc --workspace --locked --all-features --no-deps --document-private-items
           cargo test --workspace --locked --all-features --doc
-      - name: Dependency policy
-        uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          command: check
 
   clippy:
     name: clippy (${{ matrix.features }})
@@ -66,7 +109,9 @@ jobs:
       matrix:
         features: [all-features, no-default-features]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/rust
         with:
           cache-key: clippy-${{ matrix.features }}
@@ -78,7 +123,9 @@ jobs:
   portable-tests:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/rust
         with:
           cache-key: host-tests
@@ -90,6 +137,8 @@ jobs:
             --test cli --test diagnostics --test public_bindings --test language_reference --test os_profiles --test usability --test format --test lsp --test vm_harness
 
   build:
+    needs: changes
+    if: needs.changes.outputs.heavy == 'true'
     name: build (${{ matrix.target }})
     runs-on: ubuntu-24.04
     strategy:
@@ -103,13 +152,18 @@ jobs:
       CC_x86_64_unknown_linux_musl: musl-gcc
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - name: Install toolchain and native link tools
         run: |
           rustup show active-toolchain
           rustup target add "$TARGET"
+          sudo sed -i 's/^Types: deb$/Types: deb deb-src/; s|http://|https://|g' /etc/apt/sources.list.d/ubuntu.sources
           sudo apt-get update
-          sudo apt-get install -y musl-tools liblzma-dev pkg-config
+          compiler_major=$(gcc -dumpversion)
+          [[ "$compiler_major" =~ ^[0-9]+$ ]]
+          sudo apt-get install -y musl-tools liblzma-dev pkg-config libc6-dev "libgcc-$compiler_major-dev"
       - uses: ./.github/actions/rust
         with:
           cache-key: release-${{ matrix.target }}
@@ -124,19 +178,29 @@ jobs:
           mkdir -p "target/candidates/$TARGET"
           cp "$CARGO_TARGET_DIR/$TARGET/release/srx" "$CARGO_TARGET_DIR/$TARGET/release/syrox-worker" "target/candidates/$TARGET/"
           RUSTFLAGS="" cargo run --locked -p syrox-engine --example ci_candidates -- "$PWD/target/candidates/$TARGET" "$TARGET"
-      - uses: actions/upload-artifact@v7
+      - name: Install the digest-pinned vulnerability scanner
+        run: |
+          RUSTFLAGS='' cargo xtask security tools --output "$RUNNER_TEMP/release-tools" --tool grype
+          echo "$RUNNER_TEMP/release-tools" >> "$GITHUB_PATH"
+      - name: Bind SPDX, native licenses and vulnerability evidence to the candidate
+        run: RUSTFLAGS='' cargo xtask release core "target/candidates/$TARGET" "$TARGET"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: release-${{ matrix.target }}
-          path: target/candidates/${{ matrix.target }}/*
+          path: target/candidates/${{ matrix.target }}/**
           if-no-files-found: error
 
   vm-environment:
+    needs: changes
+    if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
       SYROX_VM_CONFIG: ${{ github.workspace }}/target/environment-config.json
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/rust
         with:
           cache-key: host-tests
@@ -147,7 +211,7 @@ jobs:
           sudo chmod 660 /dev/kvm
           docker info
       - name: Restore pinned VM environment
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         id: environment-cache
         with:
           path: |
@@ -182,13 +246,13 @@ jobs:
           sha256sum msb firmware.so image.tar image.id provenance.json > SHA256SUMS
       - name: Save verified VM environment on the default branch
         if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && steps.environment-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             target/ci-environment
             target/vm-runtime
           key: ${{ steps.environment-cache.outputs.cache-primary-key }}
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: vm-linux-6.12.109
           path: target/ci-environment/*
@@ -219,16 +283,18 @@ jobs:
       SYROX_VM_CONFIG: ${{ github.workspace }}/target/ci-vm-config.json
       SYROX_VM_EVIDENCE: ${{ github.workspace }}/target/test-evidence/ci-vm
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/rust
         with:
           cache-key: host-tests
           save-cache: 'false'
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: release-${{ matrix.target }}
           path: target/ci-candidates
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: vm-linux-${{ matrix.kernel }}
           path: target/ci-environment
@@ -242,7 +308,7 @@ jobs:
           sudo chmod 660 /dev/kvm
           docker load --input target/ci-environment/image.tar
       - name: Restore guest preparation cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         id: preparation-cache
         with:
           path: |
@@ -276,7 +342,7 @@ jobs:
           fi
       - name: Save settled preparation from the default branch's native lane
         if: success() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && matrix.profile == 'native' && steps.inactive-cache.outputs.save == 'true' && steps.preparation-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             target/vm-cache/vendor
@@ -284,7 +350,7 @@ jobs:
           key: ${{ steps.preparation-cache.outputs.cache-primary-key }}
       - name: Preserve kernel evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: kernel-${{ matrix.profile }}-${{ matrix.target }}-${{ matrix.kernel }}
           if-no-files-found: warn
@@ -296,12 +362,28 @@ jobs:
             target/ci-vm-config.json
             target/vm-doctor.json
 
-  success:
+  verify:
     if: always()
-    needs: [quality, clippy, portable-tests, build, vm-environment, kernel]
+    needs: [changes, quality, clippy, portable-tests, build, vm-environment, kernel, security, workflow-policy, fuzz]
     runs-on: ubuntu-24.04
     steps:
-      - name: Require every mandatory job to succeed
+      - name: Require all checks, including SAST and VM qualification
         env:
           NEEDS: ${{ toJson(needs) }}
-        run: jq --exit-status 'all(.result == "success")' <<< "$NEEDS"
+          HEAVY: ${{ needs.changes.outputs.heavy }}
+        run: |
+          jq --exit-status --arg heavy "$HEAVY" '
+            to_entries | all(
+              if (.key == "build" or .key == "vm-environment" or .key == "kernel") and $heavy == "false"
+              then .value.result == "skipped"
+              else .value.result == "success" end
+            )' <<< "$NEEDS"
+  # Keep the old required context until GitHub rules require verify.
+  success:
+    if: always()
+    needs: verify
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          RESULT: ${{ needs.verify.result }}
+        run: test "$RESULT" = success

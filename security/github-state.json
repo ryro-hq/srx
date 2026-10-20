@@ -1,0 +1,23 @@
+{
+  "checked_at": "2026-10-20",
+  "organization": "ryro-hq",
+  "mfa_required": true,
+  "members_before": 2,
+  "members_after": 2,
+  "members_without_mfa": 0,
+  "outside_collaborators": 0,
+  "default_repository_permission": "read",
+  "mfa_activation": "Organization owner enabled the setting after read-only readiness audit; API readback confirmed it. No members were removed.",
+  "repository_workflows": "implemented in feature branch; pending first GitHub execution",
+  "required_rules_transition": "pending successful verify workflows; retain success until then",
+  "independent_write_reviewers": 0,
+  "independent_review_gap": "Only one write maintainer; zero required approvals temporarily. No independent-review claim.",
+  "dco_app": {
+    "app_id": 974774,
+    "slug": "dco-2",
+    "repository_selection": "all",
+    "prior_pr_status": "ACTION_REQUIRED on unsigned contributions; enforcement pending rollout"
+  },
+  "updater_credentials": "absent; workflow disabled pending maintainer configuration",
+  "immutable_releases": true
+}

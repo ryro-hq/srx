@@ -55,6 +55,8 @@ pub(crate) fn run(cli: Cli) -> ExitCode {
         } => match command {
             HostCommand::Inspect(arguments) => host::inspect(&arguments),
             #[cfg(target_os = "linux")]
+            HostCommand::Contract => host::contract(),
+            #[cfg(target_os = "linux")]
             HostCommand::ProbeChild => host::probe_child(),
         },
         Command::Build(arguments) => build::run(&arguments, &configuration),

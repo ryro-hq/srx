@@ -31,26 +31,38 @@ impl Catalog {
         for package in &self.packages {
             let mut inputs = BTreeMap::new();
             if self.schema == 2 {
-                let bytes = bounded_file(root, &package.toolchain)?;
-                let text =
-                    std::str::from_utf8(&bytes).map_err(|_| invalid("toolchain is not UTF-8"))?;
-                let toolchain: toml::Value =
-                    toml::from_str(text).map_err(|error| invalid(error.to_string()))?;
-                if toolchain
-                    .get("build_system")
-                    .and_then(toml::Value::as_str)
-                    != Some("linux-x86_64-gnu")
-                    || toolchain
-                        .get("result_system")
+                if !package.toolchain.is_empty() {
+                    let bytes = bounded_file(root, &package.toolchain)?;
+                    let text = std::str::from_utf8(&bytes)
+                        .map_err(|_| invalid("toolchain is not UTF-8"))?;
+                    let toolchain: toml::Value =
+                        toml::from_str(text).map_err(|error| invalid(error.to_string()))?;
+                    if toolchain
+                        .get("build_system")
                         .and_then(toml::Value::as_str)
-                        != Some(package.system.as_str())
-                {
-                    return Err(invalid(format!(
-                        "toolchain {} must declare build_system linux-x86_64-gnu and result_system {}",
-                        package.toolchain, package.system
-                    )));
+                        != Some("linux-x86_64-gnu")
+                        || toolchain
+                            .get("result_system")
+                            .and_then(toml::Value::as_str)
+                            != Some(package.system.as_str())
+                    {
+                        return Err(invalid(format!(
+                            "toolchain {} must declare build_system linux-x86_64-gnu and result_system {}",
+                            package.toolchain, package.system
+                        )));
+                    }
                 }
-
+                inputs.insert(
+                    "@host-systemd".to_owned(),
+                    ContentDigest::sha256(
+                        &serde_json::to_vec(
+                            &crate::systemd::interface_contract()
+                                .map_err(|error| invalid(error.to_string()))?,
+                        )
+                        .map_err(|error| invalid(error.to_string()))?,
+                    )
+                    .to_string(),
+                );
                 inputs.insert(
                     "main.srx".to_owned(),
                     ContentDigest::sha256(&bounded_file(root, "main.srx")?).to_string(),
@@ -76,11 +88,23 @@ impl Catalog {
                 &package.source,
                 &package.contract,
                 &package.toolchain,
-            ] {
+            ]
+            .into_iter()
+            .filter(|path| !path.is_empty())
+            {
                 inputs.insert(
                     path.clone(),
                     ContentDigest::sha256(&bounded_file(root, path)?).to_string(),
                 );
+            }
+            if let Some(path) = &package.qualification {
+                let qualification = super::Qualification::load(root, package)?;
+                for path in std::iter::once(path.as_str()).chain(qualification.files()) {
+                    inputs.insert(
+                        path.to_owned(),
+                        ContentDigest::sha256(&bounded_file(root, path)?).to_string(),
+                    );
+                }
             }
             for path in &package.recipe_inputs {
                 inputs.insert(

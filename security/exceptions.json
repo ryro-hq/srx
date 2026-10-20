@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "exceptions": [
+    {
+      "kind": "advisory",
+      "id": "RUSTSEC-2025-0141",
+      "package": "bincode",
+      "version": "=2.0.1",
+      "owner": "fullzer4",
+      "expires": "2027-01-20",
+      "reason": "Microsandbox =0.7.3 development-only codec is unmaintained with no patched release; excluded from shipped CLI and worker. Replace the SDK before expiry."
+    },
+    {
+      "kind": "license",
+      "package": "option-ext",
+      "version": "=0.2.0",
+      "owner": "fullzer4",
+      "expires": "2027-01-20",
+      "reason": "MPL-2.0 file-level copyleft helper only in the exact development SDK dependency graph. No release dependency; review with the SDK upgrade."
+    },
+    {
+      "kind": "license",
+      "package": "libfuzzer-sys",
+      "version": "=0.4.13",
+      "owner": "fullzer4",
+      "expires": "2027-01-20",
+      "reason": "The exact fuzzing-only libFuzzer release vendors LLVM code under the OSI-approved NCSA permissive license. It is absent from shipped CLI and worker artifacts; retain its upstream license notice."
+    }
+  ]
+}

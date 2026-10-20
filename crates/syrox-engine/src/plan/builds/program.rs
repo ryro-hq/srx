@@ -237,6 +237,12 @@ impl<F: Fn(&'static str) -> PlanError> Decoder<'_, F> {
                 destination: self.path(destination)?,
             },
             (5, [value]) => BuildStep::Extract(self.path(value)?),
+            (6, [value]) => BuildStep::ValidateStaticElf(self.path(value)?),
+            (7, [path, expected, interpreter]) => BuildStep::ReplaceShebang {
+                path: self.path(path)?,
+                expected: self.string(expected, "BuildLiteral")?,
+                interpreter: self.path(interpreter)?,
+            },
             _ => return Err((self.invalid)("invalid build step")),
         })
     }

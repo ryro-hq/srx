@@ -1,0 +1,45 @@
+[package]
+name = "srx-fuzz"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+syrox-lang.workspace = true
+syrox-engine.workspace = true
+serde_json = "=1.0.151"
+tempfile = "=3.23.0"
+
+[[bin]]
+name = "language"
+path = "fuzz_targets/language.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "configuration"
+path = "fuzz_targets/configuration.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "manifests"
+path = "fuzz_targets/manifests.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "archives"
+path = "fuzz_targets/archives.rs"
+test = false
+doc = false
+bench = false
