@@ -1,4 +1,5 @@
 //! Literal encoding for configuration fuzz inputs embedded in srx source.
+/// Encode UTF-8 fuzz input with the escapes accepted by srx string literals.
 pub fn configuration_literal(text: &str) -> String {
     let mut literal = String::from("\"");
     for character in text.chars() {

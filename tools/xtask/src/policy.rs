@@ -42,7 +42,39 @@ pub(super) fn today() -> Result<String> {
     Ok(format!("{year:04}-{month:02}-{day:02}"))
 }
 
+pub(super) fn unexpired(expires: &str, today: &str) -> bool {
+    let bytes = expires.as_bytes();
+    if bytes.len() != 10
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || !bytes
+            .iter()
+            .enumerate()
+            .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit())
+    {
+        return false;
+    }
+    let Ok(year) = expires[..4].parse::<u32>() else {
+        return false;
+    };
+    let Ok(month) = expires[5..7].parse::<u32>() else {
+        return false;
+    };
+    let Ok(day) = expires[8..].parse::<u32>() else {
+        return false;
+    };
+    let maximum = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) => 29,
+        2 => 28,
+        _ => return false,
+    };
+    day > 0 && day <= maximum && expires > today
+}
+
 pub(super) fn exceptions() -> Result {
+    super::sarif::exceptions()?;
     let document: Value = serde_json::from_slice(&fs::read("security/exceptions.json")?)?;
     let configuration: toml::Value = toml::from_str(&fs::read_to_string("deny.toml")?)?;
     let records = document["exceptions"]
@@ -56,11 +88,7 @@ pub(super) fn exceptions() -> Result {
         let reason = record["reason"]
             .as_str()
             .ok_or("exception lacks reason")?;
-        if expires.len() != 10
-            || expires <= today.as_str()
-            || reason.len() < 30
-            || record["owner"].as_str().is_none()
-        {
+        if !unexpired(expires, &today) || reason.len() < 30 || record["owner"].as_str().is_none() {
             return Err("expired or unexplained security exception".into());
         }
         match record["kind"].as_str() {
@@ -395,6 +423,20 @@ pub(super) fn workflows() -> Result {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn exception_dates_must_be_real_and_in_the_future() {
+        for invalid in [
+            "2026-02-29",
+            "2026-04-31",
+            "2026-00-10",
+            "2026-01-00",
+            "zzzz-zz-zz",
+            "2026-01-01",
+        ] {
+            assert!(!unexpired(invalid, "2026-01-01"));
+        }
+        assert!(unexpired("2028-02-29", "2026-01-01"));
+    }
     #[test]
     fn scopes_and_documentation_classification_are_conservative() {
         for subject in [

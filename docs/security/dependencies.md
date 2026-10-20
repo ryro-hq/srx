@@ -16,7 +16,11 @@ CodeQL scans Rust and Actions. It does not analyze the srx language; compiler ch
 configuration tests, fuzzing and sandbox/VM tests cover those inputs. A Rust SARIF
 gate rejects high/critical findings, malformed reports, missing invocations and
 failed analysis even when invoked for a merge group. Inline SARIF suppressions do
-not relax that gate. A future exception requires a separately reviewed policy.
+not relax that gate. `security/codeql-exceptions.json` admits only a maintainer-reviewed
+finding with its exact rule, fingerprint, path, line, full source-file SHA256 and
+runtime/dependency source-context digest. Every record needs an owner, reason,
+reviewer and unexpired date. Unreviewed, changed or expired exceptions block; a
+new finding cannot reuse another finding's exception.
 
 Rust tooling's permissive license allowlist does not determine the licenses of
 GNU programs or distributed package outputs. Catalog releases need package license
