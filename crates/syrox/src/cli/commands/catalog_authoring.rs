@@ -240,7 +240,7 @@ fn generate_with(
     let main_text = formatted(
         "main.srx",
         &format!(
-            "{}\npub use catalog::packages::{name}::{name}_version;\npub type {alias}Selection = catalog::packages::{name}::Selection;\npub let {name} = recipe_ref(catalog::packages::{name}::recipe);\n",
+            "{}\npub use catalog::packages::{name}::{name};\npub type {alias}Selection = catalog::packages::{name}::Selection;\n",
             std::str::from_utf8(main)?.trim_end()
         ),
     )?;
@@ -399,7 +399,7 @@ mod tests {
         fs::write(
             path.join("scaffolds/autotools/package.srx.in"),
             r#"pub struct Selection { version: PackagePinText; }
-pub fn @{name}_version() -> RecipeRef<Recipe> { recipe_ref(recipe) }
+pub fn @{name}() -> RecipeRef<Recipe> { recipe_ref(recipe) }
 pub fn recipe() -> Recipe { Recipe { package = Package { id = "sample"; dependencies = []; }; } }
 "#,
         )

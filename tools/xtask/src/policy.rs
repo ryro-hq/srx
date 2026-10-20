@@ -311,6 +311,7 @@ pub(super) fn commits(base: &str, head: &str) -> Result {
     let output = Command::new("git")
         .args([
             "log",
+            "--no-merges",
             "--format=%s",
             &format!("{base}..{head}"),
         ])
