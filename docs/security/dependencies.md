@@ -12,15 +12,10 @@ HTTPS and verified before execution. `cargo xtask security tools --output /absol
 installs them into a new destination; `--tool workflows` selects pinned actionlint and ShellCheck.
 Run `cargo xtask security workflows` with actionlint and ShellCheck available.
 
-CodeQL scans Rust and Actions. It does not analyze the srx language; compiler checks,
-configuration tests, fuzzing and sandbox/VM tests cover those inputs. A Rust SARIF
-gate rejects high/critical findings, malformed reports, missing invocations and
-failed analysis even when invoked for a merge group. Inline SARIF suppressions do
-not relax that gate. `security/codeql-exceptions.json` admits only a maintainer-reviewed
-finding with its exact rule, fingerprint, path, line, full source-file SHA256 and
-runtime/dependency source-context digest. Every record needs an owner, reason,
-reviewer and unexpired date. Unreviewed, changed or expired exceptions block; a
-new finding cannot reuse another finding's exception.
+Automated checks cover compiler/lints, typed configuration and package projections,
+bounded parser fuzzing, native execution and VM isolation. CodeQL and its SARIF
+gates are excluded by the maintainer's explicit policy. Workflow shell snippets
+are checked with pinned actionlint and ShellCheck.
 
 Rust tooling's permissive license allowlist does not determine the licenses of
 GNU programs or distributed package outputs. Catalog releases need package license

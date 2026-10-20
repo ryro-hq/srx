@@ -57,10 +57,10 @@ Store reuse; it does not grant source downloads when `prefer` falls back.
 ## Select packages normally
 
 ```srx
-inputs { pkgs = "path:../syrox-pkgs"; }
+inputs { pkgs = "path:../srx-pkgs"; }
 
 let packages = pkgs.forPlatform { system = "linux-x86_64"; };
-pub let hello = package_recipe(packages.hello_version { version = "2.12.1"; });
+pub let hello = package_recipe(packages.hello { version = "2.12.1"; });
 ```
 
 ```sh

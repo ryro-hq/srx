@@ -22,8 +22,8 @@ CI runs native and minimum-environment suites for relevant changes and weekly.
 
 Only explicitly whitelisted prose changes skip VM builds. Unknown paths, code,
 std, contracts, dependencies, lock files and workflows run the full lane. Daily
-Cargo audits run independently. CodeQL covers Rust and Actions; the required
-`verify` aggregate also waits for the strict SARIF gate, including merge groups.
+Cargo audits run independently. The required `verify` aggregate waits for dependency,
+workflow, portable and VM checks, including merge groups.
 The old `success` context is transitional until GitHub required rules use `verify`.
 
 Use `cargo xtask security audit`, `cargo xtask security exceptions`, and

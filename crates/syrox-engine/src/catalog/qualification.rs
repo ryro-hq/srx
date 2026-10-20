@@ -56,13 +56,14 @@ impl Qualification {
                     .iter()
                     .all(|arg| arg.len() <= 4096 && !arg.contains('\0'))
         };
-        if !super::files::component(&result.command) || !arguments(&result.version_arguments) {
+        let filename = |name: &str| super::files::component(name) && !matches!(name, "." | "..");
+        if !filename(&result.command) || !arguments(&result.version_arguments) {
             return Err(invalid(
                 "invalid qualification command or arguments",
             ));
         }
         if let Some(http) = &result.http
-            && (!super::files::component(&http.filename)
+            && (!filename(&http.filename)
                 || http.filename == "index.html"
                 || !arguments(&http.validate_arguments)
                 || !arguments(&http.run_arguments)

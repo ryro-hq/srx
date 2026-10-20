@@ -8,7 +8,6 @@ use std::{
 };
 mod policy;
 mod release;
-mod sarif;
 mod structure;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
@@ -181,7 +180,6 @@ fn execute() -> Result {
         ["structure"] => { structure::run(Path::new("."))?; Ok(()) },
         ["fmt"] => { run("cargo", &["fmt", "--all"])?; language_format(true) }
         ["test", "--suite", name] => suite(name),
-        ["security", "sarif", directory, language] => sarif::check(Path::new(directory), language),
         ["security", "exceptions"] => policy::exceptions(),
         ["security", "workflows"] => policy::workflows(),
         ["security", "tools", "--output", directory] => policy::tools(Path::new(directory), "all"),
@@ -192,6 +190,6 @@ fn execute() -> Result {
         ["release", "catalog", directory] => release::catalog(Path::new(directory)),
         ["release", "checksums", directory] => release::checksums(Path::new(directory)),
         ["security", "audit"] => run("cargo", &["deny", "--locked", "check"]),
-        _ => Err("use cargo xtask check | fmt | test --suite portable|native|acceptance | security audit | security sarif DIR LANGUAGE".into()),
+        _ => Err("use cargo xtask check | fmt | test --suite portable|native|acceptance | security audit".into()),
     }
 }

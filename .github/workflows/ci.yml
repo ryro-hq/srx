@@ -54,7 +54,6 @@ jobs:
     uses: ./.github/workflows/security.yml
     permissions:
       contents: read
-      security-events: write
   workflow-policy:
     runs-on: ubuntu-24.04
     steps:

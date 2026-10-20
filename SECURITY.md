@@ -15,8 +15,8 @@ Older releases and catalog snapshots are retained for reproducibility and receiv
 no automatic backports. An advisory identifies affected and fixed versions,
 mitigations, withdrawn artifacts and any end-of-support decision.
 
-Known exploitable dependency vulnerabilities and CodeQL high/critical findings
-block integration and releases. Analysis errors also block. Cargo license/source
+Known exploitable dependency vulnerabilities and scanner failures block
+integration and releases. Cargo license/source
 violations block. Exceptions need exact scope, an owner, justification, evidence
 and expiry in `security/exceptions.json`. Release vulnerability false positives
 need reviewed OpenVEX evidence; absent or uncertain matching is not evidence of safety.
