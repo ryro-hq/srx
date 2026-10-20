@@ -5,17 +5,17 @@ on 2026-10-20. Level 1 is the acceptance target, not a certification. Level 2/3
 controls below show evidence and gaps individually. Retired BR-01.02 is intentionally
 absent. Branch implementation is distinguished from live enforcement and released evidence.
 
-The authoritative readback is [security/github-state.json](../../security/github-state.json).
+The initial settings readback is [security/github-state.json](../../security/github-state.json);
+subsequent CI, merge and live-rule evidence is recorded in [rollout.md](rollout.md).
 MFA is active and no members were removed. Existing secret protection and private
-reporting remain enabled. New required rules must follow successful workflow rollout;
-never require a check that the default branch cannot emit. Keep `success` through
-that transition. No bypass or fake independent reviewer is permitted.
+reporting remain enabled. Core rules now require `verify` and `DCO` after the
+successful default-branch rollout. No bypass or fake independent reviewer is permitted.
 
 | Control | Level | Status | Evidence / remaining work |
 | --- | --- | --- | --- |
 | OSPS-AC-01.01 | 1 | verified live | Organization MFA enabled after readiness audit; both members retained; [readback](../../security/github-state.json). |
 | OSPS-AC-02.01 | 1 | verified live | Organization default repository permission is read; access escalation requires maintainer assignment. |
-| OSPS-AC-03.01 | 1 | verified live / migration pending | Existing main rules require PR/checks and prohibit bypass; new verify/DCO/queue settings wait for first successful workflows. |
+| OSPS-AC-03.01 | 1 | verified live | Main rules require PRs, verify/DCO, resolved threads, rebase-only linear history and a one-PR ALLGREEN queue; [readback](rollout.md). |
 | OSPS-AC-03.02 | 1 | verified live | Existing main rules prohibit deletion; no bypass actors. |
 | OSPS-BR-01.01 | 1 | implemented / release evidence pending | [Release/recovery procedure](releases.md), pinned workflows and trusted publication boundary; verify first actual release. |
 | OSPS-BR-01.03 | 1 | implemented / release evidence pending | [Release/recovery procedure](releases.md), pinned workflows and trusted publication boundary; verify first actual release. |
@@ -34,8 +34,8 @@ that transition. No bypass or fake independent reviewer is permitted.
 | OSPS-QA-01.02 | 1 | verified live | Git history records authors and time; no history rewrite or published identity removal. |
 | OSPS-QA-02.01 | 1 | implemented | Cargo.toml/Cargo.lock; catalog also tracks source releases and qualified combinations. |
 | OSPS-QA-04.01 | 1 | implemented | README links core and package catalog and distinguishes runtime ryro-bot. |
-| OSPS-QA-05.01 | 1 | implemented in branch | Compiled bootstrap archive removed from catalog; fixtures are generated from source or authenticated pins. |
-| OSPS-QA-05.02 | 1 | implemented in branch | Source/configuration/fixtures are reviewable text; logos remain permitted media; no new binaries tracked. |
+| OSPS-QA-05.01 | 1 | implemented | Core fixtures are generated from source or authenticated pins; catalog archive removal is tracked in the companion PR. |
+| OSPS-QA-05.02 | 1 | implemented | Source/configuration/fixtures are reviewable text; logos remain permitted media; no new binaries tracked. |
 | OSPS-VM-02.01 | 1 | implemented | [SECURITY.md](../../SECURITY.md) names security maintainer and private reporting channel. |
 | OSPS-AC-04.01 | 2 | implemented / live run pending | Least-privilege workflow permissions, read-only untrusted builds and isolated publication; verify first GitHub execution. |
 | OSPS-BR-02.01 | 2 | implemented / release evidence pending | [Release/recovery procedure](releases.md), pinned workflows and trusted publication boundary; verify first actual release. |
@@ -47,9 +47,9 @@ that transition. No bypass or fake independent reviewer is permitted.
 | OSPS-GV-01.01 | 2 | implemented | CONTRIBUTING, SECURITY and release/recovery docs define maintainership, access review and contribution requirements. |
 | OSPS-GV-01.02 | 2 | implemented | CONTRIBUTING, SECURITY and release/recovery docs define maintainership, access review and contribution requirements. |
 | OSPS-GV-03.02 | 2 | implemented | CONTRIBUTING, SECURITY and release/recovery docs define maintainership, access review and contribution requirements. |
-| OSPS-LE-01.01 | 2 | rollout pending | Own-author DCO policy documented; CNCF DCO2 App must be confirmed and required before integration. |
-| OSPS-QA-03.01 | 2 | verified live / migration pending | Existing success checks required; keep transitional success while verify becomes mandatory. |
-| OSPS-QA-06.01 | 2 | implemented / live run pending | Portable tests and required VM qualification; verify includes dependency and workflow policy gates. |
+| OSPS-LE-01.01 | 2 | verified live | Own-author DCO certification obtained; CNCF DCO2 is required and passed both PR and merge-group checks. |
+| OSPS-QA-03.01 | 2 | verified live | Required verify and DCO checks are bound to their Apps, with no bypass actors; [rollout](rollout.md). |
+| OSPS-QA-06.01 | 2 | verified live | Full portable/native/acceptance qualification passed in PR, merge group and main; verify includes dependency and workflow policy gates. |
 | OSPS-SA-01.01 | 2 | implemented | [Threat model](threat-model.md) identifies actors, boundaries, operations and remaining risks. |
 | OSPS-SA-02.01 | 2 | implemented | Language/CLI, authenticated std, typed package contracts, host inspection and transport interfaces documented. |
 | OSPS-SA-03.01 | 2 | implemented / human review pending | Threat model plus deterministic parser, type, isolation and negative security tests; no external assessment claimed. |
@@ -92,5 +92,6 @@ preparation for an honest badge submission, with maintainer attestation still ne
 | Release integrity | Immutable-release policy, authenticated artifacts, SPDX/Grype/provenance workflow requirements | Verify actual publication and offline verification; no SLSA level inferred |
 
 The official Scorecard action runs on main and weekly, retains SARIF for 90 days,
-and publishes results using OIDC. Its numeric score is diagnostic rather than a merge
-gate. A configured action is not a claim that a scan ran or that a score improved.
+and publishes results using OIDC. Its first [main run](https://github.com/ryro-hq/srx/actions/runs/39491356604)
+passed. Its numeric score is diagnostic rather than a merge gate; no score
+improvement is claimed.
