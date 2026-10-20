@@ -1,0 +1,226 @@
+{
+  "schema": 1,
+  "exceptions": [
+    {
+      "rule_id": "rust/hard-coded-cryptographic-value",
+      "path": "crates/syrox-engine/src/build/journal/managed/settlement.rs",
+      "line": 52,
+      "fingerprint": "2a38d11dffe049dd:1",
+      "source_sha256": "ace4df39adbfa97daab980a7571c38973716d3497ac9e8c093b58f89e6eba52a",
+      "owner": "fullzer4",
+      "reviewed_by": "",
+      "expires": "2026-11-20",
+      "reason": "Boolean operation/status result is incorrectly propagated through object/control flow to nonce accessors; it is not nonce material."
+    },
+    {
+      "rule_id": "rust/hard-coded-cryptographic-value",
+      "path": "crates/syrox-engine/src/build/journal/managed/settlement.rs",
+      "line": 72,
+      "fingerprint": "8c9ba12d79f5a72a:1",
+      "source_sha256": "ace4df39adbfa97daab980a7571c38973716d3497ac9e8c093b58f89e6eba52a",
+      "owner": "fullzer4",
+      "reviewed_by": "",
+      "expires": "2026-11-20",
+      "reason": "Boolean operation/status result is incorrectly propagated through object/control flow to nonce accessors; it is not nonce material."
+    },
+    {
+      "rule_id": "rust/hard-coded-cryptographic-value",
+      "path": "crates/syrox-engine/src/build/journal/managed/settlement.rs",
+      "line": 304,
+      "fingerprint": "adedbb0587b5990:1",
+      "source_sha256": "ace4df39adbfa97daab980a7571c38973716d3497ac9e8c093b58f89e6eba52a",
+      "owner": "fullzer4",
+      "reviewed_by": "",
+      "expires": "2026-11-20",
+      "reason": "Test-only deterministic nonce fixture, including deliberately wrong nonce rejection; not a production nonce source."
+    },
+    {
+      "rule_id": "rust/hard-coded-cryptographic-value",
+      "path": "crates/syrox-engine/src/build/journal/managed/tests.rs",
+      "line": 385,
+      "fingerprint": "9b093a2e96945e75:1",
+      "source_sha256": "a0a4180925e51a240026bedbb34c9aaa2baebe67011d1bcb2e3633c759770760",
+      "owner": "fullzer4",
+      "reviewed_by": "",
+      "expires": "2026-11-20",
+      "reason": "Test-only deterministic nonce fixture, including deliberately wrong nonce rejection; not a production nonce source."
+    },
+    {
+      "rule_id": "rust/hard-coded-cryptographic-value",
+      "path": "crates/syrox-engine/src/build/journal/managed/mod.rs",
+      "line": 360,
+      "fingerprint": "5f7329dc5def6703:1",
+      "source_sha256": "22c043909e5cc33cb49ecc07448f1b07d728fa7f0df6b277150b76ca7b370b28",
+      "owner": "fullzer4",
+      "reviewed_by": "",
+      "expires": "2026-11-20",
+      "reason": "Boolean operation/status result is incorrectly propagated through object/control flow to nonce accessors; it is not nonce material."
+    },
+    {
+      "rule_id": "rust/hard-coded-cryptographic-value",
+      "path": "crates/syrox-engine/src/build/journal/managed/mod.rs",
+      "line": 354,
+      "fingerprint": "24c0a703264240ef:1",
+      "source_sha256": "22c043909e5cc33cb49ecc07448f1b07d728fa7f0df6b277150b76ca7b370b28",
+      "owner": "fullzer4",
+      "reviewed_by": "",
+      "expires": "2026-11-20",
+      "reason": "Boolean operation/status result is incorrectly propagated through object/control flow to nonce accessors; it is not nonce material."
+    },
+    {
+      "rule_id": "rust/hard-coded-cryptographic-value",
+      "path": "crates/syrox-engine/src/build/managed/cgroup.rs",
+      "line": 503,
+      "fingerprint": "7240608710111ba7:1",
+      "source_sha256": "3fe408c98892ab2948224a41f21dd845431db218e0f89ad6c1bff6ea64a28561",
+      "owner": "fullzer4",
+      "reviewed_by": "",
+      "expires": "2026-11-20",
+      "reason": "Test-only deterministic nonce fixture, including deliberately wrong nonce rejection; not a production nonce source."
+    },
+    {
+      "rule_id": "rust/hard-coded-cryptographic-value",
+      "path": "crates/syrox-engine/src/build/managed/handshake.rs",
+      "line": 474,
+      "fingerprint": "fa14c137c0c7a40e:1",
+      "source_sha256": "409f9876c3dd905040049203b14cc52c2233575d2eba581b20b7ec022247782f",
+      "owner": "fullzer4",
+      "reviewed_by": "",
+      "expires": "2026-11-20",
+      "reason": "Test-only deterministic nonce fixture, including deliberately wrong nonce rejection; not a production nonce source."
+    },
+    {
+      "rule_id": "rust/hard-coded-cryptographic-value",
+      "path": "crates/syrox-engine/src/build/managed/execution.rs",
+      "line": 812,
+      "fingerprint": "1fdaad12451d6f32:1",
+      "source_sha256": "9d141322fecdb2ff03c69b79b8a4fb6dc343be0ba2c25c72a8b46b1f4d6a45b0",
+      "owner": "fullzer4",
+      "reviewed_by": "",
+      "expires": "2026-11-20",
+      "reason": "Test-only deterministic nonce fixture, including deliberately wrong nonce rejection; not a production nonce source."
+    },
+    {
+      "rule_id": "rust/hard-coded-cryptographic-value",
+      "path": "crates/syrox-engine/src/build/managed/execution.rs",
+      "line": 838,
+      "fingerprint": "f56818cbaa5df957:1",
+      "source_sha256": "9d141322fecdb2ff03c69b79b8a4fb6dc343be0ba2c25c72a8b46b1f4d6a45b0",
+      "owner": "fullzer4",
+      "reviewed_by": "",
+      "expires": "2026-11-20",
+      "reason": "Test-only deterministic nonce fixture, including deliberately wrong nonce rejection; not a production nonce source."
+    },
+    {
+      "rule_id": "rust/hard-coded-cryptographic-value",
+      "path": "crates/syrox-engine/src/build/managed/handshake.rs",
+      "line": 715,
+      "fingerprint": "7db885fc47c07752:1",
+      "source_sha256": "409f9876c3dd905040049203b14cc52c2233575d2eba581b20b7ec022247782f",
+      "owner": "fullzer4",
+      "reviewed_by": "",
+      "expires": "2026-11-20",
+      "reason": "Test-only deterministic nonce fixture, including deliberately wrong nonce rejection; not a production nonce source."
+    },
+    {
+      "rule_id": "rust/hard-coded-cryptographic-value",
+      "path": "crates/syrox-engine/src/build/managed/resources.rs",
+      "line": 483,
+      "fingerprint": "72c17f99a3931ca2:1",
+      "source_sha256": "7b2ed93a93c248d507911d6c4b39fade076b7523ed6909db28c9065f93bcf1c6",
+      "owner": "fullzer4",
+      "reviewed_by": "",
+      "expires": "2026-11-20",
+      "reason": "Read trait returns zero at EOF; this integer is a byte count, not nonce material."
+    },
+    {
+      "rule_id": "rust/hard-coded-cryptographic-value",
+      "path": "crates/syrox-engine/src/build/managed/supervision.rs",
+      "line": 462,
+      "fingerprint": "d6c7bedcf3803f1e:1",
+      "source_sha256": "3a770c6dc6ae19fbae3aa12e4cbd04c7d3479fc0997a06f9e03cf9e03a1ab616",
+      "owner": "fullzer4",
+      "reviewed_by": "",
+      "expires": "2026-11-20",
+      "reason": "Test-only deterministic nonce fixture, including deliberately wrong nonce rejection; not a production nonce source."
+    },
+    {
+      "rule_id": "rust/hard-coded-cryptographic-value",
+      "path": "crates/syrox-engine/src/build/managed/supervision.rs",
+      "line": 513,
+      "fingerprint": "e3c75b76bcdb5a9a:1",
+      "source_sha256": "3a770c6dc6ae19fbae3aa12e4cbd04c7d3479fc0997a06f9e03cf9e03a1ab616",
+      "owner": "fullzer4",
+      "reviewed_by": "",
+      "expires": "2026-11-20",
+      "reason": "Test-only deterministic nonce fixture, including deliberately wrong nonce rejection; not a production nonce source."
+    },
+    {
+      "rule_id": "rust/hard-coded-cryptographic-value",
+      "path": "crates/syrox-engine/src/execution/transport.rs",
+      "line": 195,
+      "fingerprint": "24c390f41f250ecb:1",
+      "source_sha256": "f20fd8398242f87523157686729a99ed479864f6788eae3f3298ed73efc26fb9",
+      "owner": "fullzer4",
+      "reviewed_by": "",
+      "expires": "2026-11-20",
+      "reason": "Boolean operation/status result is incorrectly propagated through object/control flow to nonce accessors; it is not nonce material."
+    },
+    {
+      "rule_id": "rust/hard-coded-cryptographic-value",
+      "path": "crates/syrox-engine/src/execution/transport.rs",
+      "line": 205,
+      "fingerprint": "f048891dc030b06f:1",
+      "source_sha256": "f20fd8398242f87523157686729a99ed479864f6788eae3f3298ed73efc26fb9",
+      "owner": "fullzer4",
+      "reviewed_by": "",
+      "expires": "2026-11-20",
+      "reason": "Boolean operation/status result is incorrectly propagated through object/control flow to nonce accessors; it is not nonce material."
+    },
+    {
+      "rule_id": "rust/hard-coded-cryptographic-value",
+      "path": "crates/syrox-engine/src/platform/linux/fd/mod.rs",
+      "line": 1318,
+      "fingerprint": "5ca12583bc2f20d3:1",
+      "source_sha256": "263a2ca6ac903b52ac975e2d50bf95057aa440429d2c85f8cc586e465205a098",
+      "owner": "fullzer4",
+      "reviewed_by": "",
+      "expires": "2026-11-20",
+      "reason": "Boolean operation/status result is incorrectly propagated through object/control flow to nonce accessors; it is not nonce material."
+    },
+    {
+      "rule_id": "rust/hard-coded-cryptographic-value",
+      "path": "crates/syrox-engine/src/platform/linux/fd/mod.rs",
+      "line": 1327,
+      "fingerprint": "4f986bfc44855f82:1",
+      "source_sha256": "263a2ca6ac903b52ac975e2d50bf95057aa440429d2c85f8cc586e465205a098",
+      "owner": "fullzer4",
+      "reviewed_by": "",
+      "expires": "2026-11-20",
+      "reason": "Boolean operation/status result is incorrectly propagated through object/control flow to nonce accessors; it is not nonce material."
+    },
+    {
+      "rule_id": "rust/hard-coded-cryptographic-value",
+      "path": "crates/syrox-engine/src/store/retention/mod.rs",
+      "line": 209,
+      "fingerprint": "ddba7ed997e5bb7:1",
+      "source_sha256": "aa7f4705499f7cab2a60ffb06a186ea07f1e43d064ae5d50bb4ffcd9f9b92ca8",
+      "owner": "fullzer4",
+      "reviewed_by": "",
+      "expires": "2026-11-20",
+      "reason": "The octal constant is a filesystem permission passed to set_permissions, not nonce material."
+    },
+    {
+      "rule_id": "rust/hard-coded-cryptographic-value",
+      "path": "crates/syrox-engine/src/result/artifact.rs",
+      "line": 516,
+      "fingerprint": "5a239107dfb7242b:1",
+      "source_sha256": "c367368095389df648390d519fb940973d73adbd739180788f3a352de1fb1c54",
+      "owner": "fullzer4",
+      "reviewed_by": "",
+      "expires": "2026-11-20",
+      "reason": "Zero-initialized read buffer is completely filled by read_exact before use; the initializer is not returned as a nonce."
+    }
+  ],
+  "source_tree_sha256": "632e8f87ba99cdb33bd3accc47de55ce1fba90547ec27f24b11bb4e3bb24931c"
+}
