@@ -17,6 +17,8 @@ mod session;
 mod types;
 
 #[cfg(test)]
+mod configuration_tests;
+#[cfg(test)]
 mod tests;
 
 use crate::{checker::CheckPolicy, checker::CheckedProgram, source::Span};
@@ -30,7 +32,7 @@ pub use model::{
 };
 
 pub use runtime::MemoId;
-pub use session::{EvaluationQueryError, EvaluationSession, PublishedRoot};
+pub use session::{EvaluationQueryError, EvaluationSession, PublishedRoot, ReferenceBinding};
 
 pub fn evaluate(
     program: &CheckedProgram,

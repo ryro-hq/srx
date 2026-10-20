@@ -105,9 +105,13 @@ pub struct PlanService {
     files: Vec<PlanConfigFile>,
     commands: Vec<PlanServiceCommand>,
     processes: Vec<PlanServiceProcess>,
+    validators: Vec<String>,
 }
 
 impl PlanService {
+    pub fn validators(&self) -> &[String] {
+        &self.validators
+    }
     pub fn secrets(&self) -> &[String] {
         &self.secrets
     }
@@ -595,6 +599,7 @@ fn services(
                 "processes",
                 "state",
                 "secrets",
+                "validators",
             ],
             context.service("<invalid>"),
             budget,
@@ -643,6 +648,49 @@ fn services(
             budget,
         )?;
         let processes = commands::processes(&fields[4].1, &commands, context, budget)?;
+        let validator_values = list(
+            &fields[7].1,
+            |ty| exact_nominal(ty, COMMAND_NAME_PATH),
+            context,
+            budget,
+        )?;
+        let mut validators = budget.collection::<String>(validator_values.len())?;
+        for value in validator_values {
+            let Some(name) = nominal_string(value, COMMAND_NAME_PATH) else {
+                return context.invalid("validator must name a service command", budget);
+            };
+            let Some(command) = commands
+                .iter()
+                .find(|command| command.name() == name)
+            else {
+                return context.invalid("validator command is absent", budget);
+            };
+            if command
+                .arguments()
+                .iter()
+                .chain(
+                    command
+                        .environment()
+                        .iter()
+                        .map(|entry| &entry.value),
+                )
+                .any(|argument| {
+                    matches!(
+                        argument,
+                        PlanCommandArgument::StateDirectory | PlanCommandArgument::SecretFile(_)
+                    )
+                })
+            {
+                return context.invalid(
+                    "configuration validators require literal arguments and configuration files",
+                    budget,
+                );
+            }
+            if validators.iter().any(|previous| previous == name) {
+                return context.invalid("duplicate configuration validator", budget);
+            }
+            validators.push(budget.string(name)?);
+        }
         result.push(PlanService {
             state,
             secrets,
@@ -651,6 +699,7 @@ fn services(
             files,
             commands,
             processes,
+            validators,
         });
     }
     let key_bytes = result
@@ -935,6 +984,10 @@ mod tests {
                         nominal(&["std", "deployment", "SecretName"]),
                         vec![],
                     ),
+                ),
+                (
+                    "validators",
+                    typed_list(nominal(COMMAND_NAME_PATH), vec![]),
                 ),
             ],
         )

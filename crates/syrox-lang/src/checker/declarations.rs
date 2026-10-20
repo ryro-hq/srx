@@ -14,30 +14,98 @@ impl Checker<'_> {
             .map(|(&id, info)| (id, info.clone()))
             .collect();
         for (id, info) in structures {
-            let args: BTreeMap<_, _> = info
-                .parameters
-                .iter()
-                .copied()
-                .map(|parameter| (parameter, Ty::Parameter(parameter)))
-                .collect();
-            self.body.type_parameters = args.clone();
-            for field in &info.declaration.fields {
+            for (index, field) in info.declaration.fields.iter().enumerate() {
                 if !self.charge(field.span) {
                     return;
                 }
                 if let Some(default) = &field.default {
                     self.with_body(default.span, |checker| {
-                        checker.body.bindings.clear();
-                        checker.body.type_parameters = args.clone();
-                        let want = checker.resolve_type(&field.ty, &args, 0);
-                        let got = checker.check_expr(default, Some(&want), info.context, true);
-                        checker.expect_same(&want, &got, default.span, "struct field default");
+                        checker.default_constant(id, index);
                     });
                 }
             }
-            self.body.type_parameters.clear();
-            let _ = id;
         }
+    }
+
+    /// Defaults belong to their declaration, including when a global needs their
+    /// constant before the ordinary defaults pass. Retain their constants across
+    /// body partitions instead of looking for another body's expression facts.
+    pub(super) fn default_constant(
+        &mut self,
+        item: ItemId,
+        field: usize,
+    ) -> Option<super::Constant> {
+        let key = (item, field);
+        if let Some(constant) = self.default_constants.get(&key) {
+            return constant.clone();
+        }
+        if self.active_defaults.len() >= self.limits.max_specialization_depth {
+            self.error(
+                "struct default dependency depth limit reached",
+                self.structs[&item].declaration.fields[field].span,
+            );
+            return None;
+        }
+        if !self.active_defaults.insert(key) {
+            return None;
+        }
+        let info = self.structs[&item].clone();
+        let field = &info.declaration.fields[field];
+        let default = field.default.as_ref().expect("field default");
+        if !self.charge(default.span) || !self.reserve_metadata(default.span) {
+            self.active_defaults.remove(&key);
+            return None;
+        }
+        self.collection_metadata_units += 1;
+        let args: BTreeMap<_, _> = info
+            .parameters
+            .iter()
+            .copied()
+            .map(|parameter| (parameter, Ty::Parameter(parameter)))
+            .collect();
+        let bindings = std::mem::take(&mut self.body.bindings);
+        let substitutions = std::mem::replace(&mut self.body.type_parameters, args.clone());
+        let global = self.global_initializer.take();
+        let mode = std::mem::replace(&mut self.static_mode, false);
+        let expression_start = self.expressions.len();
+        let pattern_start = self.patterns.len();
+        let errors = self.body.fact_errors;
+        let want = self.resolve_type(&field.ty, &args, 0);
+        let got = self.check_expr(default, Some(&want), info.context, true);
+        self.expect_same(&want, &got, default.span, "struct field default");
+        let constant = if self.body.fact_errors == errors {
+            self.constant_value(default, 0)
+        } else {
+            None
+        };
+        // Static calls drain their private facts. A lazily discovered default is
+        // also evaluated independently of that call and needs declaration facts.
+        if !self.static_calls.is_empty() {
+            for index in expression_start..self.expressions.len() {
+                let fact = self.expressions[index].clone();
+                let key = super::span_key(fact.span);
+                if !self.global_facts.contains_key(&key) && self.reserve_metadata(fact.span) {
+                    self.collection_metadata_units += 1;
+                    self.global_facts.insert(key, fact);
+                }
+            }
+            for index in pattern_start..self.patterns.len() {
+                let pattern = self.patterns[index];
+                let key = super::span_key(pattern.span);
+                if !self.global_patterns.contains_key(&key) && self.reserve_metadata(pattern.span) {
+                    self.collection_metadata_units += 1;
+                    self.global_patterns.insert(key, pattern);
+                }
+            }
+        }
+        self.body.bindings = bindings;
+        self.body.type_parameters = substitutions;
+        self.global_initializer = global;
+        self.static_mode = mode;
+        self.active_defaults.remove(&key);
+        self.default_constants
+            .insert(key, constant.clone());
+        constant
     }
 
     pub(super) fn check_functions(&mut self) {
@@ -47,8 +115,15 @@ impl Checker<'_> {
             .map(|(&id, info)| (id, *info))
             .collect();
         for (id, info) in functions {
+            if info.declaration.is_static()
+                || info.declaration.has_bounds()
+                || info.declaration.abstract_member
+            {
+                continue;
+            }
             self.with_body(info.declaration.name.span, |checker| {
                 checker.body.bindings.clear();
+                checker.static_mode = false;
                 checker.body.type_parameters = checker.function_parameters(id);
                 let Some((parameter_types, result)) = checker.function_types.get(&id).cloned()
                 else {
@@ -151,6 +226,7 @@ impl Checker<'_> {
                         } => {
                             self.with_body(output.span, |checker| {
                                 checker.body.bindings.clear();
+                                checker.static_mode = true;
                                 let want = checker.resolve_type(ty, &BTreeMap::new(), 0);
                                 if let Some(id) = checker
                                     .item_at
@@ -290,6 +366,7 @@ impl Checker<'_> {
             .map(|parameter| (parameter, RawTy::Parameter(parameter)))
             .collect();
         let mut checked_fields = Vec::new();
+        let mut external_keys = BTreeSet::new();
         for field in &declaration.fields {
             if !self.charge(field.span) {
                 return;
@@ -299,6 +376,9 @@ impl Checker<'_> {
                     format!("duplicate field `{}`", field.name.text),
                     field.name.span,
                 );
+            }
+            if !external_keys.insert(field.key.as_deref().unwrap_or(&field.name.text)) {
+                self.error("duplicate external configuration key", field.span);
             }
             let ty = self.resolve_raw_type(&field.ty, &params, 0);
             if let Some(concrete) = self.concretize(ty.clone(), &BTreeMap::new(), field.span) {

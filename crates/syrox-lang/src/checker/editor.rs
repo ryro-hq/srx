@@ -194,6 +194,35 @@ impl Checker<'_> {
                 },
             );
         }
+        let mut functions_by_module: BTreeMap<_, Vec<_>> = BTreeMap::new();
+        for (&id, function) in &self.functions {
+            functions_by_module
+                .entry(function.context.module)
+                .or_default()
+                .push((id, function.declaration.name.span));
+        }
+        for (receiver, modules) in self.methods.clone() {
+            if !receiver.is_known() {
+                continue;
+            }
+            let mut methods = Vec::new();
+            for module in modules {
+                for &(id, span) in functions_by_module
+                    .get(&module)
+                    .into_iter()
+                    .flatten()
+                {
+                    if self.reserve_editor_metadata(span) {
+                        methods.push(id);
+                    }
+                }
+            }
+            if !methods.is_empty()
+                && let Some(receiver) = self.retain_editor_type(&receiver)
+            {
+                self.editor.methods.insert(receiver, methods);
+            }
+        }
     }
 
     fn collect_published_editor_types(&mut self) {

@@ -9,6 +9,39 @@ impl Parser<'_> {
         self.parse_concat(true)
     }
 
+    fn parse_if(&mut self) -> Option<Expression> {
+        let start = self.advance()?.span;
+        if !self.enter(start) {
+            return None;
+        }
+        let condition = self.parse_concat(false)?;
+        let yes = self.parse_block()?;
+        self.expect_keyword(Keyword::Else, "expected `else` after `if` branch")?;
+        let no = if self.at_keyword(Keyword::If) {
+            self.parse_if()?
+        } else {
+            let block = self.parse_block()?;
+            Expression {
+                span: block.span,
+                kind: ExpressionKind::Let(block),
+            }
+        };
+        self.leave();
+        Some(Expression {
+            span: start.join(no.span),
+            kind: ExpressionKind::If {
+                condition: Box::new(condition),
+                branches: [
+                    Box::new(Expression {
+                        span: yes.span,
+                        kind: ExpressionKind::Let(yes),
+                    }),
+                    Box::new(no),
+                ],
+            },
+        })
+    }
+
     fn parse_concat(&mut self, allow_struct: bool) -> Option<Expression> {
         self.syntax(SyntaxKind::Expression, |parser| {
             parser.parse_concat_inner(allow_struct)
@@ -17,18 +50,44 @@ impl Parser<'_> {
 
     fn parse_concat_inner(&mut self, allow_struct: bool) -> Option<Expression> {
         let first = self.parse_postfix(allow_struct)?;
-        if !self.at(TokenKind::PlusPlus) {
-            return Some(first);
+        let mut left = first;
+        if self.at(TokenKind::PlusPlus) {
+            let start = left.span;
+            let mut expressions = vec![left];
+            while self.consume(TokenKind::PlusPlus).is_some() {
+                expressions.push(self.parse_postfix(allow_struct)?);
+            }
+            left = Expression {
+                span: start.join(expressions.last()?.span),
+                kind: ExpressionKind::Concat(expressions),
+            };
         }
-        let start = first.span;
-        let mut expressions = vec![first];
-        while self.consume(TokenKind::PlusPlus).is_some() {
-            expressions.push(self.parse_postfix(allow_struct)?);
+        let negated = if self.consume(TokenKind::EqualEqual).is_some() {
+            false
+        } else if self.consume(TokenKind::NotEqual).is_some() {
+            true
+        } else {
+            return Some(left);
+        };
+        let mut right = self.parse_postfix(allow_struct)?;
+        if self.at(TokenKind::PlusPlus) {
+            let start = right.span;
+            let mut expressions = vec![right];
+            while self.consume(TokenKind::PlusPlus).is_some() {
+                expressions.push(self.parse_postfix(allow_struct)?);
+            }
+            right = Expression {
+                span: start.join(expressions.last()?.span),
+                kind: ExpressionKind::Concat(expressions),
+            };
         }
-        let span = start.join(expressions.last()?.span);
         Some(Expression {
-            kind: ExpressionKind::Concat(expressions),
-            span,
+            span: left.span.join(right.span),
+            kind: ExpressionKind::Equality {
+                left: Box::new(left),
+                right: Box::new(right),
+                negated,
+            },
         })
     }
 
@@ -47,6 +106,49 @@ impl Parser<'_> {
                     parser.advance();
                     parser.ident("expected field name after `.`")
                 })?;
+                if (allow_struct && self.at(TokenKind::LeftBrace)) || self.at(TokenKind::LeftParen)
+                {
+                    let arguments = if self.at(TokenKind::LeftBrace) {
+                        let span = self.peek()?.span;
+                        vec![self.parse_struct_literal(
+                            Path {
+                                segments: Vec::new(),
+                                span,
+                            },
+                            Vec::new(),
+                        )?]
+                    } else {
+                        let open = self.advance()?.span;
+                        if !self.enter(open) {
+                            return None;
+                        }
+                        let arguments = self.comma_expressions(TokenKind::RightParen)?;
+                        self.expect(
+                            TokenKind::RightParen,
+                            "expected `)` after method arguments",
+                        )?;
+                        self.leave();
+                        arguments
+                    };
+                    let end = self.tokens[self.at - 1].span;
+                    links += 1;
+                    if links >= crate::MAX_SYNTAX_DEPTH {
+                        self.error(Diagnostic::error(
+                            "method chain exceeds syntax nesting limit",
+                            field.span,
+                        ));
+                        return None;
+                    }
+                    expression = Expression {
+                        span: expression.span.join(end),
+                        kind: ExpressionKind::MethodCall {
+                            receiver: Box::new(expression),
+                            method: field,
+                            arguments,
+                        },
+                    };
+                    continue;
+                }
                 if let ExpressionKind::Field {
                     fields,
                     ..
@@ -56,7 +158,7 @@ impl Parser<'_> {
                     fields.push(field);
                 } else {
                     links += 1;
-                    if links >= crate::MAX_DEPTH {
+                    if links >= crate::MAX_SYNTAX_DEPTH {
                         self.error(Diagnostic::error(
                             "postfix chain exceeds syntax nesting limit",
                             field.span,
@@ -73,7 +175,7 @@ impl Parser<'_> {
                 }
             } else if let Some(open) = self.consume(TokenKind::LeftParen) {
                 links += 1;
-                if links >= crate::MAX_DEPTH {
+                if links >= crate::MAX_SYNTAX_DEPTH {
                     self.error(Diagnostic::error(
                         "functional call chain exceeds syntax nesting limit",
                         open.span,
@@ -127,11 +229,25 @@ impl Parser<'_> {
                 span: literal.span,
                 kind: ExpressionKind::String(literal),
             }),
-            TokenKind::Ident => self.parse_path_expression(allow_struct),
+            TokenKind::Ident | TokenKind::Keyword(Keyword::Value) => {
+                self.parse_path_expression(allow_struct)
+            }
+            TokenKind::LeftBrace => {
+                let span = token.span;
+                self.parse_struct_literal(
+                    Path {
+                        segments: Vec::new(),
+                        span,
+                    },
+                    Vec::new(),
+                )
+            }
+            TokenKind::Keyword(Keyword::Let) => self.parse_let_expression(),
             TokenKind::LeftBracket => self.parse_list(),
             TokenKind::LeftParen => self.parse_group(),
             TokenKind::Keyword(Keyword::Erase) => self.parse_erase(),
             TokenKind::Keyword(Keyword::Match) => self.parse_match(),
+            TokenKind::Keyword(Keyword::If) => self.parse_if(),
             TokenKind::Keyword(Keyword::Fn | Keyword::Once) => self.parse_closure(),
             TokenKind::Keyword(Keyword::Fold) => self.parse_fold(),
             TokenKind::Keyword(Keyword::SortByKeys) => self.parse_sort_by_keys(),
@@ -170,6 +286,7 @@ impl Parser<'_> {
             )?;
             let ty = self.parse_type()?;
             parameters.push(Parameter {
+                constant: false,
                 span: name.span.join(ty.span),
                 name,
                 ty,
@@ -200,6 +317,44 @@ impl Parser<'_> {
                 result,
                 body,
             },
+        })
+    }
+
+    fn parse_let_expression(&mut self) -> Option<Expression> {
+        let start = self.peek()?.span;
+        if !self.enter(start) {
+            return None;
+        }
+        let mut statements = Vec::new();
+        loop {
+            let binding = self
+                .expect_keyword(Keyword::Let, "expected `let` binding")?
+                .span;
+            statements.push(self.parse_let_statement(binding, &mut None)?);
+            if self.at_keyword(Keyword::In) {
+                break;
+            }
+            // Subsequent bindings may omit the repeated `let`.
+            if !self.at_keyword(Keyword::Let) {
+                while !self.at_keyword(Keyword::In) {
+                    let binding = self.peek()?.span;
+                    statements.push(self.parse_let_statement(binding, &mut None)?);
+                }
+                break;
+            }
+        }
+        self.expect_keyword(Keyword::In, "expected `in` after bindings")?;
+        let tail = self.parse_expression()?;
+        self.leave();
+        let span = start.join(tail.span);
+        Some(Expression {
+            kind: ExpressionKind::Let(crate::syntax::Block {
+                statements,
+                tail: Some(Box::new(tail)),
+                span,
+                incomplete: false,
+            }),
+            span,
         })
     }
 
@@ -359,7 +514,21 @@ impl Parser<'_> {
     }
 
     fn parse_path_expression(&mut self, allow_struct: bool) -> Option<Expression> {
-        let path = self.parse_path("expected path")?;
+        let mut path = self.parse_path("expected path")?;
+        if path.segments.len() == 1 && matches!(path.segments[0].text.as_str(), "true" | "false") {
+            let variant = if path.segments[0].text == "true" {
+                "True"
+            } else {
+                "False"
+            };
+            path.segments = ["std", "Bool", variant]
+                .into_iter()
+                .map(|text| Ident {
+                    text: text.to_owned(),
+                    span: path.span,
+                })
+                .collect();
+        }
         let start = path.span;
         if let Some(open) = self.consume(TokenKind::LeftParen) {
             if !self.enter(open.span) {
@@ -415,7 +584,7 @@ impl Parser<'_> {
         })
     }
 
-    fn parse_struct_literal(
+    pub(super) fn parse_struct_literal(
         &mut self,
         path: Path,
         type_arguments: Vec<Type>,
@@ -472,6 +641,7 @@ impl Parser<'_> {
             kind: ExpressionKind::Struct {
                 path,
                 type_arguments,
+                record_span: open.span.join(end),
                 fields,
                 recovery,
             },
@@ -609,6 +779,21 @@ impl Parser<'_> {
     }
 
     fn parse_pattern(&mut self) -> Option<Pattern> {
+        if self.at(TokenKind::Integer) || self.at(TokenKind::String) {
+            let literal = self.parse_literal()?;
+            if let Literal::String(string) = &literal
+                && string
+                    .parts
+                    .iter()
+                    .any(|part| !matches!(part, StringPart::Text { .. }))
+            {
+                self.error(Diagnostic::error(
+                    "match pattern must be a literal without interpolation",
+                    string.span,
+                ));
+            }
+            return Some(Pattern::Literal(literal));
+        }
         if self
             .peek()
             .is_some_and(|token| token.kind == TokenKind::Ident && self.text(token.span) == "_")
@@ -677,13 +862,19 @@ impl Parser<'_> {
         let token = self.expect(TokenKind::String, "expected string literal")?;
         let raw = self.text(token.span).to_owned();
         let bytes = raw.as_bytes();
-        if bytes.len() < 2 || bytes.last() != Some(&b'"') {
+        let delimiter = if bytes.starts_with(b"\"\"\"") {
+            3
+        } else {
+            1
+        };
+        if bytes.len() < 2 * delimiter || bytes.last() != Some(&b'"') {
             return None;
         }
+        let end = bytes.len() - delimiter;
         let mut parts = Vec::new();
-        let mut at = 1;
+        let mut at = delimiter;
         let mut text_start = at;
-        while at + 1 < bytes.len() {
+        while at < end {
             if self.cancelled() {
                 return None;
             }
@@ -701,13 +892,13 @@ impl Parser<'_> {
                 let interpolation_start = at;
                 at += 2;
                 let path_start = at;
-                while at + 1 < bytes.len() && bytes[at] != b'}' {
+                while at < end && bytes[at] != b'}' {
                     if self.cancelled() {
                         return None;
                     }
                     at += 1;
                 }
-                if at + 1 >= bytes.len() {
+                if at >= end {
                     self.error(Diagnostic::error(
                         "unterminated string interpolation",
                         Self::subspan(token.span, interpolation_start, at),
@@ -725,10 +916,10 @@ impl Parser<'_> {
                 at += 1;
             }
         }
-        if text_start < bytes.len() - 1 {
+        if text_start < end {
             parts.push(StringPart::Text {
-                source: raw[text_start..bytes.len() - 1].to_owned(),
-                span: Self::subspan(token.span, text_start, bytes.len() - 1),
+                source: raw[text_start..end].to_owned(),
+                span: Self::subspan(token.span, text_start, end),
             });
         }
         Some(StringLiteral {

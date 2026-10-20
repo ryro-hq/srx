@@ -270,6 +270,78 @@ impl PublishedRoot {
     }
 }
 
+/// A public global whose checked type is the authenticated `RecipeRef<R>`.
+/// Its initializer is evaluated only when selected, using the session's shared
+/// global cache. Enumerating bindings does not invoke their factories.
+#[derive(Clone, Debug)]
+pub struct ReferenceBinding {
+    name: String,
+    identity: Arc<CanonicalItemIdentity>,
+    result: Arc<CanonicalType>,
+    item: ItemId,
+    span: Span,
+}
+
+impl ReferenceBinding {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub const fn result_type(&self) -> &Arc<CanonicalType> {
+        &self.result
+    }
+}
+
+pub(super) fn binding_inventory(
+    program: &CheckedProgram,
+    index: &ProgramIndex<'_>,
+    budget: &mut SetupBudget,
+) -> Result<BTreeMap<String, ReferenceBinding>, EvaluationSetupError> {
+    let mut bindings = BTreeMap::new();
+    for (name, item) in program
+        .resolved()
+        .visible_bindings(SourceDomainId::project())
+    {
+        budget.charge(0)?;
+        let expression = index
+            .output_values
+            .get(&item)
+            .ok_or(EvaluationSetupError::MissingRootIdentity)?;
+        let reference = program
+            .expression(expression.span)
+            .and_then(|expression| index.canonical_type(expression.ty()))
+            .ok_or(EvaluationSetupError::MissingRootIdentity)?;
+        let CanonicalType::Specialization {
+            template,
+            arguments,
+        } = reference.as_ref()
+        else {
+            continue;
+        };
+        if template.domain() != SourceDomainId::standard_library()
+            || template.path() != ["std", "recipe", "RecipeRef"]
+        {
+            continue;
+        }
+        let [result] = arguments.as_slice() else {
+            return Err(EvaluationSetupError::MissingRootIdentity);
+        };
+        budget.charge(2 * name.len() + size_of::<(String, ReferenceBinding)>())?;
+        bindings.insert(
+            name.into(),
+            ReferenceBinding {
+                name: name.into(),
+                identity: index
+                    .identity(item)
+                    .ok_or(EvaluationSetupError::MissingRootIdentity)?,
+                result: result.clone(),
+                item,
+                span: expression.span,
+            },
+        );
+    }
+    Ok(bindings)
+}
+
 pub(super) fn inventory(
     program: &CheckedProgram,
     index: &ProgramIndex<'_>,
@@ -320,6 +392,43 @@ pub(super) fn inventory(
     Ok(members)
 }
 impl EvaluationSession<'_> {
+    pub fn reference_bindings(&self) -> impl ExactSizeIterator<Item = &ReferenceBinding> {
+        self.reference_bindings.values()
+    }
+
+    /// Evaluate a public reference initializer while preserving global and memo
+    /// identity across named lookups, aliases and ordinary output evaluation.
+    pub fn select_reference_binding(&mut self, name: &str) -> Result<Value, EvaluationQueryError> {
+        self.reserve_metadata_work(1)?;
+        let binding = self
+            .reference_bindings
+            .get(name)
+            .ok_or(EvaluationQueryError::UnknownRoot)?;
+        let (item, span, identity) = (
+            binding.item,
+            binding.span,
+            binding.identity.clone(),
+        );
+        self.select_reference_value(item, span, identity, false)
+    }
+
+    pub fn force_reference_binding(
+        &mut self,
+        name: &str,
+    ) -> Result<&RealizedRoot, EvaluationQueryError> {
+        let value = self.select_reference_binding(name)?;
+        let binding = self
+            .reference_bindings
+            .get(name)
+            .ok_or(EvaluationQueryError::UnknownRoot)?;
+        let (result, identity, span) = (
+            binding.result.clone(),
+            binding.identity.clone(),
+            binding.span,
+        );
+        self.force_reference_value(value, result, name, identity, span)
+    }
+
     /// Enumerate only root-domain public members, without evaluating any factory.
     pub fn published_members(&self) -> impl ExactSizeIterator<Item = &PublishedRoot> {
         self.published.values()
@@ -333,6 +442,16 @@ impl EvaluationSession<'_> {
             .get(name)
             .ok_or(EvaluationQueryError::UnknownRoot)?;
         let (item, span, identity) = (member.item, member.span, member.identity.clone());
+        self.select_reference_value(item, span, identity, true)
+    }
+
+    fn select_reference_value(
+        &mut self,
+        item: ItemId,
+        span: Span,
+        identity: Arc<CanonicalItemIdentity>,
+        published: bool,
+    ) -> Result<Value, EvaluationQueryError> {
         let mut evaluator = Evaluator::new(
             self.program,
             self.policy,
@@ -344,13 +463,20 @@ impl EvaluationSession<'_> {
         );
         evaluator.inherit_outputs(std::mem::take(&mut self.shared_outputs));
         evaluator.memos = std::mem::take(&mut self.memos);
-        let value = evaluator.published_value(item, span);
+        let value = if published {
+            evaluator.published_value(item, span)
+        } else {
+            evaluator.output_value(item, span)
+        };
         let error = evaluator.operation_error;
         self.shared_outputs = evaluator.take_shareable_outputs();
         self.memos = std::mem::take(&mut evaluator.memos);
         let steps = evaluator.steps;
         let expansion = evaluator.expansion;
-        let valid = evaluator.diagnostics.is_empty();
+        let diagnostics = std::mem::take(&mut evaluator.diagnostics);
+        self.diagnostics_used = self
+            .diagnostics_used
+            .saturating_add(diagnostics.len());
         drop(evaluator);
         if let Some(error) = error {
             self.failure = Some(error);
@@ -358,8 +484,8 @@ impl EvaluationSession<'_> {
         }
         self.reserve_metadata_work(steps)?;
         self.reserve_metadata_bytes(expansion)?;
-        if !valid {
-            return Err(EvaluationQueryError::InvalidSelection);
+        if !diagnostics.is_empty() {
+            return Err(EvaluationQueryError::Evaluation(diagnostics));
         }
         value.map_err(|_| EvaluationQueryError::InvalidSelection)
     }
@@ -390,6 +516,26 @@ impl EvaluationSession<'_> {
     /// Force exactly one selected public member, preserving aliases and its own origin.
     pub fn force_published(&mut self, name: &str) -> Result<&RealizedRoot, EvaluationQueryError> {
         let value = self.select_published(name)?;
+        let member = self
+            .published
+            .get(name)
+            .ok_or(EvaluationQueryError::UnknownRoot)?;
+        let (result, identity, span) = (
+            member.result.clone(),
+            member.identity.clone(),
+            member.span,
+        );
+        self.force_reference_value(value, result, name, identity, span)
+    }
+
+    fn force_reference_value(
+        &mut self,
+        value: Value,
+        result: Arc<CanonicalType>,
+        name: &str,
+        identity: Arc<CanonicalItemIdentity>,
+        span: Span,
+    ) -> Result<&RealizedRoot, EvaluationQueryError> {
         let Value::Struct {
             fields,
             ..
@@ -420,15 +566,6 @@ impl EvaluationSession<'_> {
             }
             return Ok(&self.selected[existing]);
         }
-        let member = self
-            .published
-            .get(name)
-            .ok_or(EvaluationQueryError::UnknownRoot)?;
-        let (result, identity, span) = (
-            member.result.clone(),
-            member.identity.clone(),
-            member.span,
-        );
         self.force_selected(&id, result, name, identity, span, true)
     }
 }

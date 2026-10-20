@@ -292,14 +292,7 @@ impl Receipt {
         action: &Action,
         mut check: impl FnMut() -> Result<(), BuildError>,
     ) -> Result<(), BuildError> {
-        let source = (
-            self.source,
-            if action.program.resources == BuildResources::Large {
-                super::MAX_LARGE_SOURCE_BYTES
-            } else {
-                super::MAX_SOURCE_BYTES
-            },
-        );
+        let source = (self.source, action.program.maximum_source_bytes());
         for (digest, maximum) in std::iter::once(source).chain(
             self.toolchain
                 .map(|pin| (pin, super::cache::MAX_INVENTORY_BYTES)),

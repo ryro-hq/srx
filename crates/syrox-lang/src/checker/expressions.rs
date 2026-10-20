@@ -50,8 +50,14 @@ impl Checker<'_> {
                         self.expect_same(want, &actual, value.span, "let binding");
                     }
                     let ty = expected.unwrap_or(actual);
+                    let constant = self.constant_value(value, 0);
                     if let Some(local) = self.local_id(name.span) {
                         self.bind_local(local, ty, name.span, annotation.is_some());
+                        self.body
+                            .bindings
+                            .get_mut(&local)
+                            .expect("bound local")
+                            .constant = constant;
                         if before != self.body.fact_errors {
                             self.body
                                 .bindings
@@ -99,10 +105,38 @@ impl Checker<'_> {
         if !self.charge(expression.span) {
             return Ty::Error;
         }
+        if let ExpressionKind::Struct { path, .. } = &expression.kind
+            && !path.segments.is_empty()
+            && self.target(path.span).is_some_and(|target| !matches!(target, ResolvedTarget::Item(item) if self.structs.contains_key(item)))
+            && let Some(call) = expression.record_call()
+        {
+            return self.check_expr(&call, expected, context, consuming);
+        }
         let mut elaboration = None;
         let before = self.body.fact_errors;
         let before_unknown = self.body.fact_unknowns;
         let ty = match &expression.kind {
+            ExpressionKind::MethodCall {
+                receiver,
+                method,
+                arguments,
+            } => self.check_method_call(
+                receiver,
+                method,
+                arguments,
+                expected,
+                context,
+                &mut elaboration,
+            ),
+            ExpressionKind::If {
+                condition,
+                branches,
+            } => self.check_if(condition, branches, expected, context),
+            ExpressionKind::Equality {
+                left,
+                right,
+                ..
+            } => self.check_equality(left, right, context),
             ExpressionKind::Integer(_) => self.lift_literal(Ty::Int, expected, &mut elaboration),
             ExpressionKind::String(string) => {
                 self.check_string(string, context);
@@ -155,8 +189,42 @@ impl Checker<'_> {
                     ..
                 } = ty
                 {
-                    self.check_arguments(arguments, &parameters, context, callee.span);
-                    *result
+                    let patch = if let ExpressionKind::Specialize {
+                        function,
+                        ..
+                    } = &callee.kind
+                    {
+                        match self.target(function.span).cloned() {
+                            Some(ResolvedTarget::Item(item))
+                                if self.configuration_operation(item).as_deref()
+                                    == Some("patch") =>
+                            {
+                                Some(item)
+                            }
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
+                    if let Some(item) = patch {
+                        let actual = self.check_configuration_patch(
+                            item,
+                            arguments,
+                            context,
+                            &mut elaboration,
+                            expression.span,
+                        );
+                        self.expect_same(
+                            &result,
+                            &actual,
+                            expression.span,
+                            "configuration document",
+                        );
+                        actual
+                    } else {
+                        self.check_arguments(arguments, &parameters, context, callee.span);
+                        *result
+                    }
                 } else {
                     self.error("callee is not a function value", callee.span);
                     Ty::Error
@@ -175,12 +243,34 @@ impl Checker<'_> {
                 context,
                 expression.span,
             ),
+            ExpressionKind::Let(block) => {
+                let bindings = self.body.bindings.clone();
+                let result = self.check_block(block, expected, context);
+                // Preserve moves of enclosing affine values, discard lexical locals.
+                self.body
+                    .bindings
+                    .retain(|local, _| bindings.contains_key(local));
+                result
+            }
             ExpressionKind::Struct {
                 path,
                 type_arguments,
                 fields,
                 recovery,
-            } => self.check_struct_literal(path, type_arguments, fields, recovery, context),
+                ..
+            } => {
+                if self.partial_record == Some(path.span) {
+                    elaboration = Some(Elaboration::PartialRecord);
+                }
+                self.check_struct_literal(
+                    path,
+                    type_arguments,
+                    fields,
+                    recovery,
+                    expected,
+                    context,
+                )
+            }
             ExpressionKind::List(items) => {
                 self.check_list(items, expected, context, expression.span)
             }
@@ -213,6 +303,12 @@ impl Checker<'_> {
             }
             ExpressionKind::Concat(parts) => self.check_concat(parts, expected, context),
         };
+        if self.global_initializer.is_some() && self.affine(&ty, expression.span) {
+            self.error(
+                "global initializer cannot consume or construct an affine resource",
+                expression.span,
+            );
+        }
         if self.reserve_metadata(expression.span) {
             self.expressions.push(CheckedExpression {
                 span: expression.span,
@@ -267,6 +363,8 @@ impl Checker<'_> {
         context: Context,
         span: Span,
     ) -> Ty {
+        let previous_global = self.global_initializer.take();
+        let previous_mode = std::mem::replace(&mut self.static_mode, false);
         let mut outer = self.body.bindings.clone();
         let mut captures = BTreeSet::new();
         let mut recorded = BTreeSet::new();
@@ -338,6 +436,8 @@ impl Checker<'_> {
             }
         }
         self.body.bindings = outer;
+        self.global_initializer = previous_global;
+        self.static_mode = previous_mode;
         Ty::Function {
             parameters: arguments,
             result: Box::new(return_type),
@@ -361,7 +461,20 @@ impl Checker<'_> {
                     .factory();
                 self.published_member_type(factory, path.span)
             }
-            Some(ResolvedTarget::Local(local)) => self.use_local(local, path.span, consuming),
+            Some(ResolvedTarget::Local(local)) => {
+                let ty = self.use_local(local, path.span, consuming);
+                if matches!(ty, Ty::Str | Ty::Int)
+                    && self
+                        .body
+                        .bindings
+                        .get(&local)
+                        .is_some_and(|binding| binding.constant.is_some())
+                {
+                    self.lift_literal(ty, expected, elaboration)
+                } else {
+                    ty
+                }
+            }
             Some(ResolvedTarget::EnumVariant {
                 enumeration,
                 index,
@@ -394,6 +507,14 @@ impl Checker<'_> {
                 self.empty_variant(enumeration, index, expected, path.span)
             }
             Some(ResolvedTarget::Item(item)) => {
+                if self.global_values.contains_key(&item) {
+                    let ty = self.check_global(item, path.span);
+                    return if self.global_constants.contains_key(&item) {
+                        self.lift_literal(ty, expected, elaboration)
+                    } else {
+                        ty
+                    };
+                }
                 if let Some(ty) = self.output_values.get(&item).copied() {
                     let resolved = self.resolve_type(ty, &BTreeMap::new(), 0);
                     if self.affine(&resolved, path.span) {
@@ -405,6 +526,16 @@ impl Checker<'_> {
                     return resolved;
                 }
                 if let Some((parameters, result)) = self.function_types.get(&item) {
+                    if self.functions[&item].declaration.is_static()
+                        || self.functions[&item].declaration.has_bounds()
+                        || self.functions[&item].declaration.abstract_member
+                    {
+                        self.error(
+                            "const functions require a direct call with known arguments",
+                            path.span,
+                        );
+                        return Ty::Error;
+                    }
                     if !self.function_parameters(item).is_empty() {
                         return self.infer_function_value(item, expected, path.span, elaboration);
                     }
@@ -503,6 +634,21 @@ impl Checker<'_> {
             return *result;
         }
         if let Some(ResolvedTarget::Local(local)) = self.target(callee.span).cloned() {
+            if callee.segments.len() == 2 && self.type_bounds.contains_key(&local) {
+                if let Some(trait_id) =
+                    self.bounded_method(local, &callee.segments[1].text, callee.span)
+                {
+                    return self.check_trait_call(
+                        trait_id,
+                        &callee.segments[1].text,
+                        arguments,
+                        context,
+                        callee.span,
+                        elaboration,
+                    );
+                }
+                return Ty::Error;
+            }
             let ty = self.use_local(local, callee.span, true);
             if let Ty::Function {
                 parameters,
@@ -522,7 +668,7 @@ impl Checker<'_> {
             }
             return Ty::Error;
         };
-        if self.output_values.contains_key(&item) {
+        if self.output_values.contains_key(&item) || self.global_values.contains_key(&item) {
             let ty = self.check_path_value(callee, None, true, &mut None);
             if let Ty::Function {
                 parameters,
@@ -536,7 +682,34 @@ impl Checker<'_> {
             self.error("callee is not a function value", callee.span);
             return Ty::Error;
         }
+        if self.configuration_operation(item).as_deref() == Some("patch") {
+            return self.check_configuration_patch(
+                item,
+                arguments,
+                context,
+                elaboration,
+                callee.span,
+            );
+        }
         if let Some((parameters, result)) = self.function_types.get(&item).cloned() {
+            if self.functions[&item].declaration.abstract_member {
+                let info = self.functions[&item];
+                return self.check_trait_call(
+                    info.context.module,
+                    &info.declaration.name.text,
+                    arguments,
+                    context,
+                    callee.span,
+                    elaboration,
+                );
+            }
+            if self.functions.get(&item).is_some_and(|info| {
+                info.declaration.is_static()
+                    || info.declaration.has_bounds()
+                    || self.global_initializer.is_some()
+            }) {
+                return self.check_static_call(item, arguments, context, callee.span, elaboration);
+            }
             self.record_arguments(item, arguments);
             if !self.function_parameters(item).is_empty() {
                 let (result, substitutions) = self.infer_call(
@@ -600,9 +773,21 @@ impl Checker<'_> {
         type_arguments: &[Type],
         fields: &[StructField],
         recovery: &[Span],
+        expected: Option<&Ty>,
         context: Context,
     ) -> Ty {
-        let Some(ResolvedTarget::Item(item)) = self.target(path.span).cloned() else {
+        let item = if path.segments.is_empty() {
+            let Some(item) = expected.and_then(Ty::nominal_head) else {
+                self.error(
+                    "attribute set requires an expected configuration type",
+                    path.span,
+                );
+                return Ty::Error;
+            };
+            item
+        } else if let Some(ResolvedTarget::Item(item)) = self.target(path.span).cloned() {
+            item
+        } else {
             return Ty::Error;
         };
         let raw_parameters: BTreeMap<_, _> = self
@@ -611,16 +796,23 @@ impl Checker<'_> {
             .iter()
             .map(|(&parameter, ty)| (parameter, raw_from_ty(ty.clone())))
             .collect();
-        let raw = self.expand_item_type(
-            item,
-            type_arguments,
-            &raw_parameters,
-            0,
-            path.span,
-        );
-        let ty = self
-            .concretize(raw, &self.body.type_parameters.clone(), path.span)
-            .unwrap_or(Ty::Error);
+        let raw = if path.segments.is_empty() {
+            raw_from_ty(expected.cloned().unwrap_or(Ty::Error))
+        } else {
+            self.expand_item_type(
+                item,
+                type_arguments,
+                &raw_parameters,
+                0,
+                path.span,
+            )
+        };
+        let ty = if path.segments.is_empty() {
+            expected.cloned().unwrap_or(Ty::Error)
+        } else {
+            self.concretize(raw, &self.body.type_parameters.clone(), path.span)
+                .unwrap_or(Ty::Error)
+        };
         self.validate_concrete_type(&ty, path.span);
         self.track_generic_instances(&ty, path.span);
         let Some(info) = self.structs.get(&item).cloned() else {
@@ -691,7 +883,11 @@ impl Checker<'_> {
             self.recover_bindings(None, *gap);
         }
         for (name, (field, _)) in declared {
-            if recovery.is_empty() && field.default.is_none() && !seen.contains(&name) {
+            if self.partial_record != Some(path.span)
+                && recovery.is_empty()
+                && field.default.is_none()
+                && !seen.contains(&name)
+            {
                 self.error(format!("missing field `{name}`"), path.span);
             }
         }
@@ -832,6 +1028,9 @@ impl Checker<'_> {
         context: Context,
     ) -> Ty {
         let scrutinee = self.check_expr(value, None, context, true);
+        if self.literal_match_type(&scrutinee) {
+            return self.check_literal_match(&scrutinee, value, arms, expected, context);
+        }
         let Some(enumeration) = Ty::nominal_head(&scrutinee) else {
             self.error("only an enum can be matched", value.span);
             return Ty::Error;
@@ -840,12 +1039,12 @@ impl Checker<'_> {
             self.error("only an enum can be matched", value.span);
             return Ty::Error;
         }
+        // Validate every pattern before choosing a known branch. Discarded
+        // values may be target-specific; malformed patterns never are.
         let mut covered = BTreeSet::new();
         let mut wildcard = false;
-        let baseline = self.body.bindings.clone();
-        let mut merged = baseline.clone();
-        let mut result = expected.cloned();
-        for (arm_index, arm) in arms.iter().enumerate() {
+        let mut variants = Vec::with_capacity(arms.len());
+        for arm in arms {
             if !self.charge(arm.span) {
                 return Ty::Error;
             }
@@ -855,9 +1054,18 @@ impl Checker<'_> {
                     arm.span,
                 );
             }
-            self.body.bindings = baseline.clone();
-            match &arm.pattern {
-                Pattern::Wildcard(_) => wildcard = true,
+            let index = match &arm.pattern {
+                Pattern::Literal(_) => {
+                    self.error(
+                        "literal pattern requires a string or integer",
+                        arm.span,
+                    );
+                    None
+                }
+                Pattern::Wildcard(_) => {
+                    wildcard = true;
+                    None
+                }
                 Pattern::Path(path)
                 | Pattern::Variant {
                     path,
@@ -884,7 +1092,19 @@ impl Checker<'_> {
                         _ => None,
                     };
                     if let Some(index) = index {
-                        self.bind_variant_pattern(&arm.pattern, &scrutinee, index, path.span);
+                        let bindings = match &arm.pattern {
+                            Pattern::Variant {
+                                bindings,
+                                ..
+                            } => bindings.len(),
+                            _ => 0,
+                        };
+                        if bindings != self.variant_payload(&scrutinee, index).len() {
+                            self.error(
+                                "pattern payload binding count mismatch",
+                                path.span,
+                            );
+                        }
                         if self.reserve_metadata(path.span) {
                             self.patterns.push(CheckedPattern {
                                 span: path.span,
@@ -902,7 +1122,76 @@ impl Checker<'_> {
                         let name = path.segments.last().map_or("", |name| &name.text);
                         self.error(format!("enum has no variant `{name}`"), path.span);
                     }
+                    index
                 }
+            };
+            variants.push(index);
+        }
+        if self.static_mode
+            && let Some(constant) = self.constant_value(value, 0)
+        {
+            for (arm, index) in arms.iter().zip(&variants) {
+                if !self.charge(arm.span) {
+                    return Ty::Error;
+                }
+                if self.static_pattern_matches(&arm.pattern, &constant, arm.span) {
+                    let baseline: BTreeSet<_> = self.body.bindings.keys().copied().collect();
+                    if let Some(index) = index {
+                        self.bind_variant_pattern(
+                            &arm.pattern,
+                            &scrutinee,
+                            *index,
+                            Some(&constant),
+                        );
+                    }
+                    let result = self.check_expr(&arm.value, expected, context, true);
+                    self.body
+                        .bindings
+                        .retain(|local, _| baseline.contains(local));
+                    return result;
+                }
+            }
+            let trace = self.static_descriptions.join(" -> ");
+            let requested = super::specialization::constant_description(&constant, self);
+            let alternatives = arms
+                .iter()
+                .map(|arm| match &arm.pattern {
+                    Pattern::Path(path)
+                    | Pattern::Variant {
+                        path,
+                        ..
+                    } => path
+                        .segments
+                        .iter()
+                        .map(|part| part.text.as_str())
+                        .collect::<Vec<_>>()
+                        .join("::"),
+                    Pattern::Wildcard(_) => "_".into(),
+                    Pattern::Literal(_) => "<invalid>".into(),
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.error(
+                format!("static match has no applicable case: {trace}; requested {requested}; alternatives: {alternatives}"),
+                self.static_calls.first().copied().unwrap_or(value.span),
+            );
+            return Ty::Error;
+        }
+        let baseline = self.body.bindings.clone();
+        let mut merged = baseline.clone();
+        let mut result = expected.cloned();
+        for (arm_index, (arm, index)) in arms.iter().zip(variants).enumerate() {
+            if !self.charge(arm.span) {
+                return Ty::Error;
+            }
+            for _ in baseline.values() {
+                if !self.charge(arm.span) {
+                    return Ty::Error;
+                }
+            }
+            self.body.bindings = baseline.clone();
+            if let Some(index) = index {
+                self.bind_variant_pattern(&arm.pattern, &scrutinee, index, None);
             }
             let got = self.check_expr(&arm.value, result.as_ref(), context, true);
             if let Some(want) = &result {
@@ -934,10 +1223,10 @@ impl Checker<'_> {
             else {
                 continue;
             };
-            let Some(ResolvedTarget::Local(local)) = self.target(path.span).cloned() else {
-                continue;
-            };
-            let mut ty = self.use_local(local, path.span, true);
+            // Interpolation reads the same value as a path expression. In
+            // particular, declarations are not values and affine outputs
+            // cannot become reusable through string interpolation.
+            let mut ty = self.check_path_value(path, None, true, &mut None);
             for field in path.segments.iter().skip(1) {
                 ty = self.project(&ty, &field.text, context, field.span);
             }

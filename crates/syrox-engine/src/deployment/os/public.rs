@@ -78,6 +78,29 @@ impl OsInstallation {
     pub fn id(&self) -> &str {
         self.0.id()
     }
+
+    /// Read candidate evidence through this pinned installation identity.
+    pub fn list(
+        &self,
+        cancellation: &Cancellation,
+        deadline: Instant,
+    ) -> Result<Vec<OsCandidateEntry>, OsGenerationError> {
+        Ok(self
+            .0
+            .list(cancellation, deadline)?
+            .into_iter()
+            .map(|entry| OsCandidateEntry {
+                pin: entry.pin,
+                phase: entry
+                    .phase
+                    .map(|phase| match phase {
+                        CandidatePhase::Preparing => OsCandidatePhase::Preparing,
+                        CandidatePhase::Prepared => OsCandidatePhase::Prepared,
+                    })
+                    .map_err(|_| "invalid candidate journal evidence".into()),
+            })
+            .collect())
+    }
 }
 
 #[derive(Debug)]
@@ -121,27 +144,53 @@ pub fn prepare_os_generation(
     Ok(OsGenerationSummary::from(&retained))
 }
 
+/// Prepare an empty desired generation through the normal retention protocol.
+/// This needs no project source, package realization or service-manager action.
+pub fn prepare_empty_os_generation(
+    configuration: &OsPreparation<'_>,
+    cancellation: &Cancellation,
+    deadline: Instant,
+) -> Result<OsGenerationSummary, OsGenerationError> {
+    let launcher = super::LauncherIdentity::new(configuration.launcher_digest, 1)
+        .map_err(|error| OsGenerationError(error.to_string()))?;
+    let retained = configuration.installation.0.prepare_empty(
+        launcher,
+        configuration.store,
+        configuration.launcher,
+        cancellation,
+        deadline,
+    )?;
+    configuration.installation.0.prepare_launcher(
+        &retained,
+        configuration.store,
+        cancellation,
+        deadline,
+    )?;
+    configuration
+        .installation
+        .0
+        .prepare_configuration(&retained, cancellation, deadline)?;
+    Ok(OsGenerationSummary::from(&retained))
+}
+
+/// Open existing installation authority without initializing or repairing it.
+pub fn open_os_installation(
+    path: &Path,
+    cancellation: &Cancellation,
+    deadline: Instant,
+) -> Result<OsInstallation, OsGenerationError> {
+    Ok(OsInstallation(
+        GenerationInstallation::open_existing(path, cancellation, deadline)?,
+    ))
+}
+
 /// List journal evidence only, without opening or creating a Store.
 pub fn list_os_generations(
     path: &Path,
     cancellation: &Cancellation,
     deadline: Instant,
 ) -> Result<Vec<OsCandidateEntry>, OsGenerationError> {
-    let installation = GenerationInstallation::open_existing(path, cancellation, deadline)?;
-    Ok(installation
-        .list(cancellation, deadline)?
-        .into_iter()
-        .map(|entry| OsCandidateEntry {
-            pin: entry.pin,
-            phase: entry
-                .phase
-                .map(|phase| match phase {
-                    CandidatePhase::Preparing => OsCandidatePhase::Preparing,
-                    CandidatePhase::Prepared => OsCandidatePhase::Prepared,
-                })
-                .map_err(|_| "invalid candidate journal evidence".into()),
-        })
-        .collect())
+    open_os_installation(path, cancellation, deadline)?.list(cancellation, deadline)
 }
 
 pub fn inspect_os_generation(
@@ -229,6 +278,57 @@ mod tests {
             )
             .unwrap()
             .is_empty()
+        );
+    }
+}
+
+#[cfg(test)]
+mod empty_tests {
+    use super::*;
+    use std::time::Duration;
+    #[test]
+    fn empty_generation_is_retained_without_project_and_preserves_installation_identity() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("installation");
+        crate::deployment::os::profile::ensure_profile_directory(&path).unwrap();
+        let cancel = Cancellation::default();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let installation = initialize_os_installation(&path, &cancel, deadline).unwrap();
+        let store = Store::initialize(&root.path().join("store")).unwrap();
+        let worker = root.path().join("worker");
+        std::fs::write(&worker, b"nonexecuted launcher fixture").unwrap();
+        let configuration = OsPreparation {
+            installation: &installation,
+            store: &store,
+            launcher: &worker,
+            launcher_digest: ContentDigest::sha256(b"nonexecuted launcher fixture"),
+        };
+        let first = prepare_empty_os_generation(&configuration, &cancel, deadline).unwrap();
+        let second = prepare_empty_os_generation(&configuration, &cancel, deadline).unwrap();
+        assert_eq!(first.pin, second.pin);
+        assert_eq!(
+            (
+                first.outputs,
+                first.services,
+                first.commands,
+                first.processes,
+                first.configurations
+            ),
+            (0, 0, 0, 0, 0)
+        );
+        let reopened = inspect_os_generation(&path, &store, first.pin, &cancel, deadline).unwrap();
+        assert_eq!(reopened.pin, first.pin);
+        assert_eq!(
+            open_os_installation(&path, &cancel, deadline)
+                .unwrap()
+                .id(),
+            installation.id()
+        );
+        assert!(
+            crate::deployment::os::inspect_os_status(&path, &cancel, deadline)
+                .unwrap()
+                .desired
+                .is_none()
         );
     }
 }

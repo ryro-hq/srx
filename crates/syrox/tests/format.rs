@@ -98,3 +98,20 @@ fn stdin_preserves_literal_bytes_and_file_inputs_are_bounded() {
         assert!(String::from_utf8_lossy(&result.stderr).contains("regular source file"));
     }
 }
+
+#[test]
+fn formats_public_and_private_module_bindings_and_platform_conditions() {
+    let mut child = command()
+        .arg("-")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"pub let target:Platform=pkgs.forPlatform{system=\"linux-x86_64\";libc=\"musl\";};let selected=if target.libc==\"musl\"{Recipe{}}else{std::Recipe{}};").unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let formatted = String::from_utf8(output.stdout).unwrap();
+    assert!(formatted.contains("pub let target: Platform"));
+    assert!(formatted.contains("let selected = if"));
+    assert!(formatted.contains("std::Recipe"));
+}

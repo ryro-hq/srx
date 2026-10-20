@@ -80,6 +80,8 @@ pub(super) enum Expected {
 }
 
 pub(super) struct Resolver<'a> {
+    implementation_modules: BTreeSet<ModuleId>,
+    contract_modules: BTreeSet<ModuleId>,
     pub(super) parsed: &'a ParsedSources,
     pub(super) modules: Vec<ResolvedModule>,
     pub(super) module_ids: BTreeMap<DomainPath, ModuleId>,
@@ -90,6 +92,9 @@ pub(super) struct Resolver<'a> {
     pub(super) project_owners: BTreeMap<SourceDomainId, SourceDomainId>,
     pub(super) public_imports: BTreeSet<(ModuleId, String)>,
     pub(super) enum_variants: BTreeMap<ItemId, BTreeMap<String, u32>>,
+    // A witness that a bare name can denote a variant. Its actual enum remains
+    // contextual, including when that type is obtained through inference.
+    pub(super) contextual_variants: BTreeMap<String, (ItemId, u32)>,
     pub(super) references: Vec<ResolvedReference>,
     pub(super) module_exports: BTreeMap<(usize, u32, u32), Arc<[ResolvedModuleExport]>>,
     pub(super) inventories: BTreeSet<Arc<[ResolvedModuleExport]>>,
@@ -193,6 +198,8 @@ impl<'a> Resolver<'a> {
 
     pub(super) fn new(parsed: &'a ParsedSources) -> Self {
         Self {
+            implementation_modules: BTreeSet::new(),
+            contract_modules: BTreeSet::new(),
             parsed,
             modules: Vec::new(),
             module_ids: BTreeMap::new(),
@@ -203,6 +210,7 @@ impl<'a> Resolver<'a> {
             project_owners: BTreeMap::new(),
             public_imports: BTreeSet::new(),
             enum_variants: BTreeMap::new(),
+            contextual_variants: BTreeMap::new(),
             references: Vec::new(),
             module_exports: BTreeMap::new(),
             inventories: BTreeSet::new(),
@@ -289,7 +297,7 @@ impl<'a> Resolver<'a> {
                 .collect();
             while let Some((item, module_path)) = stack.pop() {
                 if let ItemKind::Module(module) = &item.kind {
-                    let mut child = module_path;
+                    let mut child = module_path.clone();
                     child.extend(
                         module
                             .path
@@ -299,6 +307,13 @@ impl<'a> Resolver<'a> {
                     );
                     for nested in module.items.iter().rev() {
                         stack.push((nested, child.clone()));
+                    }
+                    if module.contract.is_some() {
+                        result.push(LocatedItem {
+                            item,
+                            domain,
+                            module_path,
+                        });
                     }
                 } else {
                     result.push(LocatedItem {

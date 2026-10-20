@@ -122,8 +122,37 @@ pub fn recover_os_generation(
     cancellation: &Cancellation,
     deadline: Instant,
 ) -> Result<OsRecoveryReport, OsRecoveryError> {
+    recover_with_identity(request, None, cancellation, deadline)
+}
+
+/// Reconcile only the installation identity bound by the selected profile.
+pub fn recover_os_generation_with_identity(
+    request: &OsRecoveryRequest,
+    installation: &str,
+    cancellation: &Cancellation,
+    deadline: Instant,
+) -> Result<OsRecoveryReport, OsRecoveryError> {
+    recover_with_identity(
+        request,
+        Some(installation),
+        cancellation,
+        deadline,
+    )
+}
+
+fn recover_with_identity(
+    request: &OsRecoveryRequest,
+    installation: Option<&str>,
+    cancellation: &Cancellation,
+    deadline: Instant,
+) -> Result<OsRecoveryReport, OsRecoveryError> {
     let context = execution_context(request, cancellation, deadline)?;
     let mut opened = OpenedRecovery::open(request, cancellation, deadline)?;
+    if installation.is_some_and(|id| opened.installation.id() != id) {
+        return Err(failure(
+            "profile installation identity comparison",
+        ));
+    }
     let recorded_epoch = opened.snapshot.operations[&request.operation]
         .epoch
         .clone();

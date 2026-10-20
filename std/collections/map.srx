@@ -1,37 +1,28 @@
 mod std::maps {
     value MapKey(str);
-
     enum MapEntry<T> {
         Entry(MapKey, T),
     }
-
     opaque struct OrderedMap<T> {
         entries: [MapEntry<T>];
     }
-
     enum Indexed<T> {
         Entries([MapKey], [MapEntry<T>]),
     }
-
     enum KeyScan {
         Empty,
         Previous(MapKey),
         Duplicate(MapKey),
     }
-
     pub fn map_empty<T>() -> OrderedMap<T> {
-        OrderedMap<T> { entries = []; }
+        OrderedMap<T> {
+            entries = [];
+        }
     }
-
     // Ordering is lexicographic UTF-8 bytes. Insertion never overwrites a key.
-    pub fn map_insert<T>(
-        items: OrderedMap<T>,
-        key: MapKey,
-        item: T,
-    ) -> Result<OrderedMap<T>, MapKey> {
+    pub fn map_insert<T>(items: OrderedMap<T>, key: MapKey, item: T,) -> Result<OrderedMap<T>, MapKey> {
         map_from_entries(items.entries ++ [MapEntry::Entry(key, item)])
     }
-
     pub fn map_from_entries<T>(entries: [MapEntry<T>]) -> Result<OrderedMap<T>, MapKey> {
         let indexed = fold(
             entries,
@@ -40,7 +31,8 @@ mod std::maps {
                 match state {
                     Entries(keys, items) => match entry {
                         Entry(key, item) => Indexed::Entries(
-                            keys ++ [key], items ++ [MapEntry::Entry(key, item)],
+                            keys ++ [key],
+                            items ++ [MapEntry::Entry(key, item)],
                         ),
                     },
                 }
@@ -50,7 +42,6 @@ mod std::maps {
             Entries(keys, items) => finish_map(keys, items),
         }
     }
-
     fn finish_map<T>(keys: [MapKey], items: [MapEntry<T>]) -> Result<OrderedMap<T>, MapKey> {
         let scanned = fold(
             sort_by_keys(keys, keys),
@@ -59,20 +50,26 @@ mod std::maps {
                 match state {
                     Empty => KeyScan::Previous(key),
                     Previous(previous) => compare(
-                        previous, key,
-                        KeyScan::Previous(key), KeyScan::Duplicate(key), KeyScan::Previous(key),
+                        previous,
+                        key,
+                        KeyScan::Previous(key),
+                        KeyScan::Duplicate(key),
+                        KeyScan::Previous(key),
                     ),
                     Duplicate(key) => KeyScan::Duplicate(key),
                 }
             }
         );
         match scanned {
-            Empty => Result::Ok(OrderedMap<T> { entries = sort_by_keys(items, keys); }),
-            Previous(_) => Result::Ok(OrderedMap<T> { entries = sort_by_keys(items, keys); }),
+            Empty => Result::Ok(OrderedMap<T> {
+                    entries = sort_by_keys(items, keys);
+                }),
+            Previous(_) => Result::Ok(OrderedMap<T> {
+                    entries = sort_by_keys(items, keys);
+                }),
             Duplicate(key) => Result::Err(key),
         }
     }
-
     // Lookup consumes an affine map; reusable maps remain reusable values.
     pub fn map_get<T>(items: OrderedMap<T>, key: MapKey) -> Option<T> {
         fold(
@@ -94,27 +91,24 @@ mod std::maps {
             },
         )
     }
-
     pub fn map_entries<T>(items: OrderedMap<T>) -> [MapEntry<T>] {
         items.entries
     }
-
-    pub fn map_merge<T>(
-        left: OrderedMap<T>,
-        right: OrderedMap<T>,
-    ) -> Result<OrderedMap<T>, MapKey> {
+    pub fn map_merge<T>(left: OrderedMap<T>, right: OrderedMap<T>,) -> Result<OrderedMap<T>, MapKey> {
         map_from_entries(left.entries ++ right.entries)
     }
-
     pub fn map_keys<T>(items: OrderedMap<T>) -> [MapKey] {
         map(items.entries, fn(entry: MapEntry<T>) -> MapKey {
-            match entry { Entry(key, _) => key }
-        })
+                match entry {
+                    Entry(key, _) => key
+                }
+            })
     }
-
     pub fn map_values<T>(items: OrderedMap<T>) -> [T] {
         map(items.entries, fn(entry: MapEntry<T>) -> T {
-            match entry { Entry(_, item) => item }
-        })
+                match entry {
+                    Entry(_, item) => item
+                }
+            })
     }
 }

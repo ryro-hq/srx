@@ -23,6 +23,13 @@ pub(crate) mod tests;
 
 #[derive(Debug, Error)]
 pub enum DeploymentError {
+    #[error("native configuration validator `{command}` rejected service `{service}`")]
+    ConfigurationValidation {
+        service: String,
+        command: String,
+    },
+    #[error("configuration validation I/O failed: {0}")]
+    ValidationIo(#[from] std::io::Error),
     #[error("invalid public command namespace: {0}")]
     CommandNamespace(&'static str),
     #[error("consumer `{0}` is absent or ambiguous in the prepared plan")]
@@ -271,7 +278,6 @@ pub fn prepare_consumer(
         worker,
         offline,
     });
-    let store = context.store()?;
     let mut results = BTreeMap::new();
     let mut outputs = BTreeMap::new();
     for reference in &selection.outputs {
@@ -286,8 +292,11 @@ pub fn prepare_consumer(
                 |stage| progress(&reference.package, stage),
             )?);
         }
-        let (view, _) =
-            results[&reference.package].materialize(store, &reference.output, cancellation)?;
+        let (view, _) = results[&reference.package].materialize(
+            context.store()?,
+            &reference.output,
+            cancellation,
+        )?;
         outputs.insert(reference.clone(), view);
     }
     finish(prepared, selection, outputs, cancellation)
@@ -330,17 +339,20 @@ fn finish(
             },
         );
     }
-    Ok(PreparedConsumer {
+    let consumer = PreparedConsumer {
         _prepared: prepared,
         selection,
         outputs,
         commands,
-    })
+    };
+    validation::validate(&consumer, cancellation)?;
+    Ok(consumer)
 }
 
 use crate::{plan::PlanConsumerKind, store::ContentDigest};
 pub(crate) mod encoding;
 mod validate_manifest;
+mod validation;
 use encoding::{Argument, Config, Invocation, Output, Provenance, Role, Selection};
 pub(crate) use encoding::{GenerationManifest, LauncherIdentity};
 
@@ -499,6 +511,12 @@ fn operational_manifest(
 
 fn record_services(manifest: &mut GenerationManifest, services: &[crate::plan::PlanService]) {
     for service in services {
+        for validator in service.validators() {
+            manifest.validators.insert(encoding::command_key(
+                Some(service.id()),
+                validator,
+            ));
+        }
         manifest.services.insert(service.id().into());
         if !service.secrets().is_empty() {
             manifest.secrets.insert(

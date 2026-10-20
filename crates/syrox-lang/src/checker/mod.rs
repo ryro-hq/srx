@@ -13,17 +13,24 @@
 //! checking. Publishing those facts does not create a cache across revisions.
 
 mod bodies;
+mod configuration;
+mod constants;
+mod control;
 mod declarations;
 mod editor;
 mod enums;
 mod expressions;
 mod functions;
+mod global_effects;
+mod globals;
 mod index;
 mod inference;
 mod model;
 mod ownership;
 mod policy;
 mod relocation;
+mod specialization;
+mod traits;
 mod types;
 
 pub use bodies::{BodyBudget, BodyEffects, BodyReplayState};
@@ -36,6 +43,7 @@ pub use model::{
     OwnershipUse, OwnershipUseKind, OwnershipUseStatus, ParameterHint, PolicyMismatch, Ty,
     TypeStatus, check, check_with_limits,
 };
+pub use model::{Constant, StaticFacts};
 pub use policy::{
     CanonicalItemIdentity, CheckPolicy, ErasureRule, MAX_ALIAS_DEPTH, MAX_CHECK_WORK,
     MAX_GENERIC_INSTANCES, MAX_METADATA_UNITS, MAX_POLICY_BYTES, MAX_POLICY_ENTRIES,
@@ -108,6 +116,7 @@ enum RawTy {
 
 #[derive(Clone)]
 struct Binding {
+    constant: Option<Constant>,
     ty: Ty,
     affine: bool,
     moved: Option<Span>,
@@ -118,6 +127,13 @@ struct Binding {
 }
 
 struct Checker<'a> {
+    module_contracts: BTreeMap<ModuleId, &'a crate::syntax::ModuleContract>,
+    type_bounds: BTreeMap<LocalId, Vec<ModuleId>>,
+    implementations: BTreeMap<(ModuleId, Ty), ModuleId>,
+    methods: BTreeMap<Ty, Vec<ModuleId>>,
+    static_calls: Vec<Span>,
+    static_mode: bool,
+    static_instances: usize,
     program: &'a ResolvedProgram,
     policy: &'a CheckPolicy,
     limits: CheckLimits,
@@ -137,13 +153,25 @@ struct Checker<'a> {
     enums: BTreeMap<ItemId, &'a Enum>,
     primitives: BTreeMap<ItemId, PrimitiveInfo<'a>>,
     functions: BTreeMap<ItemId, FunctionInfo<'a>>,
+    global_values: BTreeMap<ItemId, (&'a crate::syntax::GlobalBinding, Context)>,
+    global_types: BTreeMap<ItemId, Ty>,
+    global_constants: BTreeMap<ItemId, Constant>,
+    default_constants: BTreeMap<(ItemId, usize), Option<Constant>>,
+    active_defaults: BTreeSet<(ItemId, usize)>,
+    active_globals: Vec<ItemId>,
+    global_initializer: Option<ItemId>,
+    global_facts: BTreeMap<(u32, u32, u32), CheckedExpression>,
+    static_descriptions: Vec<String>,
+    global_patterns: BTreeMap<(u32, u32, u32), CheckedPattern>,
     output_values: BTreeMap<ItemId, &'a Type>,
+    output_initializers: BTreeMap<ItemId, &'a Expression>,
     published_types: BTreeMap<ItemId, Ty>,
     carriers: BTreeSet<ItemId>,
     generic_instances: BTreeSet<Ty>,
     struct_fields: BTreeMap<ItemId, Vec<(String, RawTy, bool)>>,
     function_types: BTreeMap<ItemId, (Vec<Ty>, Ty)>,
     body: BodyState,
+    partial_record: Option<Span>,
     prior_diagnostics: usize,
     prior_metadata: usize,
     #[cfg(test)]
@@ -163,6 +191,13 @@ impl<'a> Checker<'a> {
         limits: CheckLimits,
     ) -> Self {
         Self {
+            module_contracts: BTreeMap::new(),
+            type_bounds: BTreeMap::new(),
+            implementations: BTreeMap::new(),
+            methods: BTreeMap::new(),
+            static_calls: Vec::new(),
+            static_mode: false,
+            static_instances: 0,
             program,
             policy,
             limits,
@@ -182,13 +217,25 @@ impl<'a> Checker<'a> {
             enums: BTreeMap::new(),
             primitives: BTreeMap::new(),
             functions: BTreeMap::new(),
+            global_values: BTreeMap::new(),
+            global_types: BTreeMap::new(),
+            global_constants: BTreeMap::new(),
+            default_constants: BTreeMap::new(),
+            active_defaults: BTreeSet::new(),
+            active_globals: Vec::new(),
+            global_initializer: None,
+            global_facts: BTreeMap::new(),
+            static_descriptions: Vec::new(),
+            global_patterns: BTreeMap::new(),
             output_values: BTreeMap::new(),
+            output_initializers: BTreeMap::new(),
             published_types: BTreeMap::new(),
             carriers: BTreeSet::new(),
             generic_instances: BTreeSet::new(),
             struct_fields: BTreeMap::new(),
             function_types: BTreeMap::new(),
             body: BodyState::default(),
+            partial_record: None,
             prior_diagnostics: 0,
             prior_metadata: 0,
             #[cfg(test)]
@@ -219,11 +266,14 @@ impl<'a> Checker<'a> {
         if self.exhausted {
             return;
         }
+        self.index_traits();
         self.collect_function_types();
+        self.validate_traits();
         self.collect_editor_types();
         if self.exhausted {
             return;
         }
+        self.check_globals();
         self.check_defaults();
         if self.exhausted {
             return;
@@ -233,6 +283,27 @@ impl<'a> Checker<'a> {
             return;
         }
         self.check_outputs();
+        let mut spans: BTreeSet<_> = self
+            .expressions
+            .iter()
+            .map(|fact| span_key(fact.span))
+            .collect();
+        self.expressions.extend(
+            std::mem::take(&mut self.global_facts)
+                .into_values()
+                .filter(|fact| spans.insert(span_key(fact.span))),
+        );
+        let mut spans: BTreeSet<_> = self
+            .patterns
+            .iter()
+            .map(|fact| span_key(fact.span))
+            .collect();
+        self.patterns.extend(
+            std::mem::take(&mut self.global_patterns)
+                .into_values()
+                .filter(|fact| spans.insert(span_key(fact.span))),
+        );
+        self.check_global_effects();
     }
 }
 

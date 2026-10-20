@@ -4,23 +4,32 @@ mod std::pkg {
     value CommandName(str);
     value BuildTimeout(int);
     value OutputName(str);
-
     struct BuildOptions {
         source_directory: SourceDirectory;
         timeout_seconds: BuildTimeout;
     }
-
     value BuildLiteral(str);
     value BuildRelativePath(str);
     value BuildHostPath(str);
     value BuildEnvName(str);
     value BuildInputIndex(int);
-
-    enum BuildResources { Standard, Large }
-    enum BuildProfile { HostBootstrap, Managed }
-    enum BuildSourceFormat { Gzip, Xz, Raw }
-    enum BuildFileMode { Plain, Executable }
-
+    enum BuildResources {
+        Standard,
+        Large
+    }
+    enum BuildProfile {
+        HostBootstrap,
+        Managed
+    }
+    enum BuildSourceFormat {
+        Gzip,
+        Xz,
+        Raw
+    }
+    enum BuildFileMode {
+        Plain,
+        Executable
+    }
     enum BuildPath {
         Host(BuildHostPath),
         Work(BuildRelativePath),
@@ -29,16 +38,28 @@ mod std::pkg {
         Installed(OutputName, BuildRelativePath),
         Input(BuildInputIndex, BuildRelativePath),
     }
-    enum BuildPart { Literal(BuildLiteral), Path(BuildPath) }
-    struct BuildText { parts: [BuildPart]; }
-    struct BuildEnv { name: BuildEnvName; text: BuildText; }
+    enum BuildPart {
+        Literal(BuildLiteral),
+        Path(BuildPath)
+    }
+    struct BuildText {
+        parts: [BuildPart];
+    }
+    struct BuildEnv {
+        name: BuildEnvName;
+        text: BuildText;
+    }
     struct BuildProcess {
         executable: BuildPath;
         arguments: [BuildText];
         directory: BuildPath;
         environment: [BuildEnv] = [];
     }
-    struct BuildFile { path: BuildPath; text: BuildText; mode: BuildFileMode = BuildFileMode::Plain; }
+    struct BuildFile {
+        path: BuildPath;
+        text: BuildText;
+        mode: BuildFileMode = BuildFileMode::Plain;
+    }
     enum BuildStep {
         Run(BuildProcess),
         Write(BuildFile),
@@ -47,7 +68,6 @@ mod std::pkg {
         Move(BuildPath, BuildPath),
         Extract(BuildPath),
     }
-
     struct Build {
         source_directory: SourceDirectory;
         timeout_seconds: BuildTimeout;
@@ -57,7 +77,6 @@ mod std::pkg {
         steps: [BuildStep];
         profile: BuildProfile;
     }
-
     // One result type for standalone recipes and mixed package sets.
     struct Recipe {
         package: Package;
@@ -67,31 +86,25 @@ mod std::pkg {
         commands: [Command] = [];
         imported: Option<ImportedResult> = Option::None;
     }
-
     value ResultRoot(str);
     value ResultDigest(str);
     value ResultOutputKey(str);
-
     struct ImportedOutput {
         output: OutputName;
         key: ResultOutputKey;
     }
-
     struct ImportedResult {
         root: ResultRoot;
         manifest: ResultDigest;
         entries: [ImportedOutput];
     }
-
     struct BuildInputs {
         selected: [OutputRef<Recipe>];
     }
-
     struct RuntimeFile {
         output: OutputRef<Recipe>;
         path: InstalledEntry;
     }
-
     struct Command {
         name: CommandName;
         output: OutputName;
@@ -99,52 +112,109 @@ mod std::pkg {
         loader: [RuntimeFile] = [];
         libraries: [OutputRef<Recipe>] = [];
     }
-
     pub fn build_text(text: BuildLiteral) -> BuildText {
-        BuildText { parts = [BuildPart::Literal(text)]; }
+        BuildText {
+            parts = [BuildPart::Literal(text)];
+        }
     }
     pub fn build_path(path: BuildPath) -> BuildText {
-        BuildText { parts = [BuildPart::Path(path)]; }
+        BuildText {
+            parts = [BuildPart::Path(path)];
+        }
     }
-    pub fn build_join(parts: [BuildPart]) -> BuildText { BuildText { parts = parts; } }
-
-    pub fn autotools(options: BuildOptions) -> Build { autotools_program(options, [], []) }
-
+    pub fn build_join(parts: [BuildPart]) -> BuildText {
+        BuildText {
+            parts = parts;
+        }
+    }
+    pub fn autotools(options: BuildOptions) -> Build {
+        autotools_program(options, [], [])
+    }
     pub fn autotools_with_libc(options: BuildOptions) -> Build {
         let environment = [
-            BuildEnv { name = "CC"; text = build_path(BuildPath::Work("cc")); },
-            BuildEnv { name = "CPP"; text = build_join([BuildPart::Path(BuildPath::Work("cc")), BuildPart::Literal(" -E")]); },
-            BuildEnv { name = "LIBC_DEV"; text = build_path(BuildPath::Input(0, "")); },
-            BuildEnv { name = "LIBC_OUT"; text = build_path(BuildPath::Input(1, "")); },
-            BuildEnv { name = "LIBRARY_PATH"; text = build_path(BuildPath::Input(1, "usr/lib")); },
+            BuildEnv {
+                name = "CC";
+                text = build_path(BuildPath::Work("cc"));
+            },
+            BuildEnv {
+                name = "CPP";
+                text = build_join([
+                        BuildPart::Path(BuildPath::Work("cc")),
+                        BuildPart::Literal(" -E")
+                    ]);
+            },
+            BuildEnv {
+                name = "LIBC_DEV";
+                text = build_path(BuildPath::Input(0, ""));
+            },
+            BuildEnv {
+                name = "LIBC_OUT";
+                text = build_path(BuildPath::Input(1, ""));
+            },
+            BuildEnv {
+                name = "LIBRARY_PATH";
+                text = build_path(BuildPath::Input(1, "usr/lib"));
+            },
         ];
-        autotools_program(options, environment, [
-            BuildStep::Directory(BuildPath::Work("kernel-headers")),
-            BuildStep::Run(BuildProcess {
-                executable = BuildPath::Host("/bin/sh"); directory = BuildPath::Work("kernel-headers");
-                arguments = [build_text("-eu"), build_text("-c"), build_text("for name in linux asm asm-generic; do if test -d /usr/include/$name; then ln -s /usr/include/$name $name; fi; done")];
-            }),
-            BuildStep::Write(BuildFile {
-            path = BuildPath::Work("cc"); mode = BuildFileMode::Executable;
-            text = build_text("#!/bin/sh\nset -eu\ninclude=$(/usr/bin/gcc -print-file-name=include)\ncase \"$include\" in /usr/lib/gcc/*) ;; *) exit 1;; esac\ntest -d \"$include\"\nexec /usr/bin/gcc -B\"$LIBC_DEV/usr/lib/\" -nostdinc -isystem \"$include\" -isystem \"$LIBC_DEV/usr/include\" -isystem /work/kernel-headers -Wl,-L,\"$LIBC_OUT/usr/lib\" -Wl,--dynamic-linker=\"$LIBC_OUT/usr/lib/ld-linux-x86-64.so.2\" -Wl,--enable-new-dtags,-rpath,\"$LIBC_OUT/usr/lib\" \"$@\"\n");
-        })])
+        autotools_program(
+            options,
+            environment,
+            [
+                BuildStep::Directory(BuildPath::Work("kernel-headers")),
+                BuildStep::Run(BuildProcess {
+                        executable = BuildPath::Host("/bin/sh");
+                        directory = BuildPath::Work("kernel-headers");
+                        arguments = [
+                            build_text("-eu"),
+                            build_text("-c"),
+                            build_text("for name in linux asm asm-generic; do if test -d /usr/include/$name; then ln -s /usr/include/$name $name; fi; done")
+                        ];
+                    }),
+                BuildStep::Write(BuildFile {
+                        path = BuildPath::Work("cc");
+                        mode = BuildFileMode::Executable;
+                        text = build_text("#!/bin/sh\nset -eu\ninclude=$(/usr/bin/gcc -print-file-name=include)\ncase \"$include\" in /usr/lib/gcc/*) ;; *) exit 1;; esac\ntest -d \"$include\"\nexec /usr/bin/gcc -B\"$LIBC_DEV/usr/lib/\" -nostdinc -isystem \"$include\" -isystem \"$LIBC_DEV/usr/include\" -isystem /work/kernel-headers -Wl,-L,\"$LIBC_OUT/usr/lib\" -Wl,--dynamic-linker=\"$LIBC_OUT/usr/lib/ld-linux-x86-64.so.2\" -Wl,--enable-new-dtags,-rpath,\"$LIBC_OUT/usr/lib\" \"$@\"\n");
+                    })
+            ]
+        )
     }
-
     fn autotools_program(options: BuildOptions, environment: [BuildEnv], before: [BuildStep]) -> Build {
         let cwd = BuildPath::Work("source/${options.source_directory}");
-        let environment = environment ++ [BuildEnv { name = "SYROX_OUTPUT_PREFIX"; text = build_path(BuildPath::Installed("out", "usr")); }];
+        let environment = environment ++ [BuildEnv {
+                name = "SYROX_OUTPUT_PREFIX";
+                text = build_path(BuildPath::Installed("out", "usr"));
+            }];
         Build {
             profile = BuildProfile::HostBootstrap;
-            source_directory = options.source_directory; timeout_seconds = options.timeout_seconds;
+            source_directory = options.source_directory;
+            timeout_seconds = options.timeout_seconds;
             steps = [BuildStep::Extract(BuildPath::Work("source"))] ++ before ++ [
-                BuildStep::Run(BuildProcess { executable = BuildPath::Host("/bin/sh"); directory = cwd;
-                    arguments = [build_text("./configure"), build_join([BuildPart::Literal("--prefix="), BuildPart::Path(BuildPath::Installed("out", "usr"))]), build_text("--disable-nls")]; environment = environment; }),
-                BuildStep::Run(BuildProcess { executable = BuildPath::Host("/usr/bin/make"); directory = cwd;
-                    arguments = [build_text("-j2")]; environment = environment; }),
-                BuildStep::Run(BuildProcess { executable = BuildPath::Host("/usr/bin/make"); directory = cwd;
-                    arguments = [build_text("install"), build_text("DESTDIR=/out")]; environment = environment; }),
+                BuildStep::Run(BuildProcess {
+                        executable = BuildPath::Host("/bin/sh");
+                        directory = cwd;
+                        arguments = [
+                            build_text("./configure"),
+                            build_join([
+                                    BuildPart::Literal("--prefix="),
+                                    BuildPart::Path(BuildPath::Installed("out", "usr"))
+                                ]),
+                            build_text("--disable-nls")
+                        ];
+                        environment = environment;
+                    }),
+                BuildStep::Run(BuildProcess {
+                        executable = BuildPath::Host("/usr/bin/make");
+                        directory = cwd;
+                        arguments = [build_text("-j2")];
+                        environment = environment;
+                    }),
+                BuildStep::Run(BuildProcess {
+                        executable = BuildPath::Host("/usr/bin/make");
+                        directory = cwd;
+                        arguments = [build_text("install"), build_text("DESTDIR=/out")];
+                        environment = environment;
+                    }),
             ];
         }
     }
-
 }

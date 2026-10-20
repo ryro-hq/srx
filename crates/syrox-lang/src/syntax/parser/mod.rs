@@ -13,9 +13,9 @@ use crate::syntax::{
     StructField, Type, TypeAlias, TypeKind, TypeParameter, Use,
 };
 use crate::{
-    MAX_DEPTH, MAX_DIAGNOSTICS, diagnostic::Diagnostic, diagnostic::DiagnosticCode,
-    diagnostic::SyntaxExpectation, source::Source, source::SourceId, source::SourceSet,
-    source::Span,
+    MAX_DIAGNOSTICS, MAX_SYNTAX_DEPTH as MAX_DEPTH, diagnostic::Diagnostic,
+    diagnostic::DiagnosticCode, diagnostic::SyntaxExpectation, source::Source, source::SourceId,
+    source::SourceSet, source::Span,
 };
 
 mod expressions;
@@ -319,7 +319,11 @@ impl<'a> Parser<'a> {
     }
 
     fn ident(&mut self, message: &str) -> Option<Ident> {
-        let token = self.expect(TokenKind::Ident, message)?;
+        let token = if self.at(TokenKind::Keyword(Keyword::Value)) {
+            self.advance()?
+        } else {
+            self.expect(TokenKind::Ident, message)?
+        };
         Some(Ident {
             text: self.text(token.span).to_owned(),
             span: token.span,
@@ -364,6 +368,7 @@ impl<'a> Parser<'a> {
                     | Keyword::Enum
                     | Keyword::Resource
                     | Keyword::Value
+                    | Keyword::Let
                     | Keyword::Fn,
                 ) if depth == 0 && cursor > start && reached_failure => break,
                 TokenKind::LeftBrace | TokenKind::LeftBracket | TokenKind::LeftParen => depth += 1,

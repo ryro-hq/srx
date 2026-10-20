@@ -314,7 +314,7 @@ pub(super) fn enter_gate(path: &Path) -> Result<LaunchGate, BuildError> {
         .parent()
         .ok_or_else(|| invalid("missing operation parent"))?;
     let parent = fd::open_top_directory(parent_path).map_err(problem)?;
-    trusted_directory(&parent)?;
+    validate_operation_directory(&parent)?;
     let directory = directory(&parent, name)?;
     let recorded_boot = validate_identity(&parent, &directory, name)?;
     if recorded_boot != boot_id()? {
@@ -702,10 +702,10 @@ pub(super) fn lock_existing(
 }
 pub(super) fn directory(parent: &OpenedPath, name: &str) -> Result<OpenedPath, BuildError> {
     let opened = fd::open_beneath(parent.fd(), Path::new(name), true).map_err(problem)?;
-    trusted_directory(&opened)?;
+    validate_operation_directory(&opened)?;
     Ok(opened)
 }
-fn trusted_directory(directory: &OpenedPath) -> Result<(), BuildError> {
+fn validate_operation_directory(directory: &OpenedPath) -> Result<(), BuildError> {
     if !directory.metadata().is_trusted_directory() {
         return Err(invalid("untrusted operation directory"));
     }
@@ -816,7 +816,7 @@ fn validate_tree(directory: &OpenedPath) -> Result<(), BuildError> {
 fn validate_stage(stage: &OpenedPath) -> Result<(), BuildError> {
     for name in entries(stage, MAX_FILES)? {
         let limit = match name.as_str() {
-            "source" => super::MAX_LARGE_SOURCE_BYTES,
+            "source" => super::MAX_LARGE_RAW_SOURCE_BYTES,
             "build-action" => super::records::MAX_RECORD_BYTES,
             "build-program" => super::MAX_BUILD_PROGRAM_BYTES as u64,
             "worker" => 128 * 1024 * 1024,
@@ -839,7 +839,7 @@ fn remove_stage(directory: &OpenedPath) -> Result<(), BuildError> {
         }
         Err(error) => return Err(problem(error)),
     };
-    trusted_directory(&stage)?;
+    validate_operation_directory(&stage)?;
     validate_stage(&stage)?;
     remove_files(&stage)?;
     fd::remove_directory(

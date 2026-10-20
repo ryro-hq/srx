@@ -745,7 +745,7 @@ impl WorkerAttempt {
             return Err(invalid("managed worker attempt is terminal"));
         }
         let parent = linux_fd::open_top_directory(&self.parent_path).map_err(super::problem)?;
-        super::trusted_directory(&parent)?;
+        super::validate_operation_directory(&parent)?;
         if parent.metadata().identity() != self.parent.metadata().identity() {
             return Err(invalid("managed operation parent changed"));
         }
@@ -812,7 +812,7 @@ pub(in crate::build) fn inspect_worker_attempt(
             .ok_or_else(|| invalid("operation parent missing"))?,
     )
     .map_err(super::problem)?;
-    super::trusted_directory(&parent)?;
+    super::validate_operation_directory(&parent)?;
     let directory = super::directory(&parent, name)?;
     if super::validate_identity(&parent, &directory, name)? != boot_id()? {
         return Err(invalid(

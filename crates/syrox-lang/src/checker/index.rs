@@ -156,6 +156,9 @@ impl<'a> Checker<'a> {
                     .and_then(|modules| modules.get(child_path.as_slice()))
                     .expect("resolved module")
                     .to_owned();
+                if let Some(contract) = &declaration.contract {
+                    self.module_contracts.insert(child, contract);
+                }
                 for nested in declaration.items.iter().rev() {
                     stack.push((nested, child_path.clone(), child));
                 }
@@ -230,6 +233,12 @@ impl<'a> Checker<'a> {
                         );
                     }
                 }
+                ItemKind::Binding(binding) => {
+                    if let Some(id) = self.declaration_id(binding.name.span) {
+                        self.item_context.insert(id, context);
+                        self.global_values.insert(id, (binding, context));
+                    }
+                }
                 ItemKind::Outputs(outputs) => {
                     for output in &outputs.entries {
                         if !self.charge(output.span) {
@@ -237,11 +246,13 @@ impl<'a> Checker<'a> {
                         }
                         if let OutputKind::Value {
                             ty,
+                            value,
                             ..
                         } = &output.kind
                             && let Some(id) = self.declaration_id(output.span)
                         {
                             self.output_values.insert(id, ty);
+                            self.output_initializers.insert(id, value);
                         }
                     }
                 }

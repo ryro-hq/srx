@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::{cancellation::Cancellation, plan::PlanConsumer};
 
-pub(super) struct SessionFiles {
+pub(crate) struct SessionFiles {
     directory: Option<tempfile::TempDir>,
     services: BTreeMap<String, File>,
     directories: Vec<File>,

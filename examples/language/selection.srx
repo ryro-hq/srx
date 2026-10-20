@@ -1,0 +1,28 @@
+struct GnuSettings {
+    listen: Port;
+}
+struct MuslSettings {
+    socket: ConfigText;
+}
+value Port(int) where 1 ..= 65535;
+value Libc(str);
+fn select(const libc: Libc) -> _ {
+    match libc {
+        "gnu" => GnuSettings {
+            listen = 8080;
+        },
+        "musl" => MuslSettings {
+            socket = "/tmp/web.sock";
+        },
+    }
+}
+let libc: Libc = "musl";
+let settings = if libc == "musl" {
+    select("musl")
+}
+else {
+    select("gnu")
+};
+outputs {
+    result: ConfigText = settings.socket;
+}

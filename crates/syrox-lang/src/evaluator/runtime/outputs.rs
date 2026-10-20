@@ -35,7 +35,7 @@ impl Evaluator<'_> {
         Ok(value)
     }
 
-    pub(super) fn output_value(&mut self, item: ItemId, span: Span) -> Eval<Value> {
+    pub(in crate::evaluator) fn output_value(&mut self, item: ItemId, span: Span) -> Eval<Value> {
         self.ensure_output_cached(item, span)?;
         let output = self.memo_outputs.remove(&item).ok_or(Halt)?;
         if !output.shareable {
@@ -75,6 +75,18 @@ impl Evaluator<'_> {
         }
         self.expand(size_of::<(ItemId, CachedOutput)>(), span)?;
         let shareable = self.claim_effects == claim_effects && self.diagnostics.is_empty();
+        if self
+            .checked
+            .resolved()
+            .item(item)
+            .is_some_and(|item| item.kind() == crate::resolver::ResolvedItemKind::Binding)
+            && !shareable
+        {
+            return self.fail(
+                span,
+                "global initializer cannot consume an affine resource",
+            );
+        }
         self.memo_outputs.insert(
             item,
             CachedOutput {

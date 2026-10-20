@@ -383,6 +383,7 @@ impl GithubSession {
                 test_certificate: None,
                 accept,
                 hosts: Some(&["api.github.com", "codeload.github.com"]),
+                redirect_origins: None,
             },
             self.started,
             &self.configuration.cancellation,

@@ -226,6 +226,24 @@ impl SemanticAnalysis {
     pub fn function_type(&self, item: ItemId) -> Option<&Ty> {
         self.functions.get(&item)
     }
+    /// Inherent methods from the same exact receiver-type table used by the
+    /// checker. Ambiguous names are omitted, since they cannot be called.
+    pub fn methods_for_type(&self, ty: &Ty) -> Vec<&ResolvedItem> {
+        let mut names = BTreeMap::new();
+        for id in self.editor.methods.get(ty).into_iter().flatten() {
+            let Some(item) = self.resolved.item(*id) else {
+                continue;
+            };
+            let Some(name) = item.path().segments().last() else {
+                continue;
+            };
+            names
+                .entry(name)
+                .and_modify(|entry| *entry = None)
+                .or_insert(Some(item));
+        }
+        names.into_values().flatten().collect()
+    }
     /// Syntactic parameter labels for a resolved function identity, including a
     /// function reached through a reexport. Does not imply a valid body.
     pub fn function_parameters(&self, item: ItemId) -> Option<&[crate::syntax::Parameter]> {

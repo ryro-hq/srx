@@ -1,0 +1,13 @@
+value Port(int) where 1 ..= 65535;
+struct Settings {
+    port: Port = fallback;
+    label: ConfigText = "web";
+}
+let settings: Settings = {
+    port = 8080;
+};
+let fallback: Port = 3000;
+pub let label: ConfigText = "${settings.label}:${settings.port}";
+outputs {
+    result: ConfigText = label;
+}

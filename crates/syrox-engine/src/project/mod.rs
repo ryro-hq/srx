@@ -25,6 +25,10 @@ mod loader;
 #[cfg(target_os = "linux")]
 mod locator;
 mod prepared;
+#[cfg(target_os = "linux")]
+mod refresh;
+#[cfg(target_os = "linux")]
+pub use refresh::prepare_project_consumer_refresh_root_with;
 mod standard_library;
 pub use editor::{
     ProjectAnalysis, ProjectAnalysisError, ProjectAnalysisLockStatus, ProjectAnalysisSnapshot,
@@ -32,6 +36,8 @@ pub use editor::{
 #[cfg(target_os = "linux")]
 pub use editor::{open_project_analysis_with, open_standard_library_analysis_with};
 pub use prepared::PreparedPlan;
+mod catalog;
+pub use catalog::check_catalog_with;
 pub use standard_library::{
     AuthenticatedStandardLibrary, AuthenticatedStandardSource, StandardLibraryError,
 };
@@ -115,6 +121,7 @@ pub struct LoadedProjectSource {
 
 #[derive(Debug)]
 pub struct LoadedProjectAsset {
+    content: std::sync::Arc<[u8]>,
     relative_path: PathBuf,
     size: u64,
     digest: [u8; 32],
@@ -341,6 +348,10 @@ pub enum ProjectOperationError {
     },
     #[error("project sources have drifted from the lock")]
     ProjectDrift,
+    #[error("project changed while preparing its configuration; retry")]
+    ConcurrentEdit,
+    #[error("another operation is updating this project's lock; retry")]
+    LockBusy,
     #[error("project graph lock has drifted from its authenticated child snapshots")]
     GraphDrift,
     #[error(
@@ -932,6 +943,7 @@ fn lock_project_platform(
     path: &Path,
     configuration: &CheckConfiguration,
 ) -> Result<LockReport, ProjectOperationError> {
+    let _mutation = refresh::lock_root(path)?;
     let loaded = loader::load_project_mode(
         path,
         configuration,
@@ -1067,7 +1079,12 @@ fn project_plan(
             }
         }
     }
-    Ok(PreparedPlan::new(plan, loaded.path(), &roots))
+    PreparedPlan::new(
+        plan,
+        loaded.path(),
+        &roots,
+        configuration.standard_library.as_ref(),
+    )
 }
 
 #[cfg(target_os = "linux")]

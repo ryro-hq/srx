@@ -1,14 +1,15 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use crate::cli::presentation::render_message;
+use crate::cli::presentation::{realize_error, render_message};
 
 use syrox_engine::{
     build::BuildError, build::BuildExecution, cancellation::Cancellation,
     config::UserConfiguration, project::CheckConfiguration, realize::BuildProgress,
-    realize::RealizeError, realize::ResolvedBuild, realize::realize_build, realize::realize_builds,
-    realize::resolve_build, realize::resolve_builds, realize::search_build_exports,
-    realize::search_project_build_exports,
+    realize::RealizeError, realize::ResolvedBuild, realize::SelectedBuildResult,
+    realize::realize_selected_build as realize_build,
+    realize::realize_selected_builds as realize_builds, realize::resolve_build,
+    realize::resolve_builds, realize::search_build_exports, realize::search_project_build_exports,
 };
 
 #[derive(Debug, clap::Args)]
@@ -132,8 +133,17 @@ fn execute(
             cancellation,
         );
     }
-    let resolved = resolve_build(&reference, &user, configuration).map_err(|e| e.to_string())?;
+    let resolved =
+        resolve_build(&reference, &user, configuration).map_err(|e| realize_error(&e))?;
     if args.dry_run {
+        if let Some(manifest) = syrox_engine::realize::selected_artifact_manifest(&resolved, &user)
+            .map_err(|e| realize_error(&e))?
+        {
+            return Ok(format!(
+                "would select authorized artifact {}\nmanifest {manifest}\navailability checked during realization",
+                resolved.description().package()
+            ));
+        }
         return Ok(format!(
             "would build {}\n{}",
             resolved.description().package(),
@@ -178,8 +188,32 @@ fn execute(
             error,
             RealizeError::Cancelled | RealizeError::Build(BuildError::Cancelled)
         ),
-        message: error.to_string(),
+        message: realize_error(&error),
     })?;
+    let result = match result {
+        SelectedBuildResult::Built(result) => result,
+        SelectedBuildResult::Imported {
+            admitted,
+            output,
+        } => {
+            return Ok(if args.quiet > 0 {
+                format!("imported {}", resolved.description().package())
+            } else {
+                format!(
+                    "imported {}\nstore {}\naction {}\nartifact {}\nmanifest {}\nroot {}",
+                    resolved.description().package(),
+                    user.store().display(),
+                    output.identity.action,
+                    output.identity.artifact,
+                    admitted
+                        .manifest()
+                        .digest()
+                        .map_err(|e| e.to_string())?,
+                    output.root
+                )
+            });
+        }
+    };
     let (verb, execution) = match result.execution {
         BuildExecution::Built {
             operation,
@@ -223,7 +257,7 @@ fn execute_all(
     configuration: &CheckConfiguration,
     cancellation: &Cancellation,
 ) -> Result<String, Failure> {
-    let builds = resolve_builds(reference, user, configuration).map_err(|e| e.to_string())?;
+    let builds = resolve_builds(reference, user, configuration).map_err(|e| realize_error(&e))?;
     if builds.is_empty() {
         return Err("project has no public buildable exports"
             .to_owned()
@@ -237,14 +271,38 @@ fn execute_all(
         );
     }
     if dry_run {
+        if user.artifacts().policy() == syrox_engine::config::ArtifactPolicy::Compile {
+            return Ok(format!(
+                "would build {} export(s): {}",
+                builds.len(),
+                builds
+                    .iter()
+                    .map(ResolvedBuild::export)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        let strategies = builds
+            .iter()
+            .map(|resolved| {
+                syrox_engine::realize::selected_artifact_manifest(resolved, user).map(|pin| {
+                    format!(
+                        "{}: {}",
+                        resolved.export(),
+                        if pin.is_some() {
+                            "authorized artifact (availability checked during realization)"
+                        } else {
+                            "compile"
+                        }
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| realize_error(&e))?;
         return Ok(format!(
-            "would build {} export(s): {}",
+            "would realize {} export(s): {}",
             builds.len(),
-            builds
-                .iter()
-                .map(ResolvedBuild::export)
-                .collect::<Vec<_>>()
-                .join(", ")
+            strategies.join(", ")
         ));
     }
     let worker = crate::cli::worker_path::build_candidate()?;
@@ -263,12 +321,25 @@ fn execute_all(
             error,
             RealizeError::Cancelled | RealizeError::Build(BuildError::Cancelled)
         ),
-        message: error.to_string(),
+        message: realize_error(&error),
     })?;
     Ok(builds
         .iter()
         .zip(results)
         .map(|(resolved, result)| {
+            let result = match result {
+                SelectedBuildResult::Built(result) => result,
+                SelectedBuildResult::Imported {
+                    admitted: _,
+                    output,
+                } => {
+                    return format!(
+                        "imported {}\nroot {}",
+                        resolved.description().package(),
+                        output.root
+                    );
+                }
+            };
             format!(
                 "{} {}\nroot {}",
                 match result.execution {
@@ -310,7 +381,7 @@ pub(crate) fn info(args: &ReferenceArguments, checks: &CheckConfiguration) -> Ex
             } else {
                 search_build_exports(query, &user, checks)
             }
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| realize_error(&e))?;
             return Ok(if names.is_empty() {
                 "no matching packages".into()
             } else {
@@ -319,7 +390,7 @@ pub(crate) fn info(args: &ReferenceArguments, checks: &CheckConfiguration) -> Ex
         }
         let reference =
             crate::cli::reference::select(args.reference.as_deref(), args.file.as_deref())?;
-        let resolved = resolve_build(&reference, &user, checks).map_err(|e| e.to_string())?;
+        let resolved = resolve_build(&reference, &user, checks).map_err(|e| realize_error(&e))?;
         Ok(format!(
             "{}\nsource-directory {}\ntimeout-seconds {}\nstore {}\nhost-toolchain {}",
             summary(&resolved),

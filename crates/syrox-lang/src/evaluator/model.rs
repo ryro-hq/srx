@@ -91,6 +91,7 @@ pub enum Value {
         substitutions: std::collections::BTreeMap<crate::resolver::LocalId, crate::checker::Ty>,
     },
     Closure {
+        facts: Arc<[Arc<crate::checker::StaticFacts>]>,
         ty: Arc<CanonicalType>,
         once: bool,
         owner: crate::source::SourceDomainId,
@@ -238,10 +239,17 @@ pub struct RealizedRoot {
     pub(super) claims: Vec<ResourceClaim>,
     pub(super) selected: bool,
     pub(super) reference: Option<super::MemoId>,
+    pub(super) recipe_owner: Option<crate::source::SourceDomainId>,
     pub(super) aliases: Vec<String>,
 }
 
 impl RealizedRoot {
+    /// Authenticated project context that created the selected lazy recipe.
+    /// Synthetic graph node identities do not carry this authority.
+    pub const fn recipe_owner(&self) -> Option<crate::source::SourceDomainId> {
+        self.recipe_owner
+    }
+
     pub fn aliases(&self) -> impl ExactSizeIterator<Item = &str> {
         self.aliases.iter().map(String::as_str)
     }

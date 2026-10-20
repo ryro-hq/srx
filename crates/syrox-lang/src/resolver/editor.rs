@@ -154,6 +154,18 @@ impl ResolvedProgram {
                 None
             };
         }
+        if qualifier.is_empty()
+            && let Some(root) = resolver.prelude_root()
+        {
+            let info = &resolver.module_info[root.index()];
+            names.extend(
+                info.exports
+                    .keys()
+                    .chain(info.public_children.iter())
+                    .filter(|name| name.starts_with(prefix))
+                    .cloned(),
+            );
+        }
         let mut found = Vec::new();
         if qualifier.is_empty() {
             found.extend(

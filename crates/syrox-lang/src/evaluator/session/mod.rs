@@ -26,7 +26,7 @@ use super::{
 };
 
 mod publication;
-pub use publication::PublishedRoot;
+pub use publication::{PublishedRoot, ReferenceBinding};
 #[cfg(test)]
 mod tests;
 
@@ -48,6 +48,7 @@ pub struct EvaluationSession<'a> {
     index: ProgramIndex<'a>,
     roots: Vec<Root<'a>>,
     published: BTreeMap<String, PublishedRoot>,
+    reference_bindings: BTreeMap<String, ReferenceBinding>,
     names: BTreeMap<&'a str, usize>,
     results: Vec<Option<RealizedRoot>>,
     selected: Vec<RealizedRoot>,
@@ -100,6 +101,7 @@ impl<'a> EvaluationSession<'a> {
         let mut budget = SetupBudget::new(limits);
         let index = ProgramIndex::new(program, policy, &mut budget)?;
         let published = publication::inventory(program, &index, &mut budget)?;
+        let reference_bindings = publication::binding_inventory(program, &index, &mut budget)?;
         let mut roots = Vec::new();
         let mut names = BTreeMap::new();
         for source in program.resolved().parsed().iter() {
@@ -155,6 +157,7 @@ impl<'a> EvaluationSession<'a> {
             index,
             roots,
             published,
+            reference_bindings,
             names,
             results,
             selected: Vec::new(),
@@ -419,6 +422,7 @@ impl<'a> EvaluationSession<'a> {
             claims,
             selected: exported,
             reference: Some(id.clone()),
+            recipe_owner: self.memos.owner(id),
             aliases: if exported {
                 vec![name.to_owned()]
             } else {
@@ -541,6 +545,7 @@ impl<'a> EvaluationSession<'a> {
             claims,
             selected: false,
             reference: None,
+            recipe_owner: None,
             aliases: Vec::new(),
         });
         Ok(())
@@ -563,10 +568,11 @@ impl<'a> EvaluationSession<'a> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EvaluationQueryError {
     UnknownRoot,
     InvalidSelection,
+    Evaluation(Vec<crate::diagnostic::Diagnostic>),
     Setup(EvaluationSetupError),
 }
 
@@ -583,6 +589,11 @@ impl fmt::Display for EvaluationQueryError {
             Self::InvalidSelection => {
                 f.write_str("requested value is not a selected memoized reference")
             }
+            Self::Evaluation(errors) => write!(
+                f,
+                "reference initializer produced {} diagnostic(s)",
+                errors.len()
+            ),
             Self::Setup(error) => error.fmt(f),
         }
     }
@@ -592,7 +603,7 @@ impl std::error::Error for EvaluationQueryError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Setup(error) => Some(error),
-            Self::UnknownRoot | Self::InvalidSelection => None,
+            Self::UnknownRoot | Self::InvalidSelection | Self::Evaluation(_) => None,
         }
     }
 }

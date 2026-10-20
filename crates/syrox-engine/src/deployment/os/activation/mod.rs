@@ -1054,7 +1054,7 @@ fn fresh(exists: impl Fn(&str) -> bool) -> Result<String> {
     }
     Err(invalid("operation entropy retries exhausted"))
 }
-fn recorded_invocation(
+pub(super) fn recorded_invocation(
     state: &ActivationSnapshot,
     resource: &str,
     pin: ContentDigest,

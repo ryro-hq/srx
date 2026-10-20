@@ -20,6 +20,7 @@ pub(crate) mod diff;
 pub(crate) mod installation;
 pub(crate) mod launch_binding;
 pub(crate) mod paths;
+pub mod profile;
 pub(crate) mod public;
 pub(crate) mod runtime;
 pub(crate) mod status;
@@ -34,16 +35,17 @@ pub(crate) use crate::deployment::manifest::{GenerationError, PreparedGeneration
 pub use abandon::{OsAbandonment, OsAbandonmentError, abandon_os_operation};
 pub use apply::recovery::{
     OsRecoveryEffect, OsRecoveryError, OsRecoveryReport, OsRecoveryRequest, OsRecoveryState,
-    recover_os_generation,
+    recover_os_generation, recover_os_generation_with_identity,
 };
 pub use apply::{
     OsApplyError, OsApplyReport, OsApplyRequest, OsApplyResource, OsApplyResourceState,
-    OsRollbackRequest, apply_os_generation, rollback_os_generation,
+    OsRollbackRequest, OsSelectionAuthority, apply_os_generation,
+    apply_os_generation_with_authority, rollback_os_generation,
 };
 pub use public::{
     OsCandidateEntry, OsCandidatePhase, OsGenerationError, OsGenerationSummary, OsInstallation,
     OsPreparation, diff_os_generations, initialize_os_installation, inspect_os_generation,
-    list_os_generations, prepare_os_generation,
+    list_os_generations, open_os_installation, prepare_empty_os_generation, prepare_os_generation,
 };
 pub use status::{
     OsStatus, OsStatusBinding, OsStatusBootFence, OsStatusEffect, OsStatusEpoch, OsStatusError,

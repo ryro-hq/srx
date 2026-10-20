@@ -24,6 +24,7 @@ pub struct PreparedPlan {
 struct ProjectResources {
     project: PathBuf,
     roots: BTreeMap<SourceDomainId, PathBuf>,
+    source_pins: BTreeMap<SourceDomainId, crate::store::ContentDigest>,
     #[cfg(target_os = "linux")]
     _snapshots: Vec<Arc<crate::acquire::github::Snapshot>>,
 }
@@ -34,11 +35,24 @@ impl PreparedPlan {
         plan: Plan,
         project: &Path,
         roots: &BTreeMap<SourceDomainId, &super::LoadedProject>,
-    ) -> Self {
-        Self {
+        standard: Option<&super::AuthenticatedStandardLibrary>,
+    ) -> Result<Self, super::ProjectOperationError> {
+        let source_pins = roots
+            .iter()
+            .map(|(domain, project)| {
+                let lock = super::lock::LockManifest::generate(project, standard)
+                    .map_err(super::map_generated_lock_error)?;
+                Ok((
+                    *domain,
+                    crate::store::ContentDigest::from_sha256_hash(*lock.digest()),
+                ))
+            })
+            .collect::<Result<_, super::ProjectOperationError>>()?;
+        Ok(Self {
             plan: Arc::new(plan),
             resources: Arc::new(ProjectResources {
                 project: project.to_path_buf(),
+                source_pins,
                 roots: roots
                     .iter()
                     .map(|(domain, project)| (*domain, project.path().to_path_buf()))
@@ -48,7 +62,7 @@ impl PreparedPlan {
                     .filter_map(|project| project.snapshot.clone())
                     .collect(),
             }),
-        }
+        })
     }
 
     pub fn plan(&self) -> &Plan {
@@ -62,6 +76,17 @@ impl PreparedPlan {
 
     pub fn project(&self) -> &Path {
         &self.resources.project
+    }
+
+    /// Complete source and std snapshot of the authenticated recipe owner.
+    pub fn recipe_source_pin(
+        &self,
+        package: &crate::plan::PlanPackage,
+    ) -> Option<crate::store::ContentDigest> {
+        self.resources
+            .source_pins
+            .get(&package.recipe_owner()?)
+            .copied()
     }
 
     pub(crate) fn project_root(&self, owner: SourceDomainId) -> Option<&Path> {

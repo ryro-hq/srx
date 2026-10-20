@@ -41,6 +41,12 @@ jobs:
           rustc --edition 2024 -D warnings --test tools/check_structure.rs -o /tmp/syrox-check-structure-tests
           /tmp/syrox-check-structure-tests
           /tmp/syrox-check-structure
+      - name: Format maintained .srx sources
+        run: |
+          cargo build --locked -p syrox --bin srx
+          while IFS= read -r -d '' source; do
+            "$CARGO_TARGET_DIR/debug/srx" fmt "$source" --check
+          done < <(rg --files std examples -g '*.srx' -0)
       - name: Rustdoc and examples
         env:
           RUSTDOCFLAGS: -D warnings
@@ -80,7 +86,8 @@ jobs:
       - name: Language and CLI tests
         run: |
           cargo test --locked -p syrox-lang
-          cargo test --locked -p syrox --no-default-features --bins --test cli --test format --test lsp --test vm_harness
+          cargo test --locked -p syrox --no-default-features --bins \
+            --test cli --test diagnostics --test public_bindings --test language_reference --test os_profiles --test usability --test format --test lsp --test vm_harness
 
   build:
     name: build (${{ matrix.target }})

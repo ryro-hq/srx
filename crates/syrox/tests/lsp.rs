@@ -12,6 +12,8 @@ use url::Url;
 mod actions;
 #[path = "lsp/completion.rs"]
 mod completion;
+#[path = "lsp/configuration.rs"]
+mod configuration;
 #[path = "lsp/construction.rs"]
 mod construction;
 #[path = "lsp/contextual.rs"]
@@ -20,10 +22,14 @@ mod contextual;
 mod formatting;
 #[path = "support/github.rs"]
 mod github_fixture;
+#[path = "lsp/methods.rs"]
+mod methods;
 #[path = "lsp/presentation.rs"]
 mod presentation;
 #[path = "lsp/status.rs"]
 mod status;
+#[path = "lsp/versioned.rs"]
+mod versioned;
 #[path = "lsp/watch.rs"]
 mod watch;
 

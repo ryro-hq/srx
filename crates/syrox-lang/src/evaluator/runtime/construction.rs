@@ -59,6 +59,13 @@ impl Evaluator<'_> {
                 self.expand(field.name.text.len(), field.span)?;
                 let value = if let Some(value) = supplied.remove(field.name.text.as_str()) {
                     value
+                } else if matches!(
+                    self.checked
+                        .expression(span)
+                        .and_then(|m| m.elaboration()),
+                    Some(Elaboration::PartialRecord)
+                ) {
+                    continue;
                 } else if let Some(default) = &field.default {
                     self.expression(default, &type_substitutions)?
                 } else {
@@ -274,11 +281,15 @@ impl Evaluator<'_> {
                     path,
                     span,
                 } => {
-                    let Some(ResolvedTarget::Local(local)) = self.index.target(path.span).cloned()
-                    else {
-                        return self.fail(*span, "checked interpolation has no local target");
+                    let mut value = match self.index.target(path.span).cloned() {
+                        Some(ResolvedTarget::Local(local)) => self.local_value(local, *span)?,
+                        Some(ResolvedTarget::Item(item))
+                            if self.index.output_values.contains_key(&item) =>
+                        {
+                            self.output_value(item, *span)?
+                        }
+                        _ => return self.fail(*span, "checked interpolation has no value target"),
                     };
-                    let mut value = self.local_value(local, *span)?;
                     for field in path.segments.iter().skip(1) {
                         value = self.project(value, &field.text, field.span)?;
                     }
@@ -401,7 +412,7 @@ impl Evaluator<'_> {
         substitutions: &BTreeMap<LocalId, Ty>,
         span: Span,
     ) -> Eval<Value> {
-        let metadata = self.checked.expression(span).ok_or(Halt)?;
+        let metadata = self.expression_metadata(span).ok_or(Halt)?;
         let Some(Elaboration::ModuleExports {
             key,
             function,

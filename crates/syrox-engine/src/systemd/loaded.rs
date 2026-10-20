@@ -29,6 +29,23 @@ pub(super) enum Value {
     },
     Empty(String),
 }
+impl Value {
+    pub(super) fn signature(&self) -> &str {
+        match self {
+            Self::Text(_) => "s",
+            Self::Strings(_) => "as",
+            Self::Bool(_) => "b",
+            Self::U32(_) => "u",
+            Self::I32(_) => "i",
+            Self::U64(_) => "t",
+            Self::Exec(_) => "a(sasasttttuii)",
+            Self::ExitStatuses {
+                ..
+            } => "(aiai)",
+            Self::Empty(signature) => signature,
+        }
+    }
+}
 pub(super) struct Property {
     pub(super) interface: &'static str,
     pub(super) name: &'static str,
@@ -199,20 +216,7 @@ fn decode(frame: &super::wire::Frame, expected: &Value) -> Result<Value, Systemd
     }
     let mut r = frame.reader();
     let signature = r.sig()?;
-    let wanted = match expected {
-        Value::Text(_) => "s",
-        Value::Strings(_) => "as",
-        Value::Bool(_) => "b",
-        Value::U32(_) => "u",
-        Value::I32(_) => "i",
-        Value::U64(_) => "t",
-        Value::Exec(_) => "a(sasasttttuii)",
-        Value::ExitStatuses {
-            ..
-        } => "(aiai)",
-        Value::Empty(sig) => sig,
-    };
-    if signature != wanted {
+    if signature != expected.signature() {
         return Err(invalid("unexpected loaded property signature"));
     }
     let value = match expected {
@@ -318,7 +322,7 @@ fn exit_statuses(r: &mut super::wire::Reader<'_>, maximum: i32) -> Result<Vec<i3
     }
     Ok(values)
 }
-fn properties(c: &OsUnitContract) -> Vec<Property> {
+pub(super) fn properties(c: &OsUnitContract) -> Vec<Property> {
     let mut p = Vec::new();
     unit_properties(c, &mut p);
     service_properties(c, &mut p);

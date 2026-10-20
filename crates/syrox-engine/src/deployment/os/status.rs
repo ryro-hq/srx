@@ -25,6 +25,8 @@ pub struct OsStatusBootFence {
 }
 #[derive(Debug)]
 pub struct OsStatusBinding {
+    pub invocation: Option<String>,
+    pub invocation_error: Option<String>,
     pub resource: String,
     pub generation: ContentDigest,
     pub pin: ContentDigest,
@@ -75,6 +77,19 @@ pub fn inspect_os_status(
                 })
         })
         .transpose()?;
+    let invocations = snapshot
+        .bindings
+        .iter()
+        .map(|(resource, binding)| {
+            let observed =
+                super::activation::recorded_invocation(&snapshot, resource, digest(&binding.pin)?);
+            let observation = match observed {
+                Ok(invocation) => (invocation, None),
+                Err(error) => (None, Some(error.to_string())),
+            };
+            Ok((resource.clone(), observation))
+        })
+        .collect::<Result<std::collections::BTreeMap<_, _>, OsStatusError>>()?;
     let mut result = OsStatus {
         installation: snapshot.installation,
         desired: snapshot
@@ -103,6 +118,8 @@ pub fn inspect_os_status(
     for (resource, binding) in snapshot.bindings {
         check(cancellation, deadline)?;
         result.bindings.push(OsStatusBinding {
+            invocation: invocations[&resource].0.clone(),
+            invocation_error: invocations[&resource].1.clone(),
             resource,
             generation: digest(&binding.generation)?,
             pin: digest(&binding.pin)?,

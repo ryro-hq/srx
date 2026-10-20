@@ -14,6 +14,9 @@ pub(super) struct Component<'a> {
 }
 
 impl Component<'_> {
+    pub(super) fn recipe_owner(&self) -> Option<syrox_lang::source::SourceDomainId> {
+        self.root.recipe_owner()
+    }
     pub(super) fn name(&self) -> &str {
         self.root.name()
     }

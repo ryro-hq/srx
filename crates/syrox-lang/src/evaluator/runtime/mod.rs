@@ -1,3 +1,4 @@
+use crate::syntax::decode_text_into;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Write as _,
@@ -21,6 +22,7 @@ use crate::{
 };
 
 mod calls;
+mod configuration;
 mod construction;
 mod expressions;
 mod memo;
@@ -48,6 +50,7 @@ pub(super) struct CachedOutput {
 const MAX_CALL_DEPTH: usize = 32;
 
 pub(super) struct Evaluator<'a> {
+    static_facts: Vec<Arc<crate::checker::StaticFacts>>,
     pub(super) checked: &'a CheckedProgram,
     policy: &'a CheckPolicy,
     environment: &'a EvaluationEnvironment,
@@ -75,6 +78,30 @@ pub(super) struct Evaluator<'a> {
 }
 
 impl<'a> Evaluator<'a> {
+    fn expression_metadata(&self, span: Span) -> Option<crate::checker::CheckedExpression> {
+        self.static_facts
+            .iter()
+            .rev()
+            .find_map(|facts| {
+                facts
+                    .expressions
+                    .get(&crate::checker::span_key(span))
+            })
+            .or_else(|| self.checked.expression(span))
+            .cloned()
+    }
+    fn pattern_metadata(&self, span: Span) -> Option<crate::checker::CheckedPattern> {
+        self.static_facts
+            .iter()
+            .rev()
+            .find_map(|facts| {
+                facts
+                    .patterns
+                    .get(&crate::checker::span_key(span))
+            })
+            .copied()
+            .or_else(|| self.checked.pattern(span))
+    }
     pub(super) fn enter_call(&mut self, span: Span) -> Eval<()> {
         if self.call_depth >= MAX_CALL_DEPTH.min(self.limits.max_depth) {
             return self.fail(span, "function call depth limit reached");
@@ -123,6 +150,7 @@ impl<'a> Evaluator<'a> {
         let scope_bytes = scope_count.saturating_mul(size_of::<OpenScope>());
         let scopes_fit = scope_bytes <= limits.max_expansion_bytes;
         let mut evaluator = Self {
+            static_facts: Vec::new(),
             checked,
             policy,
             environment,
@@ -287,26 +315,6 @@ fn literal_equals(literal: &Literal, value: &PrimitiveValue) -> bool {
         (Literal::String(left), PrimitiveValue::Str(right)) => static_string_equals(left, right),
         _ => false,
     }
-}
-
-fn decode_text_into(source: &str, result: &mut String) -> Option<()> {
-    let mut chars = source.chars();
-    while let Some(character) = chars.next() {
-        if character != '\\' {
-            result.push(character);
-            continue;
-        }
-        result.push(match chars.next()? {
-            '"' => '"',
-            '\\' => '\\',
-            'n' => '\n',
-            'r' => '\r',
-            't' => '\t',
-            '$' => '$',
-            _ => return None,
-        });
-    }
-    Some(())
 }
 
 fn decimal_len(value: i64) -> usize {

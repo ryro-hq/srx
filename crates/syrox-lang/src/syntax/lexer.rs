@@ -29,14 +29,23 @@ pub enum TokenKind {
     DotDot,
     DotDotEqual,
     Equal,
+    EqualEqual,
+    NotEqual,
     FatArrow,
     Arrow,
     PlusPlus,
     Semicolon,
+    Hash,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Keyword {
+    Trait,
+    Impl,
+    For,
+    Const,
+    If,
+    Else,
     Compare,
     Enum,
     Erase,
@@ -153,15 +162,24 @@ fn lex_with_checkpoint(
                 TokenKind::Comment
             }
             b'"' => {
-                at += 1;
+                let multiline = bytes[at..].starts_with(b"\"\"\"");
+                let delimiter = if multiline {
+                    3
+                } else {
+                    1
+                };
+                at += delimiter;
                 let mut closed = false;
                 while at < bytes.len() {
                     checkpoint(at)?;
                     match bytes[at] {
                         b'"' => {
+                            if !multiline || bytes[at..].starts_with(b"\"\"\"") {
+                                at += delimiter;
+                                closed = true;
+                                break;
+                            }
                             at += 1;
-                            closed = true;
-                            break;
                         }
                         b'\\' => {
                             at += 1;
@@ -189,7 +207,7 @@ fn lex_with_checkpoint(
                             }
                             at += 1;
                         }
-                        b'\r' | b'\n' => {
+                        b'\r' | b'\n' if !multiline => {
                             push_error(
                                 &mut errors,
                                 Diagnostic::error(
@@ -253,10 +271,13 @@ fn lex_with_checkpoint(
                 }
             }
             b'.' => single(&mut at, TokenKind::Dot),
+            b'=' if bytes.get(at + 1) == Some(&b'=') => double(&mut at, TokenKind::EqualEqual),
+            b'!' if bytes.get(at + 1) == Some(&b'=') => double(&mut at, TokenKind::NotEqual),
             b'=' if bytes.get(at + 1) == Some(&b'>') => double(&mut at, TokenKind::FatArrow),
             b'=' => single(&mut at, TokenKind::Equal),
             b'-' if bytes.get(at + 1) == Some(&b'>') => double(&mut at, TokenKind::Arrow),
             b'+' if bytes.get(at + 1) == Some(&b'+') => double(&mut at, TokenKind::PlusPlus),
+            b'#' => single(&mut at, TokenKind::Hash),
             b';' => single(&mut at, TokenKind::Semicolon),
             _ => {
                 at += source.text()[at..]
@@ -312,6 +333,12 @@ fn push_error(errors: &mut Vec<Diagnostic>, error: Diagnostic) {
 
 fn keyword(word: &str) -> Option<Keyword> {
     Some(match word {
+        "trait" => Keyword::Trait,
+        "impl" => Keyword::Impl,
+        "for" => Keyword::For,
+        "const" => Keyword::Const,
+        "if" => Keyword::If,
+        "else" => Keyword::Else,
         "enum" => Keyword::Enum,
         "erase" => Keyword::Erase,
         "fn" => Keyword::Fn,

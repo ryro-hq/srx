@@ -55,6 +55,8 @@ pub(crate) use crate::result::artifact::MAX_OUTPUT_BYTES;
 pub(crate) const MAX_STANDARD_OUTPUT_BYTES: u64 = 64 * 1024 * 1024;
 pub(crate) const MAX_SOURCE_BYTES: u64 = 16 * 1024 * 1024;
 pub(crate) const MAX_LARGE_SOURCE_BYTES: u64 = 32 * 1024 * 1024;
+// Large raw binaries do not pass through an archive decoder.
+pub(crate) const MAX_LARGE_RAW_SOURCE_BYTES: u64 = 128 * 1024 * 1024;
 pub(crate) const MANAGED_PROFILE: &str = "syrox-managed-program-x86_64-v2";
 pub(crate) const PROFILE: &str = "syrox-host-program-x86_64-v3";
 
@@ -91,12 +93,13 @@ impl BuildResources {
                 output_tmpfs: 67_108_864,
             },
             Self::Large => ResourceEnvelope {
-                memory: 1_073_741_824,
+                memory: 1_610_612_736,
                 tasks: 256,
                 cpu_percent: 100,
                 nofile: 4096,
                 output_bytes: MAX_OUTPUT_BYTES,
-                work_tmpfs: 536_870_912,
+                // glibc's source and intermediate archives coexist in /work.
+                work_tmpfs: 1_073_741_824,
                 output_tmpfs: 134_217_728,
             },
         }

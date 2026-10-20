@@ -40,6 +40,8 @@ mod bus;
 mod notify;
 pub use notify::{SystemdNotificationsProcessed, SystemdNotifier, SystemdNotifyEndpoint};
 mod build;
+mod contract;
+pub use contract::{SystemdInterfaceContract, interface_contract};
 pub(crate) mod fd_store;
 pub(crate) mod loaded;
 pub(crate) mod persistent;
@@ -366,7 +368,7 @@ impl SystemdManager {
             "org.freedesktop.DBus",
             "AddMatch",
         )?;
-        add_match.string("type='signal',sender='org.freedesktop.systemd1',path='/org/freedesktop/systemd1',interface='org.freedesktop.systemd1.Manager',member='JobRemoved'")?;
+        add_match.string(&contract::JOB_REMOVED.rule(Some(MANAGER_PATH)))?;
         bus.call(add_match, &budget)?.expect_empty()?;
         let mut owner_call = bus.method(
             "org.freedesktop.DBus",
@@ -404,6 +406,37 @@ impl SystemdManager {
         cancellation: &Cancellation,
     ) -> Result<SystemdManagerIdentity, SystemdError> {
         self.observe_identity_with(&Budget::new(timeout, cancellation)?)
+    }
+
+    /// Read the selected manager's actual unit search directories. This does
+    /// not load, publish or reload any units. Reject a manager change during
+    /// observation so callers cannot combine paths from different authorities.
+    pub fn unit_paths(
+        &mut self,
+        timeout: Duration,
+        cancellation: &Cancellation,
+    ) -> Result<Vec<PathBuf>, SystemdError> {
+        let budget = Budget::new(timeout, cancellation)?;
+        let before = self.observe_identity_with(&budget)?;
+        let paths = self.bus.get_strings(
+            MANAGER_PATH,
+            MANAGER_INTERFACE,
+            "UnitPath",
+            &budget,
+        )?;
+        let paths = paths
+            .into_iter()
+            .map(|path| {
+                absolute(Path::new(&path))?;
+                Ok(PathBuf::from(path))
+            })
+            .collect::<Result<Vec<_>, SystemdError>>()?;
+        if self.observe_identity_with(&budget)? != before {
+            return Err(SystemdError::Protocol(
+                "manager changed while reading unit paths",
+            ));
+        }
+        Ok(paths)
     }
 
     fn observe_identity_with(

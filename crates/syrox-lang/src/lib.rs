@@ -61,5 +61,7 @@ pub const MAX_SOURCES: usize = 65_536;
 pub const MAX_TOKENS: usize = 262_144;
 /// Maximum nesting depth of delimiters and modules.
 pub const MAX_DEPTH: usize = 128;
+/// Syntax recursion is bounded separately to fit a two-megabyte editor worker stack.
+pub const MAX_SYNTAX_DEPTH: usize = 64;
 /// Maximum diagnostics per analysis stage.
 pub const MAX_DIAGNOSTICS: usize = 256;

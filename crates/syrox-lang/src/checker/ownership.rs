@@ -57,6 +57,7 @@ impl Checker<'_> {
         self.body.bindings.insert(
             local,
             super::Binding {
+                constant: None,
                 ty,
                 affine,
                 moved: None,

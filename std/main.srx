@@ -1,40 +1,133 @@
 mod std {
+    pub enum Bool {
+        False,
+        True
+    }
     pub use option::Option;
     pub use result::Result;
-
     // Pure deployment plans; activation and process supervision are separate consumers.
-    pub use deployment::{Os, Shell, Service, ServiceState, SecretName, ServiceId, ConfigFile, ConfigPath, ConfigText, PackageSelection, ServiceCommand, ServiceProcess, ProcessRestart, RestartLimits, RestartDelay, RestartWindow, RestartBurst, CommandArgument, CommandEnvironment, CommandLiteral, CommandEnvironmentName, select_package, select_output, select_command};
-
+    pub use deployment::{
+        Os,
+        Shell,
+        Service,
+        ServiceState,
+        SecretName,
+        ServiceId,
+        ConfigFile,
+        ConfigPath,
+        ConfigText,
+        PackageSelection,
+        ServiceCommand,
+        ServiceProcess,
+        ProcessRestart,
+        RestartLimits,
+        RestartDelay,
+        RestartWindow,
+        RestartBurst,
+        CommandArgument,
+        CommandEnvironment,
+        CommandLiteral,
+        CommandEnvironmentName,
+        select_package,
+        select_output,
+        select_command
+    };
     pub use recipe::{
-        RecipeRef, OutputRef, CommandRef, recipe_ref, recipe_factory, recipe_value,
-        recipe_command, command_recipe, command_name,
-        bind_recipe, bind_output,
-        recipe_output, output_recipe, output_name,
+        PackagePinText,
+        PackageRef,
+        package_ref,
+        package_recipe,
+        package_config,
+        with_package_service,
+        package_service,
+        package_version,
+        package_variant,
+        package_system,
+        package_contract,
+        RecipeRef,
+        OutputRef,
+        CommandRef,
+        recipe_ref,
+        recipe_factory,
+        recipe_value,
+        recipe_command,
+        command_recipe,
+        command_name,
+        bind_recipe,
+        bind_output,
+        recipe_output,
+        output_recipe,
+        output_name,
     };
-
-    pub use list::{map, flatten, filter_map, filter};
+    pub use list::{
+        map,
+        flatten,
+        filter_map,
+        filter
+    };
     pub use maps::{
-        OrderedMap, MapKey, MapEntry,
-        map_empty, map_insert, map_from_entries, map_merge,
-        map_get, map_entries, map_keys, map_values,
+        OrderedMap,
+        MapKey,
+        MapEntry,
+        map_empty,
+        map_insert,
+        map_from_entries,
+        map_merge,
+        map_get,
+        map_entries,
+        map_keys,
+        map_values,
     };
-
     // Package identity, dependencies and source acquisition.
     pub use pkg::{
-        PackageId, Package, Dependency,
-        SourceUrl, SourceDigest, SourceLimit,
-        SourceRequest, source_request, Acquisition,
+        PackageId,
+        Package,
+        Dependency,
+        SourceUrl,
+        SourceDigest,
+        SourceLimit,
+        SourceRequest,
+        source_request,
+        Acquisition,
     };
-
     // Recipes, builders, selected outputs and runtime.
     pub use pkg::{
-        Recipe, ImportedResult, ImportedOutput, ResultRoot, ResultDigest, ResultOutputKey,
-        SourceDirectory, InstalledEntry, BuildTimeout, OutputName,
-        BuildOptions, Build, BuildInputs,
-        BuildLiteral, BuildRelativePath, BuildHostPath, BuildEnvName, BuildInputIndex,
-        BuildResources, BuildProfile, BuildSourceFormat, BuildFileMode, BuildPath, BuildPart,
-        BuildText, BuildEnv, BuildProcess, BuildFile, BuildStep,
-        build_text, build_path, build_join, autotools, autotools_with_libc,
-        CommandName, Command, RuntimeFile,
+        Recipe,
+        ImportedResult,
+        ImportedOutput,
+        ResultRoot,
+        ResultDigest,
+        ResultOutputKey,
+        SourceDirectory,
+        InstalledEntry,
+        BuildTimeout,
+        OutputName,
+        BuildOptions,
+        Build,
+        BuildInputs,
+        BuildLiteral,
+        BuildRelativePath,
+        BuildHostPath,
+        BuildEnvName,
+        BuildInputIndex,
+        BuildResources,
+        BuildProfile,
+        BuildSourceFormat,
+        BuildFileMode,
+        BuildPath,
+        BuildPart,
+        BuildText,
+        BuildEnv,
+        BuildProcess,
+        BuildFile,
+        BuildStep,
+        build_text,
+        build_path,
+        build_join,
+        autotools,
+        autotools_with_libc,
+        CommandName,
+        Command,
+        RuntimeFile,
     };
 }

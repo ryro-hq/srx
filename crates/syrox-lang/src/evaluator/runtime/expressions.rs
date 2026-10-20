@@ -31,8 +31,7 @@ impl Evaluator<'_> {
         substitutions: &BTreeMap<LocalId, Ty>,
     ) -> Eval<Value> {
         let metadata = self
-            .checked
-            .expression(expression.span)
+            .expression_metadata(expression.span)
             .ok_or_else(|| {
                 self.error(
                     expression.span,
@@ -41,6 +40,88 @@ impl Evaluator<'_> {
                 Halt
             })?;
         match &expression.kind {
+            ExpressionKind::MethodCall {
+                receiver,
+                method,
+                arguments,
+            } => {
+                if matches!(
+                    self.index.target(method.span),
+                    Some(ResolvedTarget::Item(_))
+                ) {
+                    return self.call(
+                        method.span,
+                        arguments,
+                        substitutions,
+                        expression.span,
+                    );
+                }
+                if matches!(
+                    metadata.elaboration(),
+                    Some(Elaboration::StaticCall { .. } | Elaboration::TraitCall { .. })
+                ) {
+                    let mut arguments = arguments.clone();
+                    arguments.insert(0, receiver.as_ref().clone());
+                    return self.call(
+                        method.span,
+                        &arguments,
+                        substitutions,
+                        expression.span,
+                    );
+                }
+                let value = self.expression(receiver, substitutions)?;
+                let callback = self.project(value, &method.text, method.span)?;
+                self.call_value(
+                    callback,
+                    method.span,
+                    arguments,
+                    substitutions,
+                    expression.span,
+                )
+            }
+            ExpressionKind::If {
+                condition,
+                branches,
+            } => {
+                let Value::Variant {
+                    index,
+                    ..
+                } = self.expression(condition, substitutions)?
+                else {
+                    return self.fail(
+                        condition.span,
+                        "checked if condition is not a boolean",
+                    );
+                };
+                self.expression(&branches[usize::from(index == 0)], substitutions)
+            }
+            ExpressionKind::Equality {
+                left,
+                right,
+                negated,
+            } => {
+                let left = self.expression(left, substitutions)?;
+                let right = self.expression(right, substitutions)?;
+                let equal = match (&left, &right) {
+                    (
+                        Value::Variant {
+                            index: left,
+                            ..
+                        },
+                        Value::Variant {
+                            index: right,
+                            ..
+                        },
+                    ) => left == right,
+                    _ => self.compare_values(left, right, expression.span)? == 1,
+                };
+                Ok(Value::Variant {
+                    ty: self.canonical_ty(metadata.ty(), substitutions, expression.span)?,
+                    index: u32::from(equal != *negated),
+                    payload: Vec::new(),
+                })
+            }
+            ExpressionKind::Let(block) => self.block(block, substitutions),
             ExpressionKind::Integer(integer) => {
                 let value = PrimitiveValue::Int(integer.value);
                 if let Some(Elaboration::ValueLiteral(item)) = metadata.elaboration() {
@@ -63,6 +144,21 @@ impl Evaluator<'_> {
                 }
             }
             ExpressionKind::Path(path) => match metadata.elaboration() {
+                Some(Elaboration::ValueLiteral(item)) => {
+                    let value = match self.index.target(path.span).cloned() {
+                        Some(ResolvedTarget::Local(local)) => self.local_value(local, path.span)?,
+                        Some(ResolvedTarget::Item(global))
+                            if self.index.output_values.contains_key(&global) =>
+                        {
+                            self.output_value(global, path.span)?
+                        }
+                        _ => return self.fail(path.span, "constant literal has no binding"),
+                    };
+                    let Some(value) = super::primitive_value(value) else {
+                        return self.fail(path.span, "constant is not primitive");
+                    };
+                    self.construct_primitive(*item, value, path.span, false)
+                }
                 Some(Elaboration::ContextualVariant {
                     index,
                     ..
@@ -268,6 +364,7 @@ impl Evaluator<'_> {
                     .map(|parameter| self.index.local(parameter.name.span).ok_or(Halt))
                     .collect::<Eval<Vec<_>>>()?;
                 Ok(Value::Closure {
+                    facts: self.static_facts.clone().into(),
                     once: *once,
                     owner: self
                         .checked
@@ -287,10 +384,17 @@ impl Evaluator<'_> {
                 })
             }
             ExpressionKind::Struct {
+                path,
                 fields,
                 recovery,
                 ..
             } => {
+                if !path.segments.is_empty()
+                    && self.index.target(path.span).is_some_and(|target| !matches!(target, ResolvedTarget::Item(item) if self.index.structures.contains_key(item)))
+                    && let Some(call) = expression.record_call()
+                {
+                    return self.expression_inner(&call, substitutions);
+                }
                 if !recovery.is_empty() {
                     return self.fail(
                         expression.span,
@@ -364,6 +468,36 @@ impl Evaluator<'_> {
                 arms,
             } => {
                 let scrutinee = self.expression(value, substitutions)?;
+                if !matches!(scrutinee, Value::Variant { .. }) {
+                    let Some(primitive) = super::primitive_value(scrutinee) else {
+                        return self.fail(
+                            value.span,
+                            "checked literal match produced a non-primitive value",
+                        );
+                    };
+                    for arm in arms {
+                        self.tick(arm.span)?;
+                        let selected = match (&arm.pattern, &primitive) {
+                            (Pattern::Wildcard(_), _) => true,
+                            (
+                                Pattern::Literal(crate::syntax::Literal::Integer(literal)),
+                                PrimitiveValue::Int(value),
+                            ) => literal.value == *value,
+                            (
+                                Pattern::Literal(crate::syntax::Literal::String(literal)),
+                                PrimitiveValue::Str(value),
+                            ) => super::static_string_equals(literal, value),
+                            _ => false,
+                        };
+                        if selected {
+                            return self.expression(&arm.value, substitutions);
+                        }
+                    }
+                    return self.fail(
+                        expression.span,
+                        "checked literal match selected no arm",
+                    );
+                }
                 let Value::Variant {
                     ty,
                     index,
@@ -471,13 +605,14 @@ impl Evaluator<'_> {
         index: u32,
     ) -> Eval<bool> {
         match &arm.pattern {
+            Pattern::Literal(_) => Ok(false),
             Pattern::Wildcard(_) => Ok(true),
             Pattern::Path(path)
             | Pattern::Variant {
                 path,
                 ..
             } => {
-                let checked = self.checked.pattern(path.span).ok_or_else(|| {
+                let checked = self.pattern_metadata(path.span).ok_or_else(|| {
                     self.error(path.span, "missing checked pattern metadata");
                     Halt
                 })?;

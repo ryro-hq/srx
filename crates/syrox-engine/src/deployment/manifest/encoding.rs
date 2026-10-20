@@ -143,6 +143,8 @@ pub(crate) struct GenerationManifest {
     pub(in crate::deployment) exposures: BTreeMap<String, String>,
     pub(in crate::deployment) configs: BTreeMap<String, Config>,
     pub(in crate::deployment) processes: BTreeMap<String, Process>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub(in crate::deployment) validators: BTreeSet<String>,
 }
 impl GenerationManifest {
     pub(in crate::deployment) fn empty(launcher: LauncherIdentity) -> Self {
@@ -158,6 +160,7 @@ impl GenerationManifest {
             exposures: BTreeMap::new(),
             configs: BTreeMap::new(),
             processes: BTreeMap::new(),
+            validators: BTreeSet::new(),
         }
     }
     pub(crate) fn canonical_bytes(&self) -> Result<Vec<u8>> {

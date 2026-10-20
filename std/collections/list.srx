@@ -1,25 +1,26 @@
 mod std::list {
     pub fn map<T, U>(items: [T], transform: fn(T) -> U) -> [U] {
         fold(items, [], fn(acc: [U], item: T) -> [U] {
-            acc ++ [transform(item)]
-        })
+                acc ++ [transform(item)]
+            })
     }
-
     pub fn flatten<T>(items: [[T]]) -> [T] {
         fold(items, [], fn(acc: [T], part: [T]) -> [T] {
-            acc ++ part
-        })
+                acc ++ part
+            })
     }
-
     pub fn filter_map<T, U>(items: [T], select: fn(T) -> Option<U>) -> [U] {
-        fold(items, [], fn(acc: [U], item: T) -> [U] {
-            acc ++ match select(item) {
-                Some(selected) => [selected],
-                None => [],
+        fold(
+            items,
+            [],
+            fn(acc: [U], item: T) -> [U] {
+                acc ++ match select(item) {
+                    Some(selected) => [selected],
+                    None => [],
+                }
             }
-        })
+        )
     }
-
     // The selector consumes each item and returns Some(item) to retain it.
     // This supports affine items without borrowing or copying them.
     pub fn filter<T>(items: [T], select: fn(T) -> Option<T>) -> [T] {

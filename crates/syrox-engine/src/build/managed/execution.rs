@@ -997,6 +997,7 @@ mod tests {
 
     #[test]
     fn bridge_precheck_cancellation_cleans_unstarted_shared_operation() {
+        let _fixture = shared::producer_fixture();
         let directory = tempfile::tempdir().unwrap();
         let store = Store::initialize(&directory.path().join("store")).unwrap();
         let action = cache::tests::action();

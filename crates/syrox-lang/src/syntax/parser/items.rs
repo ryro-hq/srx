@@ -1,5 +1,5 @@
 use super::{
-    Block, Diagnostic, Enum, Field, Function, Input, Inputs, Item, ItemKind, Keyword,
+    Block, Diagnostic, Enum, Field, Function, Ident, Input, Inputs, Item, ItemKind, Keyword,
     MAX_DIAGNOSTICS, Module, Output, OutputKind, Outputs, Parameter, Parser, Primitive,
     PrimitiveDeclaration, Refinement, RefinementKind, Span, Statement, StatementKind, Struct,
     SyntaxKind, Token, TokenKind, Type, TypeAlias, TypeKind, TypeParameter, Use,
@@ -8,7 +8,25 @@ use super::{
 impl Parser<'_> {
     pub(super) fn parse_items(&mut self, nested: bool) -> Vec<Item> {
         let mut items = Vec::new();
+        let mut services = Vec::new();
+        let mut service_span = None;
         while self.peek().is_some() && !(nested && self.at(TokenKind::RightBrace)) {
+            if !nested
+                && self.peek().is_some_and(|token| {
+                    token.kind == TokenKind::Ident && self.text(token.span) == "services"
+                })
+            {
+                if let Some((service, span)) = self.syntax(
+                    SyntaxKind::Declaration,
+                    Self::parse_service_configuration,
+                ) {
+                    service_span = Some(service_span.map_or(span, |start: Span| start.join(span)));
+                    services.push(service);
+                } else {
+                    self.recover_item(self.at, nested);
+                }
+                continue;
+            }
             // The lexer already diagnosed these tokens. Keep them in the
             // lossless stream without cascading an item error for each one.
             if self.at(TokenKind::Invalid) || self.at(TokenKind::Unparsed) {
@@ -33,7 +51,206 @@ impl Parser<'_> {
                 break;
             }
         }
+        if let Some(span) = service_span {
+            items.push(Self::service_output(services, span));
+        }
         items
+    }
+
+    fn generated_path(span: Span, segments: &[&str]) -> super::Path {
+        super::Path {
+            span,
+            segments: segments
+                .iter()
+                .map(|text| Ident {
+                    text: (*text).to_owned(),
+                    span,
+                })
+                .collect(),
+        }
+    }
+
+    fn parse_service_configuration(&mut self) -> Option<(super::Expression, Span)> {
+        let start = self.advance()?.span;
+        self.expect(
+            TokenKind::Dot,
+            "expected service name after `services`",
+        )?;
+        let name = self.ident("expected service name")?;
+        self.expect(
+            TokenKind::Equal,
+            "expected `=` after service name",
+        )?;
+        let open = self.peek()?.span;
+        let configuration = self.parse_struct_literal(
+            super::Path {
+                segments: Vec::new(),
+                span: open,
+            },
+            Vec::new(),
+        )?;
+        let end = self
+            .expect(
+                TokenKind::Semicolon,
+                "expected `;` after service configuration",
+            )?
+            .span;
+        let super::ExpressionKind::Struct {
+            fields,
+            recovery,
+            ..
+        } = configuration.kind
+        else {
+            return None;
+        };
+        if !recovery.is_empty() {
+            return None;
+        }
+        let point = |offset| {
+            Span::new(
+                start.source_id(),
+                start.start() + offset,
+                start.start() + offset + 1,
+            )
+        };
+        let mut package = None;
+        let mut settings = None;
+        let mut enable = None;
+        for field in fields {
+            let slot = match field.name.text.as_str() {
+                "package" => &mut package,
+                "settings" => &mut settings,
+                "enable" => &mut enable,
+                _ => {
+                    self.error(Diagnostic::error(
+                        format!("unknown service option `{}`", field.name.text),
+                        field.name.span,
+                    ));
+                    continue;
+                }
+            };
+            if slot.is_some() {
+                self.error(Diagnostic::error(
+                    "duplicate service option",
+                    field.name.span,
+                ));
+            }
+            *slot = Some(field.value);
+        }
+        let Some(package) = package else {
+            self.error(Diagnostic::error(
+                "service requires a selected package",
+                name.span,
+            ));
+            return None;
+        };
+        let settings = settings.unwrap_or(super::Expression {
+            span: point(1),
+            kind: super::ExpressionKind::Struct {
+                path: super::Path {
+                    segments: Vec::new(),
+                    span: point(1),
+                },
+                type_arguments: Vec::new(),
+                record_span: point(1),
+                fields: Vec::new(),
+                recovery: Vec::new(),
+            },
+        });
+        let enable = enable.unwrap_or(super::Expression {
+            span: point(0),
+            kind: super::ExpressionKind::Path(Self::generated_path(
+                point(0),
+                &["std", "Bool", "True"],
+            )),
+        });
+        let id = super::Expression {
+            span: name.span,
+            kind: super::ExpressionKind::String(super::StringLiteral {
+                source: format!("\"{}\"", name.text),
+                parts: vec![super::StringPart::Text {
+                    source: name.text,
+                    span: name.span,
+                }],
+                span: name.span,
+            }),
+        };
+        Some((
+            super::Expression {
+                span: start.join(configuration.span),
+                kind: super::ExpressionKind::Call {
+                    callee: Self::generated_path(start, &["std", "package_service"]),
+                    arguments: vec![package, settings, enable, id],
+                },
+            },
+            start.join(end),
+        ))
+    }
+
+    fn service_output(services: Vec<super::Expression>, span: Span) -> Item {
+        let point = |offset| {
+            Span::new(
+                span.source_id(),
+                span.start() + offset,
+                span.start() + offset + 1,
+            )
+        };
+        let fields = vec![
+            super::StructField {
+                name: Ident {
+                    text: "pkgs".to_owned(),
+                    span: point(2),
+                },
+                value: super::Expression {
+                    span: point(2),
+                    kind: super::ExpressionKind::List(Vec::new()),
+                },
+                span: point(2),
+            },
+            super::StructField {
+                name: Ident {
+                    text: "services".to_owned(),
+                    span: point(3),
+                },
+                value: super::Expression {
+                    span: point(3),
+                    kind: super::ExpressionKind::List(services),
+                },
+                span: point(3),
+            },
+        ];
+        Item {
+            public: false,
+            span,
+            kind: ItemKind::Outputs(Outputs {
+                entries: vec![Output {
+                    span,
+                    kind: OutputKind::Value {
+                        name: Ident {
+                            text: "os".to_owned(),
+                            span: Span::new(span.source_id(), span.end(), span.end()),
+                        },
+                        ty: Type {
+                            span: point(6),
+                            kind: TypeKind::Named {
+                                path: Self::generated_path(point(6), &["std", "Os"]),
+                                arguments: Vec::new(),
+                            },
+                        },
+                        value: super::Expression {
+                            span,
+                            kind: super::ExpressionKind::Struct {
+                                path: Self::generated_path(point(5), &["std", "Os"]),
+                                type_arguments: Vec::new(),
+                                record_span: span,
+                                fields,
+                                recovery: Vec::new(),
+                            },
+                        },
+                    },
+                }],
+            }),
+        }
     }
 
     pub(super) fn parse_item(&mut self) -> Option<Item> {
@@ -62,7 +279,7 @@ impl Parser<'_> {
         let TokenKind::Keyword(keyword) = declaration.kind else {
             self.error(
                 Diagnostic::error("expected a declaration", token.span).with_note(
-                    "declarations start with mod, use, inputs, outputs, type, struct, opaque, enum, resource, value or fn",
+                    "declarations start with mod, use, inputs, outputs, let, type, struct, opaque, enum, resource, value or fn",
                 ),
             );
             return None;
@@ -70,7 +287,9 @@ impl Parser<'_> {
         if public
             && !matches!(
                 keyword,
-                Keyword::Fn
+                Keyword::Let
+                    | Keyword::Fn
+                    | Keyword::Mod
                     | Keyword::Struct
                     | Keyword::Type
                     | Keyword::Enum
@@ -79,16 +298,43 @@ impl Parser<'_> {
                     | Keyword::Opaque
                     | Keyword::Use
                     | Keyword::Publish
+                    | Keyword::Trait
             )
         {
             self.error(Diagnostic::error(
-                "`pub` requires a type, value, function or import declaration",
+                "`pub` requires a module, type, value, function or import declaration",
                 declaration.span,
             ));
             return None;
         }
         let start = token.span;
         let (kind, end) = match keyword {
+            Keyword::Let => {
+                let name = self.ident("expected binding name")?;
+                let ty = if self.consume(TokenKind::Colon).is_some() {
+                    Some(self.parse_type()?)
+                } else {
+                    None
+                };
+                self.expect(
+                    TokenKind::Equal,
+                    "expected `=` after binding name",
+                )?;
+                let value = self.parse_expression()?;
+                let end = self
+                    .expect(TokenKind::Semicolon, "expected `;` after binding")?
+                    .span;
+                (
+                    ItemKind::Binding(crate::syntax::GlobalBinding {
+                        name,
+                        ty,
+                        value,
+                    }),
+                    end,
+                )
+            }
+            Keyword::Trait => self.parse_trait(start)?,
+            Keyword::Impl => self.parse_impl(start)?,
             Keyword::Mod => self.parse_module(start)?,
             Keyword::Use => self.parse_use(start)?,
             Keyword::Inputs => self.parse_inputs(start)?,
@@ -158,6 +404,175 @@ impl Parser<'_> {
         })
     }
 
+    fn parse_trait(&mut self, start: Span) -> Option<(ItemKind, Span)> {
+        let name = self.ident("expected trait name")?;
+        let path = super::Path {
+            segments: vec![name.clone()],
+            span: name.span,
+        };
+        let parents = if self.consume(TokenKind::Colon).is_some() {
+            vec![self.parse_path("expected parent trait")?]
+        } else {
+            Vec::new()
+        };
+        let open = self.expect(TokenKind::LeftBrace, "expected `{` after trait")?;
+        if !self.enter(open.span) {
+            return None;
+        }
+        let mut associated = Vec::new();
+        let mut items = Vec::new();
+        while !self.at(TokenKind::RightBrace) {
+            if self.consume_keyword(Keyword::Type).is_some() {
+                associated.push(self.ident("expected associated type")?);
+                self.expect(
+                    TokenKind::Semicolon,
+                    "expected `;` after associated type",
+                )?;
+            } else {
+                let method_start = self
+                    .expect_keyword(
+                        Keyword::Fn,
+                        "expected trait method or associated type",
+                    )?
+                    .span;
+                let (kind, end) = self.parse_function(method_start, true)?;
+                let ItemKind::Function(mut function) = kind else {
+                    return None;
+                };
+                if !function.abstract_member {
+                    self.error(Diagnostic::error(
+                        "static traits require method signatures without default bodies",
+                        function.name.span,
+                    ));
+                }
+                function.type_parameters.insert(
+                    0,
+                    TypeParameter {
+                        name: Ident {
+                            text: "Self".to_owned(),
+                            span: function.name.span,
+                        },
+                        owner: false,
+                        bounds: vec![Self::generated_path(
+                            function.name.span,
+                            &[&name.text],
+                        )],
+                        span: function.name.span,
+                    },
+                );
+                items.push(Item {
+                    kind: ItemKind::Function(function),
+                    public: true,
+                    span: method_start.join(end),
+                });
+            }
+        }
+        let end = self
+            .expect(TokenKind::RightBrace, "expected `}` after trait")?
+            .span;
+        self.leave();
+        let _ = start;
+        Some((
+            ItemKind::Module(Module {
+                path,
+                items,
+                contract: Some(crate::syntax::ModuleContract::Trait {
+                    associated,
+                    parents,
+                }),
+            }),
+            end,
+        ))
+    }
+
+    fn parse_impl(&mut self, _start: Span) -> Option<(ItemKind, Span)> {
+        let trait_path = self.parse_path("expected implemented trait")?;
+        let inherent = self.at(TokenKind::LeftBrace);
+        let target = if inherent {
+            Some(Type {
+                span: trait_path.span,
+                kind: TypeKind::Named {
+                    path: trait_path.clone(),
+                    arguments: Vec::new(),
+                },
+            })
+        } else {
+            None
+        };
+        let for_span = if inherent {
+            trait_path.span
+        } else {
+            self.expect_keyword(Keyword::For, "expected `for` after trait")?
+                .span
+        };
+        let target = if let Some(target) = target {
+            target
+        } else {
+            self.parse_type()?
+        };
+        let open = self.expect(
+            TokenKind::LeftBrace,
+            "expected `{` after implementation type",
+        )?;
+        if !self.enter(open.span) {
+            return None;
+        }
+        let mut items = self.parse_items(true);
+        let end = self
+            .expect(
+                TokenKind::RightBrace,
+                "expected `}` after implementation",
+            )?
+            .span;
+        self.leave();
+        for item in &mut items {
+            item.public = true;
+        }
+        items.insert(
+            0,
+            Item {
+                public: false,
+                span: for_span.join(target.span),
+                kind: ItemKind::TypeAlias(TypeAlias {
+                    name: Ident {
+                        text: "Self".to_owned(),
+                        span: for_span,
+                    },
+                    type_parameters: Vec::new(),
+                    ty: target.clone(),
+                }),
+            },
+        );
+        let path = super::Path {
+            span: trait_path.span,
+            segments: vec![Ident {
+                text: format!(
+                    "__impl_{}_{}",
+                    trait_path.span.source_id().index(),
+                    trait_path.span.start()
+                ),
+                span: trait_path.span,
+            }],
+        };
+        Some((
+            ItemKind::Module(Module {
+                path,
+                items,
+                contract: Some(if inherent {
+                    crate::syntax::ModuleContract::Methods {
+                        target,
+                    }
+                } else {
+                    crate::syntax::ModuleContract::Implementation {
+                        trait_path,
+                        target,
+                    }
+                }),
+            }),
+            end,
+        ))
+    }
+
     fn parse_module(&mut self, start: Span) -> Option<(ItemKind, Span)> {
         let path = self.parse_path("expected module path")?;
         let open = self.expect(
@@ -185,6 +600,7 @@ impl Parser<'_> {
         let _ = start;
         Some((
             ItemKind::Module(Module {
+                contract: None,
                 path,
                 items,
             }),
@@ -367,6 +783,43 @@ impl Parser<'_> {
         }
         let (fields, valid) = self.semicolon_entries(SyntaxKind::Field, |parser| {
             let field_start = parser.peek()?.span;
+            let key = if parser.consume(TokenKind::Hash).is_some() {
+                parser.expect(TokenKind::LeftBracket, "expected `[` after `#`")?;
+                let attribute = parser.ident("expected field attribute")?;
+                if attribute.text != "key" {
+                    parser.error(Diagnostic::error(
+                        "unknown field attribute",
+                        attribute.span,
+                    ));
+                    return None;
+                }
+                parser.expect(TokenKind::LeftParen, "expected `(` after `key`")?;
+                let literal = parser.string_literal()?;
+                let mut key = String::new();
+                for part in &literal.parts {
+                    if let super::StringPart::Text {
+                        source,
+                        ..
+                    } = part
+                    {
+                        crate::syntax::decode_text_into(source, &mut key)?;
+                    } else {
+                        parser.error(Diagnostic::error(
+                            "external key must be a literal string",
+                            literal.span,
+                        ));
+                        return None;
+                    }
+                }
+                parser.expect(TokenKind::RightParen, "expected `)` after key")?;
+                parser.expect(
+                    TokenKind::RightBracket,
+                    "expected `]` after attribute",
+                )?;
+                Some(key)
+            } else {
+                None
+            };
             let field_name = parser.ident("expected field name")?;
             parser.expect(TokenKind::Colon, "expected `:` after field name")?;
             let ty = parser.parse_type()?;
@@ -377,6 +830,7 @@ impl Parser<'_> {
             };
             let end = parser.expect(TokenKind::Semicolon, "expected `;` after field")?;
             Some(Field {
+                key,
                 name: field_name,
                 ty,
                 default,
@@ -411,7 +865,13 @@ impl Parser<'_> {
             let start = self.peek()?.span;
             let owner = self.consume_keyword(Keyword::Owner).is_some();
             let name = self.ident("expected type parameter")?;
+            let bounds = if self.consume(TokenKind::Colon).is_some() {
+                vec![self.parse_path("expected trait bound")?]
+            } else {
+                Vec::new()
+            };
             parameters.push(TypeParameter {
+                bounds,
                 span: start.join(name.span),
                 name,
                 owner,
@@ -651,6 +1111,7 @@ impl Parser<'_> {
         if !self.at(TokenKind::RightParen) {
             loop {
                 let parameter_start = self.peek()?.span;
+                let constant = self.consume_keyword(Keyword::Const).is_some();
                 let parameter_name = self.ident("expected parameter name")?;
                 self.expect(
                     TokenKind::Colon,
@@ -658,6 +1119,7 @@ impl Parser<'_> {
                 )?;
                 let ty = self.parse_type()?;
                 parameters.push(Parameter {
+                    constant,
                     span: parameter_start.join(ty.span),
                     name: parameter_name,
                     ty,
@@ -688,7 +1150,16 @@ impl Parser<'_> {
             span: start.join(self.tokens[self.at - 1].span),
         });
         let body_at = self.at;
-        let body = if let Some(body) = self.parse_block() {
+        let abstract_member = self.at(TokenKind::Semicolon);
+        let body = if abstract_member {
+            let end = self.advance()?.span;
+            Block {
+                statements: Vec::new(),
+                tail: None,
+                span: end,
+                incomplete: false,
+            }
+        } else if let Some(body) = self.parse_block() {
             body
         } else {
             self.incomplete_bodies.push(name.span);
@@ -726,6 +1197,7 @@ impl Parser<'_> {
         let end = body.span;
         Some((
             ItemKind::Function(Function {
+                abstract_member,
                 name,
                 type_parameters,
                 parameters,
@@ -820,7 +1292,7 @@ impl Parser<'_> {
         })
     }
 
-    fn parse_let_statement(
+    pub(super) fn parse_let_statement(
         &mut self,
         start: Span,
         recovered: &mut Option<crate::syntax::RecoveredBinding>,
@@ -990,7 +1462,16 @@ impl Parser<'_> {
                 span: open.span.join(close.span),
             });
         }
-        let path = self.parse_path("expected type")?;
+        let mut path = self.parse_path("expected type")?;
+        if path.segments.len() == 1 && path.segments[0].text == "bool" {
+            path.segments = ["std", "Bool"]
+                .into_iter()
+                .map(|text| Ident {
+                    text: text.to_owned(),
+                    span: path.span,
+                })
+                .collect();
+        }
         let start = path.span;
         let (arguments, end) = if let Some(open) = self.consume(TokenKind::LeftAngle) {
             if !self.enter(open.span) {

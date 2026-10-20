@@ -110,7 +110,7 @@ fn validate_bracket(
     }
     Ok(())
 }
-fn properties(
+pub(super) fn properties(
     service: &SystemdService,
     scope: &SystemdScope,
 ) -> Result<Vec<Property>, SystemdError> {

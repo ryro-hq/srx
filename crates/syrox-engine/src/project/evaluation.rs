@@ -17,10 +17,10 @@ use super::{
 /// they are not persistent recipe or Action identities.
 #[derive(Debug)]
 pub struct LockedProject {
-    loaded: LoadedProject,
-    checked: CheckedProgram,
-    configuration: CheckConfiguration,
-    digest: [u8; 32],
+    pub(super) loaded: LoadedProject,
+    pub(super) checked: CheckedProgram,
+    pub(super) configuration: CheckConfiguration,
+    pub(super) digest: [u8; 32],
 }
 
 impl LockedProject {
@@ -80,33 +80,37 @@ mod budget_tests {
     #[test]
     fn catalog_metadata_exhaustion_poisoning_prevents_retries_and_partial_plans() {
         let project = tempfile::tempdir().unwrap();
-        std::fs::write(project.path().join("main.srx"), r#"
-            mod catalog { mod one { pub fn recipe() -> std::Recipe { std::Recipe { package = std::Package { id = "one"; dependencies = []; }; } } } }
-            pub publish(catalog, recipe): std::Recipe;
-        "#).unwrap();
-        let config = crate::project::CheckConfiguration {
-            standard_library: Some(crate::project::AuthenticatedStandardLibrary::bundled()),
-            ..crate::project::CheckConfiguration::default()
-        };
-        crate::project::lock_project_with(project.path(), &config).unwrap();
-        let locked = crate::project::open_locked_project_with(project.path(), &config).unwrap();
-        for work in [false, true] {
-            let mut evaluation = locked.evaluation().unwrap();
-            assert!(evaluation.select_package("one").unwrap());
-            if work {
-                evaluation
-                    .session
-                    .reserve_metadata_work(evaluation.session.remaining_metadata_work())
-                    .unwrap();
-            } else {
-                evaluation
-                    .session
-                    .reserve_metadata_bytes(evaluation.session.remaining_metadata_bytes())
-                    .unwrap();
+        for source in [
+            r#"mod catalog { mod one { pub fn recipe() -> std::Recipe { std::Recipe { package = std::Package { id = "one"; dependencies = []; }; } } } }
+                pub publish(catalog, recipe): std::Recipe;"#,
+            r#"pub let one = recipe_ref(make);
+                fn make() -> Recipe { Recipe { package = Package { id = "one"; dependencies = []; }; } }"#,
+        ] {
+            std::fs::write(project.path().join("main.srx"), source).unwrap();
+            let config = crate::project::CheckConfiguration {
+                standard_library: Some(crate::project::AuthenticatedStandardLibrary::bundled()),
+                ..crate::project::CheckConfiguration::default()
+            };
+            crate::project::lock_project_with(project.path(), &config).unwrap();
+            let locked = crate::project::open_locked_project_with(project.path(), &config).unwrap();
+            for work in [false, true] {
+                let mut evaluation = locked.evaluation().unwrap();
+                assert!(evaluation.select_package("one").unwrap());
+                if work {
+                    evaluation
+                        .session
+                        .reserve_metadata_work(evaluation.session.remaining_metadata_work())
+                        .unwrap();
+                } else {
+                    evaluation
+                        .session
+                        .reserve_metadata_bytes(evaluation.session.remaining_metadata_bytes())
+                        .unwrap();
+                }
+                assert!(evaluation.catalog_names().is_err());
+                assert!(evaluation.select_package("one").is_err());
+                assert!(evaluation.into_selected_plan().is_err());
             }
-            assert!(evaluation.catalog_names().is_err());
-            assert!(evaluation.select_package("one").is_err());
-            assert!(evaluation.into_selected_plan().is_err());
         }
     }
 }
@@ -120,6 +124,7 @@ struct RecipeHandle {
 #[derive(Clone, Debug)]
 struct CatalogEntry {
     reference: RecipeHandle,
+    binding: bool,
 }
 
 #[derive(Debug)]
@@ -149,6 +154,12 @@ impl ProjectEvaluation<'_> {
                 EvaluationQueryError::InvalidSelection => {
                     invalid_catalog("invalid selected reference")
                 }
+                EvaluationQueryError::Evaluation(errors) => CheckFailure::Evaluation {
+                    input: self.project.loaded.sources().clone(),
+                    errors,
+                    failed_roots: vec![name.to_owned()],
+                }
+                .into(),
                 EvaluationQueryError::Setup(source) => CheckFailure::EvaluationSetup {
                     source,
                 }
@@ -182,6 +193,12 @@ impl ProjectEvaluation<'_> {
                         name: name.to_owned(),
                     }
                 }
+                EvaluationQueryError::Evaluation(errors) => CheckFailure::Evaluation {
+                    input: self.project.loaded.sources().clone(),
+                    errors,
+                    failed_roots: vec![name.to_owned()],
+                }
+                .into(),
                 EvaluationQueryError::Setup(source) => CheckFailure::EvaluationSetup {
                     source,
                 }
@@ -209,7 +226,7 @@ impl ProjectEvaluation<'_> {
         Ok(())
     }
 
-    /// Enumerate published recipe members visible in the root domain. Factories
+    /// Enumerate public recipe references visible in the root domain. Factories
     /// remain unevaluated, and imported libraries are not implicit catalogs.
     pub fn catalog_names(&mut self) -> Result<Option<Vec<String>>, ProjectOperationError> {
         self.catalog()?;
@@ -248,10 +265,9 @@ impl ProjectEvaluation<'_> {
         {
             return Ok(None);
         }
-        self.session
-            .select_published(key)
+        self.select_catalog_reference(key)
             .map(Some)
-            .map_err(selection_error)
+            .map_err(|error| selection_error(error, self.project, key))
     }
 
     /// Force one published recipe and prepare only its reachable graph.
@@ -272,13 +288,9 @@ impl ProjectEvaluation<'_> {
             .and_then(|entries| entries.get(&selected.reference.id))
             .expect("indexed published reference")
             .clone();
-        self.session
-            .force_published(&canonical)
-            .map_err(selection_error)?;
+        self.force_catalog_reference(&canonical)?;
         if key != canonical {
-            self.session
-                .force_published(key)
-                .map_err(selection_error)?;
+            self.force_catalog_reference(key)?;
         }
         Ok(true)
     }
@@ -405,20 +417,16 @@ impl ProjectEvaluation<'_> {
         if self.catalog.is_some() {
             return Ok(());
         }
-        let (count, work, bytes) = self
-            .session
-            .published_members()
-            .filter(|member| is_recipe_type(member.result_type()))
-            .fold(
-                (0usize, 0usize, 0usize),
-                |(count, work, bytes), member| {
-                    (
-                        count.saturating_add(1),
-                        work.saturating_add(member.name().len() + 1),
-                        bytes.saturating_add(member.name().len() + size_of::<String>()),
-                    )
-                },
-            );
+        let (count, work, bytes) = self.recipe_names().fold(
+            (0usize, 0usize, 0usize),
+            |(count, work, bytes), (name, _)| {
+                (
+                    count.saturating_add(1),
+                    work.saturating_add(name.len() + 1),
+                    bytes.saturating_add(name.len() + size_of::<String>() + size_of::<bool>()),
+                )
+            },
+        );
         self.session
             .reserve_metadata_work(work)
             .map_err(|source| CheckFailure::EvaluationSetup {
@@ -439,24 +447,24 @@ impl ProjectEvaluation<'_> {
             return Ok(());
         }
         let names: Vec<_> = self
-            .session
-            .published_members()
-            .filter(|member| is_recipe_type(member.result_type()))
-            .map(|member| member.name().to_owned())
+            .recipe_names()
+            .map(|(name, binding)| (name.to_owned(), binding))
             .collect();
         let mut index = CatalogIndex::new();
         let mut references: BTreeMap<MemoId, String> = BTreeMap::new();
-        for key in names {
+        for (key, binding) in names {
             let levels = index.len().checked_ilog2().unwrap_or(0) as usize + 1;
             self.session
                 .reserve_metadata_work((key.len() + 1).saturating_mul(levels + 1))
                 .map_err(|source| CheckFailure::EvaluationSetup {
                     source,
                 })?;
-            let value = self
-                .session
-                .select_published(&key)
-                .map_err(selection_error)?;
+            let value = if binding {
+                self.session.select_reference_binding(&key)
+            } else {
+                self.session.select_published(&key)
+            }
+            .map_err(|error| selection_error(error, self.project, &key))?;
             let reference = recipe_handle(&value)?;
             let bytes = key
                 .len()
@@ -478,7 +486,10 @@ impl ProjectEvaluation<'_> {
             references
                 .entry(reference.id.clone())
                 .and_modify(|canonical| {
-                    if key < *canonical {
+                    // Existing publications retain their canonical identity
+                    // when a public global becomes an additional alias.
+                    let previous = index[canonical.as_str()].binding;
+                    if (binding, key.as_str()) < (previous, canonical.as_str()) {
                         key.clone_into(canonical);
                     }
                 })
@@ -487,6 +498,7 @@ impl ProjectEvaluation<'_> {
                 key,
                 CatalogEntry {
                     reference,
+                    binding,
                 },
             );
         }
@@ -495,6 +507,45 @@ impl ProjectEvaluation<'_> {
             references,
         });
         Ok(())
+    }
+
+    fn recipe_names(&self) -> impl Iterator<Item = (&str, bool)> {
+        self.session
+            .published_members()
+            .filter(|member| is_recipe_type(member.result_type()))
+            .map(|member| (member.name(), false))
+            .chain(
+                self.session
+                    .reference_bindings()
+                    .filter(|binding| is_recipe_type(binding.result_type()))
+                    .map(|binding| (binding.name(), true)),
+            )
+    }
+
+    fn select_catalog_reference(&mut self, key: &str) -> Result<Value, EvaluationQueryError> {
+        if self
+            .catalog_entries()
+            .and_then(|entries| entries.get(key))
+            .is_some_and(|entry| entry.binding)
+        {
+            self.session.select_reference_binding(key)
+        } else {
+            self.session.select_published(key)
+        }
+    }
+
+    fn force_catalog_reference(&mut self, key: &str) -> Result<(), ProjectOperationError> {
+        if self
+            .catalog_entries()
+            .and_then(|entries| entries.get(key))
+            .is_some_and(|entry| entry.binding)
+        {
+            self.session.force_reference_binding(key)
+        } else {
+            self.session.force_published(key)
+        }
+        .map(|_| ())
+        .map_err(|error| selection_error(error, self.project, key))
     }
 
     fn catalog_entries(&self) -> Option<&CatalogIndex> {
@@ -541,8 +592,18 @@ fn is_recipe_type(ty: &CanonicalType) -> bool {
             && identity.path() == ["std", "pkg", "Recipe"])
 }
 
-fn selection_error(error: EvaluationQueryError) -> ProjectOperationError {
+fn selection_error(
+    error: EvaluationQueryError,
+    project: &LockedProject,
+    name: &str,
+) -> ProjectOperationError {
     match error {
+        EvaluationQueryError::Evaluation(errors) => CheckFailure::Evaluation {
+            input: project.loaded.sources().clone(),
+            errors,
+            failed_roots: vec![name.to_owned()],
+        }
+        .into(),
         EvaluationQueryError::Setup(source) => CheckFailure::EvaluationSetup {
             source,
         }
@@ -683,10 +744,12 @@ pub fn open_locked_project_with(
         return Err(ProjectOperationError::GraphDrift);
     }
     let checked = analyze::check_loaded(&loaded, configuration)?;
+    let mut configuration = configuration.clone();
+    configuration.environment = analyze::asset_environment(&loaded, &configuration.environment);
     Ok(LockedProject {
         loaded,
         checked,
-        configuration: configuration.clone(),
+        configuration,
         digest: *actual.digest(),
     })
 }

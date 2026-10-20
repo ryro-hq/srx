@@ -165,12 +165,36 @@ pub enum ItemKind {
     Resource(PrimitiveDeclaration),
     Value(PrimitiveDeclaration),
     Function(Function),
+    Binding(GlobalBinding),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GlobalBinding {
+    pub name: Ident,
+    pub ty: Option<Type>,
+    pub value: Expression,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
+    pub contract: Option<ModuleContract>,
     pub path: Path,
     pub items: Vec<Item>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModuleContract {
+    Methods {
+        target: Type,
+    },
+    Trait {
+        associated: Vec<Ident>,
+        parents: Vec<Path>,
+    },
+    Implementation {
+        trait_path: Path,
+        target: Type,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -240,6 +264,7 @@ pub struct Struct {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TypeParameter {
+    pub bounds: Vec<Path>,
     pub name: Ident,
     pub owner: bool,
     pub span: Span,
@@ -247,6 +272,7 @@ pub struct TypeParameter {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Field {
+    pub key: Option<String>,
     pub name: Ident,
     pub ty: Type,
     pub default: Option<Expression>,
@@ -299,6 +325,7 @@ pub enum RefinementKind {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Function {
+    pub abstract_member: bool,
     pub name: Ident,
     pub type_parameters: Vec<TypeParameter>,
     pub parameters: Vec<Parameter>,
@@ -306,8 +333,26 @@ pub struct Function {
     pub body: Block,
 }
 
+impl Function {
+    pub fn has_bounds(&self) -> bool {
+        self.type_parameters
+            .iter()
+            .any(|parameter| !parameter.bounds.is_empty())
+    }
+    pub fn is_static(&self) -> bool {
+        self.parameters
+            .iter()
+            .any(|parameter| parameter.constant)
+    }
+    pub fn inferred_result(&self) -> bool {
+        self.result.as_ref().is_some_and(|ty| matches!(&ty.kind, TypeKind::Named { path, arguments } if arguments.is_empty() && path.segments.len() == 1 && path.segments[0].text == "_"))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Parameter {
+    /// The checker requires a known value and specializes the body at the call.
+    pub constant: bool,
     pub name: Ident,
     pub ty: Type,
     pub span: Span,
@@ -376,6 +421,21 @@ pub struct Expression {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExpressionKind {
+    MethodCall {
+        receiver: Box<Expression>,
+        method: Ident,
+        arguments: Vec<Expression>,
+    },
+    If {
+        condition: Box<Expression>,
+        branches: [Box<Expression>; 2],
+    },
+    Equality {
+        left: Box<Expression>,
+        right: Box<Expression>,
+        negated: bool,
+    },
+    Let(Block),
     Memoize(Box<Expression>),
     /// Reorder items by a parallel list of reusable primitive keys. Items are
     /// moved, so sorting also supports affine elements without copying them.
@@ -422,6 +482,9 @@ pub enum ExpressionKind {
     Struct {
         path: Path,
         type_arguments: Vec<Type>,
+        /// Exact braces span, also used for the anonymous argument when the
+        /// resolved path names a callable rather than a struct constructor.
+        record_span: Span,
         fields: Vec<StructField>,
         /// Query-only malformed field fragments; strict parsing rejects these.
         recovery: Vec<Span>,
@@ -443,6 +506,59 @@ pub enum ExpressionKind {
     Concat(Vec<Expression>),
 }
 
+impl Expression {
+    /// Lower a named record application after resolution has identified a
+    /// callable. Constructors retain the original expression and authority.
+    pub(crate) fn record_call(&self) -> Option<Self> {
+        let ExpressionKind::Struct {
+            path,
+            type_arguments,
+            record_span,
+            fields,
+            recovery,
+        } = &self.kind
+        else {
+            return None;
+        };
+        if path.segments.is_empty() {
+            return None;
+        }
+        let argument = Self {
+            span: *record_span,
+            kind: ExpressionKind::Struct {
+                path: Path {
+                    segments: Vec::new(),
+                    span: *record_span,
+                },
+                type_arguments: Vec::new(),
+                record_span: *record_span,
+                fields: fields.clone(),
+                recovery: recovery.clone(),
+            },
+        };
+        Some(Self {
+            span: self.span,
+            kind: if type_arguments.is_empty() {
+                ExpressionKind::Call {
+                    callee: path.clone(),
+                    arguments: vec![argument],
+                }
+            } else {
+                ExpressionKind::Apply {
+                    callee: Box::new(Self {
+                        span: path.span,
+                        kind: ExpressionKind::Specialize {
+                            function: path.clone(),
+                            arguments: type_arguments.clone(),
+                        },
+                    }),
+                    arguments: vec![argument],
+                }
+            },
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StructField {
     pub name: Ident,
@@ -459,6 +575,7 @@ pub struct MatchArm {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Pattern {
+    Literal(Literal),
     Wildcard(Span),
     Path(Path),
     Variant {
@@ -499,4 +616,24 @@ pub enum StringPart {
         path: Path,
         span: Span,
     },
+}
+
+pub(crate) fn decode_text_into(source: &str, result: &mut String) -> Option<()> {
+    let mut chars = source.chars();
+    while let Some(character) = chars.next() {
+        if character != '\\' {
+            result.push(character);
+            continue;
+        }
+        result.push(match chars.next()? {
+            '"' => '"',
+            '\\' => '\\',
+            'n' => '\n',
+            'r' => '\r',
+            't' => '\t',
+            '$' => '$',
+            _ => return None,
+        });
+    }
+    Some(())
 }

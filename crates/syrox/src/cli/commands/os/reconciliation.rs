@@ -8,8 +8,8 @@ use syrox_engine::{
 #[derive(Debug, clap::Args)]
 pub(crate) struct RecoveryArguments {
     /// Explicit journal operation identifier, as printed by apply or status.
-    #[arg(value_parser = operation_id)]
-    operation: String,
+    #[arg(value_parser = operation_id, required_unless_present = "profile")]
+    operation: Option<String>,
     /// Explicitly reconcile an earlier boot; does not start services or authorize GC.
     #[arg(long)]
     new_boot: bool,
@@ -34,26 +34,60 @@ pub(crate) fn operation_id(text: &str) -> Result<String, String> {
 
 pub(crate) fn recover(arguments: &RecoveryArguments, cancel: &Cancellation) -> Result<u8, String> {
     let execution = &arguments.execution;
-    let scope = execution.manager_scope()?;
+    let loaded = execution
+        .profile
+        .as_deref()
+        .map(|name| super::profile::Loaded::load(name, cancel))
+        .transpose()?;
+    let operation = match &arguments.operation {
+        Some(operation) => operation.clone(),
+        None => loaded
+            .as_ref()
+            .ok_or("an operation identifier is required without --profile")?
+            .status(cancel)?
+            .active_operation
+            .ok_or("profile has no active operation to recover")?,
+    };
+    let selected = if let Some(loaded) = &loaded {
+        loaded.request(
+            syrox_engine::store::ContentDigest::sha256(b"recovery-context"),
+            None,
+        )
+    } else {
+        execution.request(
+            syrox_engine::store::ContentDigest::sha256(b"recovery-context"),
+            None,
+        )?
+    };
     let request = OsRecoveryRequest {
-        installation: execution.installation.clone(),
-        store: execution.store.clone(),
-        units: execution.units.clone(),
-        cwd: execution.cwd.clone(),
-        operation: arguments.operation.clone(),
+        installation: selected.installation,
+        store: selected.store,
+        units: selected.units,
+        cwd: selected.cwd,
+        operation,
         new_boot: arguments.new_boot,
         manager_changed: arguments.manager_changed,
-        scope,
-        uid: execution.uid,
-        gid: execution.gid,
-        start_timeout: Duration::from_secs(execution.start_timeout_seconds),
-        stop_timeout: Duration::from_secs(execution.stop_timeout_seconds),
+        scope: selected.scope,
+        uid: selected.uid,
+        gid: selected.gid,
+        start_timeout: selected.start_timeout,
+        stop_timeout: selected.stop_timeout,
     };
-    let report = syrox_engine::deployment::os::recover_os_generation(
-        &request,
-        cancel,
-        Instant::now() + Duration::from_secs(300),
-    )
+    let report = if let Some(loaded) = &loaded {
+        loaded.revalidate(cancel)?;
+        syrox_engine::deployment::os::recover_os_generation_with_identity(
+            &request,
+            &loaded.profile.installation_id,
+            cancel,
+            Instant::now() + Duration::from_secs(300),
+        )
+    } else {
+        syrox_engine::deployment::os::recover_os_generation(
+            &request,
+            cancel,
+            Instant::now() + Duration::from_secs(300),
+        )
+    }
     .map_err(|error| error.to_string())?;
     if execution.json {
         println!("{}", report_json(&report));

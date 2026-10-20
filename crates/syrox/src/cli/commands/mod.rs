@@ -1,5 +1,11 @@
 pub(crate) mod build;
 pub(crate) mod bundle;
+#[cfg(target_os = "linux")]
+pub(crate) mod catalog;
+mod catalog_publication;
+#[cfg(target_os = "linux")]
+mod catalog_qualification;
+mod catalog_query;
 pub(crate) mod format;
 pub(crate) mod host;
 #[allow(unsafe_code)]

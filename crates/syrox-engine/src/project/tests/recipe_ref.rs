@@ -1,6 +1,148 @@
 use super::*;
 
 #[test]
+fn public_reference_bindings_preserve_imports_aliases_privacy_and_session_identity() {
+    fn memo(value: &syrox_lang::evaluator::Value) -> syrox_lang::evaluator::MemoId {
+        let syrox_lang::evaluator::Value::Struct {
+            fields,
+            ..
+        } = value
+        else {
+            panic!("reference")
+        };
+        let syrox_lang::evaluator::Value::MemoizedFunction {
+            id,
+            ..
+        } = &fields[0].1
+        else {
+            panic!("factory")
+        };
+        id.clone()
+    }
+    let project = TempProject::new();
+    let config = package_configuration();
+    project.write(
+        "library/main.srx",
+        r#"
+        pub let package = recipe_ref(make);
+        pub let unexported = recipe_ref(recursive);
+        fn make() -> Recipe { Recipe { package = Package { id = "shared"; dependencies = []; }; } }
+        fn recursive() -> Recipe { recursive() }
+    "#,
+    );
+    lock_project_with(&project.0.join("library"), &config).unwrap();
+    project.write(
+        "consumer/main.srx",
+        r#"
+        inputs { library = "path:../library"; }
+        pub use library::package;
+        pub let alias = package;
+        let hidden = alias;
+        pub mod visible { pub let nested = project::hidden; }
+        mod private_names { pub let nested = project::hidden; }
+        value Number(int) where in [1];
+        pub let unrelated = Number(0);
+        outputs { direct: RecipeRef<Recipe> = hidden; }
+    "#,
+    );
+    let consumer = project.0.join("consumer");
+    lock_project_with(&consumer, &config).unwrap();
+    let locked = open_locked_project_with(&consumer, &config).unwrap();
+    let mut evaluation = locked.evaluation().unwrap();
+    let identity = memo(
+        evaluation
+            .evaluate_root("direct")
+            .unwrap()
+            .value()
+            .unwrap(),
+    );
+    assert_eq!(
+        evaluation.catalog_names().unwrap().unwrap(),
+        ["alias", "package", "visible::nested"]
+    );
+    for name in ["alias", "package", "visible::nested"] {
+        assert_eq!(
+            identity,
+            memo(
+                &evaluation
+                    .catalog_reference(name)
+                    .unwrap()
+                    .unwrap()
+            )
+        );
+        assert!(evaluation.select_package(name).unwrap());
+    }
+    for name in [
+        "hidden",
+        "unrelated",
+        "unexported",
+        "private_names::nested",
+    ] {
+        assert!(
+            evaluation
+                .catalog_reference(name)
+                .unwrap()
+                .is_none()
+        );
+    }
+    let plan = evaluation.into_selected_plan().unwrap();
+    assert_eq!(plan.packages().len(), 1);
+    let package = plan.packages().next().unwrap();
+    assert_eq!(package.id().as_str(), "shared");
+    for name in ["alias", "package", "visible::nested"] {
+        assert!(package.has_export(name), "missing alias {name}");
+    }
+}
+
+#[test]
+fn public_reference_binding_can_alias_a_publication_without_forcing_other_factories() {
+    let project = TempProject::new();
+    let config = package_configuration();
+    project.write("main.srx", r#"
+        mod factories::original { pub fn recipe() -> Recipe { Recipe { package = Package { id = "shared"; dependencies = []; }; } } }
+        pub publish(factories, recipe): Recipe;
+        pub let alias = original;
+        pub let dormant = recipe_ref(recursive);
+        fn recursive() -> Recipe { recursive() }
+    "#);
+    lock_project_with(&project.0, &config).unwrap();
+    let locked = open_locked_project_with(&project.0, &config).unwrap();
+    let mut evaluation = locked.evaluation().unwrap();
+    assert_eq!(
+        evaluation.catalog_names().unwrap().unwrap(),
+        ["alias", "dormant", "original"]
+    );
+    assert!(evaluation.select_package("alias").unwrap());
+    let plan = evaluation.into_selected_plan().unwrap();
+    assert_eq!(plan.packages().len(), 1);
+    let package = plan.packages().next().unwrap();
+    assert!(package.has_export("alias"));
+    assert!(package.has_export("original"));
+    assert_eq!(package.export(), Some("original"));
+}
+
+#[test]
+fn public_reference_bindings_require_authenticated_reference_and_result_types() {
+    let project = TempProject::new();
+    let config = package_configuration();
+    for source in [
+        r"struct RecipeRef<R> { factory: fn() -> R; }
+            pub let fake = RecipeRef<std::Recipe> { factory = recurse; };
+            fn recurse() -> std::Recipe { recurse() }",
+        r"struct Recipe { id: std::PackageId; }
+            pub let fake = std::recipe_ref(make);
+            fn make() -> Recipe { make() }",
+    ] {
+        project.write("main.srx", source);
+        lock_project_with(&project.0, &config).unwrap();
+        let locked = open_locked_project_with(&project.0, &config).unwrap();
+        let mut evaluation = locked.evaluation().unwrap();
+        assert!(evaluation.catalog_names().unwrap().is_none());
+        assert!(!evaluation.select_package("fake").unwrap());
+    }
+}
+
+#[test]
 fn imported_function_output_is_a_lazy_value_with_a_direct_call_and_preserved_capture() {
     let workspace = TempProject::new();
     let config = package_configuration();
@@ -72,10 +214,11 @@ fn imported_homonymous_catalog_entries_are_distinct_and_reference_aliases_keep_i
         "consumer/main.srx",
         r#"
         inputs { left = "path:../left"; right = "path:../right"; }
+        let shared = left::hello;
         outputs {
-            left_ref: std::RecipeRef<std::Package> = left::hello;
+            left_ref: RecipeRef<Package> = shared;
             right_ref: std::RecipeRef<std::Package> = right::hello;
-            alias: std::RecipeRef<std::Package> = left_ref;
+            alias: RecipeRef<Package> = shared;
         }
     "#,
     );
@@ -1149,4 +1292,29 @@ fn recipe_references_are_opaque_and_cannot_be_serialized_as_persistent_plan_valu
         plan_project_with(&project.0, &config),
         Err(ProjectOperationError::InvalidConsumerOutput { .. })
     ));
+}
+
+#[test]
+fn public_module_bindings_export_without_exposing_private_bindings() {
+    let workspace = TempProject::new();
+    let config = package_configuration();
+    workspace.write(
+        "child/main.srx",
+        r#"let private = "hidden"; pub let selected: PackageId = "hello";"#,
+    );
+    let child = workspace.0.join("child");
+    lock_project_with(&child, &config).unwrap();
+    workspace.write("consumer/main.srx", r#"inputs { child = "path:../child"; } use child::selected; let name = selected; outputs { shell: Shell = Shell { pkgs = []; services = [Service { id = "selected"; files = [ConfigFile { path = "name"; text = "${name}"; }]; }]; }; }"#);
+    let consumer = workspace.0.join("consumer");
+    lock_project_with(&consumer, &config).unwrap();
+    let plan = plan_project_with(&consumer, &config).unwrap();
+    assert_eq!(
+        plan.consumers().next().unwrap().services()[0].files()[0].text(),
+        "hello"
+    );
+    workspace.write(
+        "consumer/main.srx",
+        r#"inputs { child = "path:../child"; } let name = child::private;"#,
+    );
+    assert!(check_path_with(&consumer, &config).is_err());
 }

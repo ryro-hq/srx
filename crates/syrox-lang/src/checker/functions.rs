@@ -140,6 +140,16 @@ impl Checker<'_> {
             return Ty::Error;
         };
         let parameters = &info.declaration.type_parameters;
+        if info.declaration.is_static()
+            || info.declaration.has_bounds()
+            || info.declaration.abstract_member
+        {
+            self.error(
+                "static and bounded functions require direct calls",
+                function.span,
+            );
+            return Ty::Error;
+        }
         if parameters.is_empty() || parameters.len() != arguments.len() {
             self.error(
                 "generic function type argument count mismatch",

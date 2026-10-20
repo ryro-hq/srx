@@ -28,6 +28,9 @@ Syrox is experimental and currently targets Linux.
 
 ## The language
 
+See the [language reference](docs/language.md) for checked, executable examples
+of bindings, record calls, platform conditions and shared recipes.
+
 Use packages from [syrox-pkgs](https://github.com/ryro-hq/syrox-pkgs) in your own
 environment. With the catalog checked out beside your project, save this as
 `main.srx`:
@@ -35,11 +38,13 @@ environment. With the catalog checked out beside your project, save this as
 ```srx
 inputs { pkgs = "path:../syrox-pkgs"; }
 
-use std::{Shell, select_command};
+let packages = pkgs.forPlatform { system = "linux-x86_64"; };
 
 outputs {
     dev: Shell = Shell {
-        pkgs = [select_command(pkgs::hello, "out", "hello")];
+        pkgs = [select_command(package_recipe(packages.hello_version {
+            version = "2.12.1";
+        }), "out", "hello")];
         services = [];
     };
 }
@@ -67,6 +72,129 @@ srx shell .#dev --command hello --non-interactive \
 `build.toml` supplies the host toolchain and source permissions described in
 the [catalog's setup](https://github.com/ryro-hq/syrox-pkgs#build-and-select-a-command).
 
+## Typed configuration
+
+`std::yaml` and `std::toml` expose `encode`, `decode<T>`, `document<T>`,
+`value`, `patch` and `render`. Text uses the existing `std::ConfigText` type.
+Struct fields can declare an external key without changing their `.srx` name:
+
+```srx
+value NodeName(str);
+value NodeIp(str);
+struct HostConfig { name: NodeName; ip: NodeIp; }
+struct K3sConfig {
+    #[key("node-name")] nodeName: NodeName;
+    #[key("node-ip")] nodeIp: NodeIp;
+}
+fn configuration() -> std::ConfigText {
+    let host = std::toml::decode<HostConfig>(std::files::read_text("assets/host.toml"));
+    let original = std::yaml::document<K3sConfig>(std::files::read_text("assets/k3s.yaml"));
+    let updated = std::yaml::patch(original, { nodeName = host.name; nodeIp = host.ip; });
+    std::yaml::render(updated)
+}
+```
+
+`decode` rejects unknown keys and applies declared defaults. `document` validates
+known fields while retaining other content. `patch` accepts a partial record;
+omitted fields keep their values, including existing values that differ from a
+default. Documents are immutable, and rendering an untouched document returns
+its original bytes. Scalar edits preserve adjacent comments through `yaml-edit`
+and `toml_edit`. File writes remain explicit engine operations.
+
+Records, nominal strings and integers, booleans, lists, ordered maps and options
+are supported. `None` fields are omitted when encoding; TOML cannot represent
+`None` as a list element. Functions, recipes, resources and opaque data types
+are rejected, including inside empty lists or absent options. YAML tags and
+aliases, floats and TOML datetimes have no typed representation; unknown fields
+containing them can remain in a document.
+
+`read_text` reads UTF-8 bytes retained during project authentication, from that
+caller's `assets/` inventory. It never opens arbitrary paths during evaluation.
+Assets and the new standard modules enter `Syrox.lock`; refresh locks explicitly
+after changing them. Evaluation and loading budgets apply to parsing and conversion.
+
+## Versioned services
+
+The selected package determines the configuration contract before acquisition:
+
+```srx
+inputs { pkgs = "path:../syrox-pkgs"; }
+
+let packages = pkgs.forPlatform { system = "linux-x86_64"; };
+
+services.nginx = {
+    enable = true;
+    package = packages.nginx { version = "1.30.6"; };
+    settings = { listen = 8080; proxyPass = "http://127.0.0.1:3000"; };
+};
+```
+
+This declares an `os` output. Omitted `libc` selects GNU; add `libc = "musl";`
+to select musl. The set exposes normalized `platform.system`/`platform.libc` and
+`buildPlatform` (Linux x86_64 GNU). Package calls inherit the set's platform;
+contradictory overrides fail before acquisition. Direct package calls default to
+Linux x86_64 GNU. `forSystem("linux-x86_64-musl")` remains supported.
+
+Root public names of the authenticated standard library are available directly;
+`std::Recipe` and other qualified names remain valid. Local declarations and
+explicit imports take precedence. Module `let` bindings are private by default,
+exported with `pub let`, immutable, reusable and shared during evaluation.
+Global initializers cannot consume affine resources. Effects hidden behind
+invoked callbacks are traced by the checker with call-path diagnostics; the
+evaluator retains the same safeguard.
+Forward references are allowed and cycles are diagnosed. Known `if`/`match`
+conditions in module initializers and configurations check the selected branch.
+Names and syntax are resolved in every branch. Exact versions remain required.
+
+A public binding containing a `RecipeRef<Recipe>` is also a CLI export. Select
+the package once, then export its recipe:
+
+```srx
+pub let hello = package_recipe(packages.hello_version { version = "2.12.1"; });
+```
+
+```sh
+srx project lock .
+srx info .#hello
+srx build .#hello --dry-run
+```
+
+Public aliases share the same lazy recipe instance. Private bindings stay private;
+inspection and dry runs do not acquire sources or initialize a Store.
+
+`linux-aarch64` is representable for conditions, with `gnu` or `musl`; this
+catalog has no ARM64 implementations. `linux` and `linux-arm` require an explicit
+architecture. Persisted package identities keep full target tags.
+`extraConfig` is checked by the selected nginx with `nginx -t` in an isolated
+runtime before a generation is frozen.
+
+Configure the service installation once, then operate it by profile:
+
+```sh
+srx project lock .
+srx os init .#os --name web --user --config ./build.toml
+srx os apply --profile web
+srx os status --profile web
+srx os logs nginx --profile web --follow
+srx os stop --profile web
+```
+
+See [installation profiles](docs/os-profiles.md) for ownership, rollback,
+recovery and Linux requirements, and [artifact selection](docs/artifacts.md)
+for automatic consumption of explicitly authorized local bundles.
+
+Package modules use ordinary `if`, `==`/`!=`, literal `match` and static traits.
+`package_traits::Package` associates an implementation with `Settings`,
+recipe and rendering operations; `ServicePackage` adds service integration.
+Selectors such as `fn nginx(const selection: Selection) -> _` specialize their
+result from known arguments. An unsupported static case fails at the call;
+ordinary functions require compatible branches and exhaustive matches.
+
+`srx catalog check`, `generate`, `lock`, `matrix`, `updates`, `add`, `qualify` and
+`release-manifest` maintain the pinned TOML inventory using native commands.
+Qualification builds and runs each required combination and verifies offline
+bundle import; a missing or failed combination prevents a release manifest.
+
 ## Get started
 
 The repository pins its Rust toolchain. Build the CLI and worker:
@@ -74,8 +202,15 @@ The repository pins its Rust toolchain. Build the CLI and worker:
 ```sh
 git clone https://github.com/ryro-hq/syrox.git
 cd syrox
-cargo build --release --locked -p syrox --bins
-export PATH="$PWD/target/release:$PATH"
+rustup target add x86_64-unknown-linux-musl
+# Linux build host: install musl-gcc, pkg-config and native link tools first.
+export RUSTFLAGS="-C target-feature=+crt-static" LZMA_API_STATIC=1
+export CC_x86_64_unknown_linux_musl=musl-gcc
+export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
+cargo build --release --locked -p syrox --bin syrox-worker --target x86_64-unknown-linux-musl
+SYROX_EMBED_WORKER="$PWD/target/x86_64-unknown-linux-musl/release/syrox-worker" \
+  cargo build --release --locked -p syrox --bin srx --target x86_64-unknown-linux-musl
+export PATH="$PWD/target/x86_64-unknown-linux-musl/release:$PATH"
 ```
 
 The language server ships with `srx`.

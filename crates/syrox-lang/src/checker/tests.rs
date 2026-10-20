@@ -3,6 +3,15 @@ use crate::{resolver::resolve, source::SourceSet, syntax::parse_sources};
 
 fn resolved(text: &str) -> ResolvedProgram {
     let mut sources = SourceSet::new();
+    let prelude = "mod std { pub enum Bool { False, True } }";
+    let text = if text.contains(prelude) {
+        sources
+            .add_standard_library("std.srx", prelude)
+            .unwrap();
+        text.replace(prelude, "")
+    } else {
+        text.to_owned()
+    };
     sources.add("main.srx", text).unwrap();
     resolve(parse_sources(&sources).unwrap()).unwrap()
 }
@@ -21,6 +30,319 @@ fn messages(text: &str) -> Vec<String> {
 
 fn identity(path: &str) -> CanonicalItemIdentity {
     CanonicalItemIdentity::new(SourceDomainId::project(), path.split("::")).unwrap()
+}
+
+#[test]
+fn computed_and_nested_defaults_are_constants_in_globals_and_outputs() {
+    checked(
+        r#"
+        value S(str); value I(int);
+        enum Mode { Old, New }
+        struct Inner { mode: Mode = choose("new"); }
+        struct Selection { inner: Inner = Inner {}; }
+        struct Old { port: I; } struct New { host: S; }
+        fn choose(const name: S) -> Mode { match name { "new" => Mode::New } }
+        fn select(const selection: Selection) -> _ {
+            match selection.inner.mode {
+                Old => Old { port = 7; }, New => New { host = "server"; }
+            }
+        }
+        let selected = select(Selection {});
+        outputs {
+            global: New = selected;
+            implicit: New = select(Selection {});
+            explicit: New = select(Selection { inner = Inner { mode = choose("new"); }; });
+        }
+        "#,
+    );
+    checked(
+        r#"
+        value S(str); value I(int);
+        let selected = select(Selection {});
+        struct Selection { name: S = later; }
+        let later: S = "new";
+        fn select(const selection: Selection) -> I { match selection.name { "new" => 1 } }
+        outputs { result: I = selected; }
+        "#,
+    );
+    assert!(
+        messages(
+            r#"value S(str); value I(int); struct Selection { name: S = choose("bad"); } fn choose(const name: S) -> S { name } fn select(const selection: Selection) -> I { match selection.name { "new" => 1 } } let selected = select(Selection {});"#
+        )
+        .iter()
+        .any(|message| message.contains("no applicable case"))
+    );
+}
+
+#[test]
+fn method_lookup_does_not_consume_computed_affine_receivers_twice() {
+    let declarations = r"
+        resource R(int); value I(int); struct Box { payload: R; }
+        impl R {
+            fn identity(r: R) -> R { r }
+            fn selected(r: R, const choice: I) -> R { match choice { 1 => r } }
+        }
+        fn pass(r: R) -> R { r }
+        struct Callback { run: once fn() -> R; }
+        fn callback(r: R) -> Callback { Callback { run = once fn() -> R { r }; } }
+    ";
+    checked(&format!(
+        "{declarations} fn call(r: R) -> R {{ pass(r).identity() }} fn projected(boxed: Box) -> R {{ boxed.payload.identity() }} fn selected(r: R) -> R {{ pass(r).selected(1) }} fn stored(r: R) -> R {{ callback(r).run() }}"
+    ));
+    for body in [
+        "pass(r).identity(); r",
+        "pass(r).selected(1); r",
+        "callback(r).run(); r",
+        "pass(r).identity().identity(); r",
+    ] {
+        assert!(
+            messages(&format!(
+                "{declarations} fn invalid(r: R) -> R {{ {body} }}"
+            ))
+            .iter()
+            .any(|message| message.contains("moved affine value")),
+            "{body}"
+        );
+    }
+}
+
+#[test]
+fn default_constant_dependencies_obey_depth_work_and_metadata_limits() {
+    use std::fmt::Write as _;
+
+    let mut text = String::from("value I(int); let first = Layer0 {}; ");
+    for index in 0..12 {
+        write!(
+            text,
+            "struct Layer{index} {{ next: Layer{} = Layer{} {{}}; }} ",
+            index + 1,
+            index + 1,
+        )
+        .unwrap();
+    }
+    text.push_str("struct Layer12 { number: I = 1; }");
+    checked(&text);
+    for (limits, expected) in [
+        (
+            CheckLimits {
+                max_specialization_depth: 4,
+                ..CheckLimits::default()
+            },
+            "default dependency depth limit",
+        ),
+        (
+            CheckLimits {
+                max_work: 100,
+                ..CheckLimits::default()
+            },
+            "work limit",
+        ),
+        (
+            CheckLimits {
+                max_metadata_units: 20,
+                ..CheckLimits::default()
+            },
+            "metadata limit",
+        ),
+    ] {
+        let errors =
+            check_with_limits(resolved(&text), &CheckPolicy::default(), limits).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message.contains(expected)),
+            "{errors:?}"
+        );
+    }
+    let errors = messages(
+        "value I(int); struct Recursive { next: Recursive = Recursive {}; } fn select(const argument: Recursive) -> I { 1 } let selected = select(Recursive {});",
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("const argument must be a known")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn ordinary_control_flow_checks_coverage_branch_types_and_affine_moves() {
+    checked(
+        r#"mod std { pub enum Bool { False, True } } value S(str); value I(int); fn f(x: S) -> I { if x == "yes" { 1 } else { match x { "no" => 2, _ => 3 } } }"#,
+    );
+    for (source, expected) in [
+        (
+            r#"value S(str); value I(int); fn f(x: S) -> I { match x { "a" => 1 } }"#,
+            "not exhaustive",
+        ),
+        (
+            r"value I(int); fn f(x: I) -> I { match x { 1 => 1, 1 => 2, _ => 3 } }",
+            "more than once",
+        ),
+        (
+            r#"mod std { pub enum Bool { False, True } } value I(int); value S(str); fn f(x: std::Bool) -> I { if x { I(1) } else { S("bad") } }"#,
+            "if branch",
+        ),
+        (
+            r"mod std { pub enum Bool { False, True } } resource R(int); fn f(b: std::Bool, r: R) -> R { if b { let used = r; } else {}; r }",
+            "moved",
+        ),
+        (
+            r"mod std { pub enum Bool { False, True } } value I(int); fn f() -> I { if 1 { 1 } else { 2 } }",
+            "if condition",
+        ),
+    ] {
+        assert!(
+            messages(source)
+                .iter()
+                .any(|message| message.contains(expected)),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn constant_selectors_infer_each_contract_and_diagnose_at_the_call() {
+    let declarations = r#"value S(str); value I(int); struct Selection { version: S; } struct Old { port: I; } struct New { host: S; } fn select(const selection: Selection) -> _ { match selection.version { "old" => Old { port = 7; }, "new" => New { host = "server"; } } }"#;
+    checked(&format!(
+        r#"{declarations} fn f() -> New {{ let version: S = "new"; select({{ version = version; }}) }} fn g() -> Old {{ select({{ version = "old"; }}) }}"#
+    ));
+    assert!(
+        messages(&format!(
+            r#"{declarations} fn f() -> Old {{ select({{ version = "unknown"; }}) }}"#
+        ))
+        .iter()
+        .any(|message| message.contains("no applicable case"))
+    );
+    assert!(
+        messages(&format!(
+            r"{declarations} fn f(version: S) -> Old {{ select({{ version = version; }}) }}"
+        ))
+        .iter()
+        .any(|message| message.contains("must be a known"))
+    );
+    assert!(
+        messages(&format!(
+            r#"{declarations} fn f() -> Old {{ select({{ version = "new"; }}) }}"#
+        ))
+        .iter()
+        .any(|message| message.contains("function return"))
+    );
+    let recursive = resolved(
+        r"value I(int); fn recurse(const n: I) -> _ { recurse(n) } fn f() -> I { recurse(1) }",
+    );
+    let errors = check_with_limits(
+        recursive,
+        &CheckPolicy::default(),
+        CheckLimits {
+            max_specialization_depth: 4,
+            ..CheckLimits::default()
+        },
+    )
+    .unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("specialization limit"))
+    );
+}
+
+#[test]
+fn static_traits_enforce_complete_coherent_implementations_and_bounds() {
+    let declarations = "value I(int); struct P {} trait Package { type Settings; fn render(p: Self, settings: Self::Settings) -> I; }";
+    for (implementation, expected) in [
+        ("impl Package for P {}", "associated types"),
+        (
+            "impl Package for P { type Settings = I; }",
+            "missing method",
+        ),
+        (
+            "impl Package for P { type Settings = I; fn render(p: P, settings: P) -> I { 1 } }",
+            "signature differs",
+        ),
+        (
+            "impl Package for P { type Settings = I; type Extra = I; fn render(p: P, settings: I) -> I { settings } }",
+            "associated types",
+        ),
+        (
+            "impl Package for P { type Settings = I; fn render(p: P, settings: I) -> I { settings } } impl Package for P { type Settings = I; fn render(p: P, settings: I) -> I { settings } }",
+            "ambiguous duplicate",
+        ),
+        (
+            "fn render<T: Package>(p: T, settings: T::Settings) -> I { T::render(p, settings) } fn use_it() -> I { render(P {}, 1) }",
+            "trait",
+        ),
+    ] {
+        let errors = messages(&format!("{declarations} {implementation}"));
+        assert!(
+            errors
+                .iter()
+                .any(|message| message.contains(expected)),
+            "{implementation}: {errors:?}"
+        );
+    }
+    checked(&format!(
+        "{declarations} impl Package for P {{ type Settings = I; fn render(p: P, settings: I) -> I {{ settings }} }} fn render<T: Package>(p: T, settings: T::Settings) -> I {{ T::render(p, settings) }} fn use_it() -> I {{ render(P {{}}, 7) }}"
+    ));
+}
+
+#[test]
+fn static_traits_check_inheritance_ambiguity_and_affine_consumption() {
+    for (source, expected) in [
+        ("trait A: B {} trait B: A {}", "cyclic trait"),
+        (
+            "struct P {} trait A {} trait B: A {} impl B for P {}",
+            "parent trait",
+        ),
+        (
+            "value I(int); struct P {} trait A { type Settings; } trait B: A { type Settings; } impl A for P { type Settings = I; } impl B for P { type Settings = I; } fn f<T: B>(p: T, s: T::Settings) -> I { 1 } fn g() -> I { f(P {}, 1) }",
+            "ambiguous associated type",
+        ),
+        (
+            "resource R(int); struct P {} trait Take { fn take(p: Self, r: R) -> R; } impl Take for P { fn take(p: P, r: R) -> R { r; r } }",
+            "moved affine",
+        ),
+    ] {
+        let errors = messages(source);
+        assert!(
+            errors
+                .iter()
+                .any(|message| message.contains(expected)),
+            "{source}: {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn failed_static_match_reports_the_invocation_span() {
+    let source = r#"value S(str); value I(int); fn inner(const v: S) -> _ { match v { "known" => I(1) } } fn select(const v: S) -> _ { inner(v) } fn use_it() -> I { select("unknown") }"#;
+    let errors = check(resolved(source), &CheckPolicy::default()).unwrap_err();
+    let error = errors
+        .iter()
+        .find(|error| error.message.contains("no applicable case"))
+        .unwrap();
+    assert!(source[error.span.start() as usize..error.span.end() as usize].contains("select"));
+}
+
+#[test]
+fn repeated_constant_fields_share_storage_within_the_checking_budget() {
+    use std::fmt::Write as _;
+    let mut source = String::from(
+        "value I(int); struct Pair<T> { left: T; right: T; } fn choose<T>(const selection: T) -> I { 1 } fn use_it() -> I { let n0: I = 1;",
+    );
+    let mut ty = String::from("I");
+    for index in 1..=24 {
+        write!(
+            source,
+            "let n{index} = Pair<{ty}> {{ left = n{}; right = n{}; }};",
+            index - 1,
+            index - 1
+        )
+        .unwrap();
+        ty = format!("Pair<{ty}>");
+    }
+    source.push_str("choose(n24) }");
+    checked(&source);
 }
 
 #[test]
@@ -1215,7 +1537,9 @@ fn indirect_specialized_carriers_remain_affine_but_phantoms_do_not() {
 
 #[test]
 fn contextual_match_patterns_are_validated_and_recorded() {
-    let errors = messages("enum E { A } fn f(e: E) -> E { match e { Bogus => E::A, _ => E::A } }");
+    let errors = messages(
+        "enum E { A } enum Other { Bogus } fn f(e: E) -> E { match e { Bogus => E::A, _ => E::A } }",
+    );
     assert!(
         errors
             .iter()
@@ -1343,4 +1667,563 @@ fn editor_retention_does_not_exhaust_language_metadata_or_change_diagnostics() {
     assert_eq!(strict.work, editor.work);
     assert!(editor.editor.truncated);
     assert!(editor.editor.units <= limits.max_metadata_units);
+}
+
+#[test]
+fn globals_infer_forward_dependencies_and_contextualize_literals() {
+    checked(
+        r#"value S(str); value I(int); struct Target { system: S; libc: S; }
+        let packages = select(target); let target: Target = { system = system; libc = "musl"; };
+        let system = "linux-x86_64";
+        fn select(const target: Target) -> _ { match target.libc { "musl" => I(7), "gnu" => S("gnu") } }
+        outputs { number: I = packages; text: S = system; }
+    "#,
+    );
+    checked(
+        r"value I(int); let identity: fn(I) -> I = fn(x: I) -> I { x }; let result = identity(7); outputs { number: I = result; }",
+    );
+    for (source, expected) in [
+        (
+            "let a = b; let b = a;",
+            "cycle in global bindings",
+        ),
+        (
+            "resource R(int); let r = R(1);",
+            "affine resource",
+        ),
+        (
+            "resource R(int); value I(int); fn consume(r: R) -> I { I(1) } let result = consume(R(1));",
+            "affine resource",
+        ),
+        (
+            "resource R(int); value I(int); fn hidden() -> I { let r = R(1); I(1) } let result = hidden();",
+            "affine resource",
+        ),
+    ] {
+        assert!(
+            messages(source)
+                .iter()
+                .any(|message| message.contains(expected)),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn configuration_selects_known_branches_but_ordinary_functions_check_both() {
+    let source = r#"mod std { pub enum Bool { False, True } } value I(int); value S(str);
+        fn unavailable(const system: S) -> _ { match system { "gnu" => S("gnu") } }
+        let libc: S = "musl";
+        let bool_selection = match Bool::True { True => S("gnu") };
+        let bool_selected = unavailable(bool_selection);
+        let selected = if libc == "musl" { I(1) } else { unavailable(libc) };
+        let matched = match libc { "musl" => I(2), "gnu" => unavailable(libc) };
+        let boolean = match Bool::True { False => unavailable(libc), True => I(3) };
+        outputs { a: I = selected; b: I = matched; c: I = boolean;
+            d: I = if libc == "musl" { I(4) } else { unavailable(libc) };
+        }"#;
+    checked(source);
+    let failures = messages(&source.replace(
+        "let libc: S = \"musl\"",
+        "let libc: S = \"other\"",
+    ));
+    assert!(
+        failures
+            .iter()
+            .any(|message| message.contains("no applicable case")
+                && message.contains("unavailable")
+                && message.contains("other")
+                && message.contains("gnu")),
+        "{failures:?}"
+    );
+    assert!(messages(r#"mod std { pub enum Bool { False, True } } value I(int); value S(str); fn ordinary() -> I { if Bool::True { I(1) } else { S("bad") } }"#).iter().any(|message| message.contains("if branch")));
+    assert!(messages(r#"mod std { pub enum Bool { False, True } } value I(int); value S(str); let callback = fn() -> I { if Bool::True { I(1) } else { S("bad") } };"#).iter().any(|message| message.contains("if branch")));
+}
+
+#[test]
+fn contextual_variant_names_preserve_inference_and_static_branch_contracts() {
+    checked(
+        r#"
+        mod std { pub enum Bool { False, True } }
+        value S(str); value I(int);
+        enum Target { Gnu, Musl } enum Other { Gnu, Musl }
+        fn target(entry: Target) -> Target { entry }
+        fn other(entry: Other) -> Other { entry }
+        fn unavailable(const key: S) -> I { match key { "gnu" => I(0) } }
+        fn select(const key: S) -> _ {
+            if key == "gnu" { target(Gnu) } else { other(Musl) }
+        }
+        let direct: Target = if Bool::True { Gnu } else { Musl };
+        let literal: Target = match "gnu" { "gnu" => Gnu, _ => Musl };
+        let enumeration: Target = match Target::Gnu { Gnu => Gnu, Musl => Musl };
+        let inferred = select("musl");
+        outputs {
+            a: Target = direct;
+            b: Target = literal;
+            c: Target = enumeration;
+            d: Other = inferred;
+            e: Target = if Bool::True { Gnu } else { unavailable("musl") };
+            f: Target = match "gnu" { "gnu" => Gnu, _ => unavailable("musl") };
+        }
+        "#,
+    );
+}
+
+#[test]
+fn known_matches_validate_every_pattern_before_selecting() {
+    for (arms, expected) in [
+        (r#""ok" => I(1), "ok" => I(2)"#, "more than once"),
+        (
+            r#""ok" => I(1), 2 => I(2)"#,
+            "pattern type differs",
+        ),
+        (r#"_ => I(1), "ok" => I(2)"#, "unreachable"),
+    ] {
+        let source = format!(
+            r#"value I(int); value S(str); fn select(const key: S) -> _ {{ match key {{ {arms} }} }} let answer = select("ok");"#
+        );
+        assert!(
+            messages(&source)
+                .iter()
+                .any(|message| message.contains(expected)),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn interpolation_checks_global_value_kinds_and_affine_outputs_without_evaluation() {
+    for (source, expected) in [
+        (
+            r#"value S(str); fn example() -> S { "x" } let text: S = "${example}";"#,
+            "interpolation requires a primitive",
+        ),
+        (
+            r#"value S(str); let text: S = "${S}";"#,
+            "a declaration is not a value",
+        ),
+        (
+            r#"resource R(int); value S(str); outputs { held: R = R(1); text: S = "${held}"; }"#,
+            "imported value output cannot carry an affine resource",
+        ),
+        (
+            r#"resource R(int); value S(str); struct Box { held: R; } outputs { boxed: Box = { held = R(1); }; text: S = "${boxed.held}"; }"#,
+            "imported value output cannot carry an affine resource",
+        ),
+        (
+            r#"resource R(int); value S(str); fn consume(held: R) -> S { let first: S = "${held}"; "${held}" }"#,
+            "moved",
+        ),
+    ] {
+        let errors = messages(source);
+        assert!(
+            errors
+                .iter()
+                .any(|message| message.contains(expected)),
+            "{source}: {errors:?}"
+        );
+    }
+    checked(
+        r#"value S(str); value I(int); struct Box { count: I; } let boxed: Box = { count = 7; }; let text: S = "${boxed.count}"; outputs { original: S = "ok"; alias: S = "${original}"; }"#,
+    );
+    checked(r#"resource R(int); value S(str); fn consume(held: R) -> S { "${held}" }"#);
+}
+
+#[test]
+fn known_enums_select_variants_and_propagate_constant_payloads() {
+    checked(
+        r#"
+        value S(str); value I(int); enum Target { Gnu, Musl }
+        enum Selection<T> { Default, Selected(T) }
+        fn unavailable(const target: S) -> I { match target { "gnu" => I(1) } }
+        fn select(const target: Target) -> _ { match target { Gnu => S("gnu"), Musl => I(2) } }
+        fn payload(const selected: Selection<S>) -> _ {
+            match selected { Default => unavailable("musl"), Selected(target) => match target { "musl" => I(3) } }
+        }
+        let target: Target = Musl;
+        let direct = match Target::Musl { Gnu => unavailable("musl"), Musl => I(4) };
+        let constant = select(target);
+        let carried = payload(Selection::Selected("musl"));
+        let explicit = payload(Selection::Selected<S>("musl"));
+        let forwarded = match Selection::Selected(Target::Musl) { Selected(inner) => inner, Default => Target::Gnu };
+        let nested = select(forwarded);
+        outputs { a: I = direct; b: I = constant; c: I = carried; d: I = explicit; e: I = nested; }
+    "#,
+    );
+    for source in [
+        r#"value S(str); value I(int); enum Target { Gnu, Musl } fn ordinary() -> I { match Target::Musl { Gnu => S("gnu"), Musl => I(2) } }"#,
+        r#"value S(str); value I(int); enum Target { Gnu, Musl } fn ordinary(target: Target) -> I { match target { Gnu => S("gnu"), Musl => I(2) } }"#,
+    ] {
+        assert!(
+            messages(source)
+                .iter()
+                .any(|message| message.contains("match arm"))
+        );
+    }
+}
+
+#[test]
+fn known_enums_validate_discarded_patterns_and_report_unavailable_variants() {
+    for (arms, expected) in [
+        (
+            "Musl => I(1), Musl => I(2)",
+            "covered more than once",
+        ),
+        (
+            "Musl => I(1), Gnu => I(2)",
+            "payload binding count mismatch",
+        ),
+        (
+            "Musl => I(1), Other::Musl => I(2)",
+            "different enum",
+        ),
+        ("_ => I(1), Musl => I(2)", "unreachable"),
+    ] {
+        let source = format!(
+            "value I(int); enum Target {{ Gnu(I), Musl }} enum Other {{ Musl }} let selected = match Target::Musl {{ {arms} }};"
+        );
+        let errors = messages(&source);
+        assert!(
+            errors
+                .iter()
+                .any(|message| message.contains(expected)),
+            "{errors:?}"
+        );
+    }
+    let errors = messages(
+        "value I(int); enum Target { Gnu, Musl } fn select(const target: Target) -> I { match target { Gnu => I(1) } } let selected = select(Target::Musl);",
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|message| message.contains("select(Target::Musl)")
+                && message.contains("requested Target::Musl")
+                && message.contains("alternatives: Gnu")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn known_enum_discriminants_select_lazy_payloads_without_making_them_const_arguments() {
+    checked(
+        r#"
+        value I(int); value S(str); enum Choice<T> { Empty, Selected(T) }
+        fn unavailable(const target: S) -> I { match target { "gnu" => I(0) } }
+        let lazy = Choice::Selected(memoize(fn() -> I { 7 }));
+        let selected = match lazy { Selected(factory) => factory, Empty => unavailable("musl") };
+        outputs { result: I = selected(); }
+    "#,
+    );
+    for (ty, argument) in [
+        ("Choice<fn() -> I>", "Choice::Selected(callback)"),
+        (
+            "[Choice<fn() -> I>]",
+            "[Choice::Selected(callback)]",
+        ),
+        (
+            "Wrapped",
+            "Wrapped { selected = Choice::Selected(callback); }",
+        ),
+    ] {
+        let source = format!(
+            "value I(int); enum Choice<T> {{ Empty, Selected(T) }} struct Wrapped {{ selected: Choice<fn() -> I>; }} fn select(const selected: {ty}) -> I {{ 1 }} fn ordinary(callback: fn() -> I) -> I {{ select({argument}) }}"
+        );
+        let errors = messages(&source);
+        assert!(
+            errors
+                .iter()
+                .any(|message| message.contains("const argument must be a known")),
+            "{source}: {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn global_callback_effects_are_reported_before_evaluation_with_the_call_path() {
+    let source = "resource R(int); value I(int); let callback = fn() -> I { let consumed = R(7); I(1) }; fn invoke(f: fn() -> I) -> I { f() } let answer = invoke(callback); outputs { result: I = I(0); }";
+    let diagnostics = check(resolved(source), &CheckPolicy::default()).unwrap_err();
+    let diagnostic = diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .message
+                .contains("affine resource through a callback")
+        })
+        .unwrap();
+    assert_eq!(
+        diagnostic.span.start() as usize,
+        source.find("invoke(callback)").unwrap()
+    );
+    let path = diagnostic.note.as_ref().unwrap();
+    assert!(path.contains("answer -> invoke -> f"), "{path}");
+    assert!(path.contains('R'), "{path}");
+    assert!(
+        diagnostic
+            .related
+            .iter()
+            .any(|related| related.span.start() as usize == source.find("R(7)").unwrap())
+    );
+    assert!(
+        diagnostic
+            .related
+            .iter()
+            .any(|related| related.span.start() as usize == source.find("f() }").unwrap())
+    );
+}
+
+#[test]
+fn global_callback_effects_follow_aliases_captures_defaults_methods_and_selected_branches() {
+    let prefix = r#"mod std { pub enum Bool { False, True } } resource R(int); value I(int); value S(str);
+        let bad = fn() -> I { let consumed = R(7); I(1) };
+        let pure = fn() -> I { I(2) };
+        fn wrap(f: fn() -> I) -> fn() -> I { fn() -> I { f() } }
+        struct Box { run: fn() -> I = bad; }
+        struct Empty {} impl Empty { fn invoke(receiver: Self, f: fn() -> I) -> I { f() } }
+        fn selected(const mode: S, f: fn() -> I) -> I { match mode { "yes" => f(), "no" => 2 } }
+    "#;
+    for initializer in [
+        "bad()",
+        "wrap(bad)()",
+        "Box {}.run()",
+        "Empty {}.invoke(bad)",
+        "let alias = bad; in alias()",
+        "memoize(bad)()",
+        "selected(\"yes\", bad)",
+        "if std::Bool::True { bad() } else { pure() }",
+        "match std::Bool::True { True => bad(), False => pure() }",
+        "exposed()",
+    ] {
+        let text =
+            format!("{prefix} let answer = {initializer}; outputs {{ exposed: fn() -> I = bad; }}");
+        assert!(
+            messages(&text)
+                .iter()
+                .any(|message| message.contains("affine resource through a callback")),
+            "{initializer}"
+        );
+    }
+    for initializer in [
+        "pure()",
+        "wrap(pure)()",
+        "Box { run = pure; }.run()",
+        "Empty {}.invoke(pure)",
+        "memoize(pure)()",
+        "selected(\"no\", bad)",
+        "if std::Bool::False { bad() } else { pure() }",
+        "match std::Bool::False { True => bad(), False => pure() }",
+        "wrap(bad)",
+        "memoize(bad)",
+        "Box {}",
+    ] {
+        checked(&format!("{prefix} let answer = {initializer};"));
+    }
+}
+
+#[test]
+fn global_callback_effect_analysis_is_bounded_for_recursive_and_expanding_callbacks() {
+    for text in [
+        "value I(int); fn recur(f: fn() -> I) -> I { recur(f) } let callback = fn() -> I { recur(fn() -> I { I(1) }) }; let answer = callback();",
+        "value I(int); fn recur(f: fn() -> I) -> I { recur(fn() -> I { f() }) } let callback = fn() -> I { recur(fn() -> I { I(1) }) }; let answer = callback();",
+    ] {
+        let diagnostics = check_with_limits(
+            resolved(text),
+            &CheckPolicy::default(),
+            CheckLimits {
+                max_specialization_depth: 12,
+                ..CheckLimits::default()
+            },
+        )
+        .unwrap_err();
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("limit")),
+            "{diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn global_callback_effects_retain_specialized_closure_facts_and_trait_dispatch() {
+    let declarations = r#"
+        resource R(int); value I(int); value S(str);
+        trait Run { fn run(item: Self) -> I; }
+        struct Pure {} struct Affine {}
+        impl Run for Pure { fn run(item: Pure) -> I { 2 } }
+        impl Run for Affine { fn run(item: Affine) -> I { let consumed = R(7); 1 } }
+        fn wrap<T: Run>(item: T) -> fn() -> I { fn() -> I { Run::run(item) } }
+        fn factory(const target: S) -> fn() -> I {
+            match target { "pure" => wrap(Pure {}), "affine" => wrap(Affine {}) }
+        }
+    "#;
+    checked(&format!(
+        "{declarations} let callback = factory(\"pure\"); let answer = callback();"
+    ));
+    assert!(
+        messages(&format!(
+            "{declarations} let callback = factory(\"affine\"); let answer = callback();"
+        ))
+        .iter()
+        .any(|message| message.contains("affine resource through a callback"))
+    );
+}
+
+#[test]
+fn global_callback_effects_bound_expanding_call_graphs_by_work_and_metadata() {
+    use std::fmt::Write as _;
+    let mut text = "value I(int); fn twice(f: fn() -> I) -> fn() -> I { fn() -> I { f(); f() } } let base = fn() -> I { I(1) }; ".to_owned();
+    for index in 0..12 {
+        let previous = if index == 0 {
+            "base".to_owned()
+        } else {
+            format!("layer{}", index - 1)
+        };
+        write!(text, "let layer{index} = twice({previous}); ").unwrap();
+    }
+    text.push_str("let answer = layer11();");
+    for (limits, expected) in [
+        (
+            CheckLimits {
+                max_work: 5_000,
+                ..CheckLimits::default()
+            },
+            "global effect analysis work limit",
+        ),
+        (
+            CheckLimits {
+                max_metadata_units: 5_000,
+                ..CheckLimits::default()
+            },
+            "global effect analysis metadata limit",
+        ),
+    ] {
+        let diagnostics =
+            check_with_limits(resolved(&text), &CheckPolicy::default(), limits).unwrap_err();
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains(expected)),
+            "{diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn global_effect_analysis_widens_unknown_fold_accumulators_before_following_callbacks() {
+    let text = r#"
+        mod std { pub enum Bool { False, True } }
+        resource R(int); value I(int); value S(str);
+        let key: S = "x";
+        let rendered: S = "${key}";
+        let items: [I] = sort_by_keys([I(1), I(2)], [rendered, rendered]);
+        let bad = fn() -> I { let consumed = R(7); 0 };
+        let answer = fold(items, std::Bool::False, fn(seen: std::Bool, item: I) -> std::Bool {
+            if seen { bad(); std::Bool::True } else { std::Bool::True }
+        });
+    "#;
+    assert!(
+        messages(text)
+            .iter()
+            .any(|message| message.contains("affine resource through a callback"))
+    );
+}
+
+#[test]
+fn global_callback_effects_reject_once_closure_creation_only_when_invoked() {
+    let declarations =
+        "value I(int); let callback = fn() -> I { let f = once fn() -> I { I(1) }; f() };";
+    checked(declarations);
+    checked(&format!(
+        "{declarations} outputs {{ result: I = callback(); }}"
+    ));
+    assert!(
+        messages(&format!(
+            "{declarations} let result = callback();"
+        ))
+        .iter()
+        .any(|message| message.contains("affine closure through a callback"))
+    );
+}
+
+#[test]
+fn global_callback_text_analysis_shares_literals_and_bounds_comparison_work() {
+    let calls = vec!["callback()"; 400].join(",");
+    let text = format!(
+        "value S(str); let callback = fn() -> S {{ S(\"{}\") }}; let texts: [S] = [{calls}];",
+        "x".repeat(65_536)
+    );
+    check_with_limits(
+        resolved(&text),
+        &CheckPolicy::default(),
+        CheckLimits {
+            max_work: 100_000,
+            max_metadata_units: 10_000,
+            ..CheckLimits::default()
+        },
+    )
+    .unwrap();
+    let calls = vec!["callback()"; 64].join(",");
+    let text = format!(
+        "mod std {{ pub enum Bool {{ False, True }} }} value S(str); let left: S = \"{}\"; let right: S = \"{}\"; let callback = fn() -> std::Bool {{ left == right }}; let flags: [std::Bool] = [{calls}];",
+        "x".repeat(8_192),
+        "x".repeat(8_192)
+    );
+    let diagnostics = check_with_limits(
+        resolved(&text),
+        &CheckPolicy::default(),
+        CheckLimits {
+            max_work: 100_000,
+            ..CheckLimits::default()
+        },
+    )
+    .unwrap_err();
+    assert!(
+        diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("global effect analysis work limit")),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn global_callback_folds_preserve_known_list_alternatives_and_stable_key_order() {
+    let declarations = r#"
+        mod std { pub enum Bool { False, True } }
+        resource R(int); value I(int); value S(str);
+        let bad = fn() -> I { let consumed = R(7); 0 };
+        let pure = fn() -> I { 1 };
+        let key: S = "x";
+        let rendered: S = "${key}";
+        let items: [I] = if rendered == "x" { [1] } else { [] };
+        let chosen = fold(items, pure, fn(acc: fn() -> I, item: I) -> fn() -> I { acc });
+        let answer = chosen();
+    "#;
+    checked(declarations);
+    for (items, keys, affine) in [
+        (
+            "bad, pure, pure",
+            "S(\"a\"), S(\"b\"), S(\"c\")",
+            false,
+        ),
+        (
+            "bad, pure, pure",
+            "S(\"z\"), S(\"b\"), S(\"c\")",
+            true,
+        ),
+        ("bad, pure", "S(\"a\"), S(\"a\")", false),
+        ("pure, bad", "S(\"a\"), S(\"a\")", true),
+    ] {
+        let source = format!(
+            "{declarations} let sorted = sort_by_keys([{items}], [{keys}]); let last = fold(sorted, pure, fn(acc: fn() -> I, item: fn() -> I) -> fn() -> I {{ item }}); let result = last();"
+        );
+        if affine {
+            assert!(
+                messages(&source)
+                    .iter()
+                    .any(|message| message.contains("affine resource through a callback"))
+            );
+        } else {
+            checked(&source);
+        }
+    }
 }

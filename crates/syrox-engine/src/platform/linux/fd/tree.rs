@@ -172,6 +172,42 @@ impl Directory {
         replace: bool,
         check: &mut dyn FnMut() -> io::Result<()>,
     ) -> io::Result<u64> {
+        self.write_file_inner(
+            name,
+            source,
+            maximum,
+            (mode, replace, None),
+            check,
+        )
+    }
+
+    /// Source archives use a fixed modification time so extraction order cannot
+    /// make generated release files appear older than their prerequisites.
+    pub(crate) fn write_source_file(
+        &self,
+        name: &OsStr,
+        source: &mut dyn Read,
+        maximum: u64,
+        mode: u32,
+        check: &mut dyn FnMut() -> io::Result<()>,
+    ) -> io::Result<u64> {
+        self.write_file_inner(
+            name,
+            source,
+            maximum,
+            (mode, false, Some(std::time::UNIX_EPOCH)),
+            check,
+        )
+    }
+
+    fn write_file_inner(
+        &self,
+        name: &OsStr,
+        source: &mut dyn Read,
+        maximum: u64,
+        (mode, replace, modified): (u32, bool, Option<std::time::SystemTime>),
+        check: &mut dyn FnMut() -> io::Result<()>,
+    ) -> io::Result<u64> {
         if mode & !0o777 != 0 {
             return Err(invalid());
         }
@@ -186,6 +222,9 @@ impl Directory {
             let count = copy_checked(source, &mut file, maximum, check)?;
             if count != maximum {
                 return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
+            }
+            if let Some(modified) = modified {
+                file.set_times(fs::FileTimes::new().set_modified(modified))?;
             }
             file.set_permissions(fs::Permissions::from_mode(mode))?;
             check()?;

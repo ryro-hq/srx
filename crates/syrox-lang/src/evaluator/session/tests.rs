@@ -311,3 +311,177 @@ fn querying_a_cycle_fails_only_the_selected_root() {
     );
     assert_eq!(session.into_realized().unwrap().roots().len(), 2);
 }
+
+#[test]
+fn module_bindings_are_lazy_and_shared_across_roots_with_memo_identity() {
+    static CALLS: AtomicUsize = AtomicUsize::new(0);
+    fn observed(_: i64) -> bool {
+        CALLS.fetch_add(1, Ordering::Relaxed);
+        true
+    }
+    let policy = CheckPolicy::new("global-sharing")
+        .unwrap()
+        .with_predicate("observed", PrimitiveType::Int)
+        .unwrap();
+    let environment = EvaluationEnvironment::new(&policy)
+        .with_int_predicate("observed", observed)
+        .unwrap();
+    let program = checked(
+        r"value I(int) where observed(self); let shared = memoize(fn() -> I { I(7) }); let literal = 4; let forward = later; let later: I = literal; outputs { a: fn() -> I = shared; b: fn() -> I = shared; first: I = forward; second: I = later; }",
+        &policy,
+    );
+    let mut session = EvaluationSession::new(
+        &program,
+        &policy,
+        &environment,
+        EvaluationLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(CALLS.load(Ordering::Relaxed), 0);
+    let memo = |value: &Value| match value {
+        Value::MemoizedFunction {
+            id,
+            ..
+        } => id.clone(),
+        _ => panic!("expected memoized function"),
+    };
+    let first = memo(
+        session
+            .evaluate_root("a")
+            .unwrap()
+            .value()
+            .unwrap(),
+    );
+    let second = memo(
+        session
+            .evaluate_root("b")
+            .unwrap()
+            .value()
+            .unwrap(),
+    );
+    assert_eq!(first, second);
+    assert_eq!(CALLS.load(Ordering::Relaxed), 0);
+    session.evaluate_root("first").unwrap();
+    session.evaluate_root("second").unwrap();
+    assert_eq!(CALLS.load(Ordering::Relaxed), 1);
+    assert!(session.into_realized().unwrap().is_success());
+}
+
+#[test]
+fn deferred_global_callbacks_remain_lazy_and_can_create_resources_in_outputs() {
+    let policy = CheckPolicy::default();
+    let program = checked(
+        "resource R(int); value I(int); let factory = memoize(fn() -> fn() -> R { fn() -> R { R(7) } }); let callback = factory(); let identity = fn(argument: I) -> I { argument }; let answer = identity(1); let once_factory = fn() -> I { let f = once fn() -> I { I(2) }; f() }; outputs { first: R = callback(); second: R = callback(); pure: I = answer; once_result: I = once_factory(); }",
+        &policy,
+    );
+    let environment = EvaluationEnvironment::new(&policy);
+    let mut session = EvaluationSession::new(
+        &program,
+        &policy,
+        &environment,
+        EvaluationLimits::default(),
+    )
+    .unwrap();
+    for name in ["first", "second", "pure", "once_result"] {
+        let result = session.evaluate_root(name).unwrap();
+        assert!(
+            result.value().is_some(),
+            "{:?}",
+            result.diagnostics()
+        );
+    }
+    assert!(session.into_realized().unwrap().is_success());
+}
+
+#[test]
+fn forward_global_facts_survive_discovery_inside_specialized_calls() {
+    let policy = CheckPolicy::default();
+    let program = checked(
+        r#"value I(int); value S(str); enum E { A, B } let alpha = select("known"); fn select(const key: S) -> I { omega } let omega: I = match E::A { A => I(7), B => I(8) }; outputs { direct: I = omega; indirect: I = alpha; }"#,
+        &policy,
+    );
+    let environment = EvaluationEnvironment::new(&policy);
+    let mut session = EvaluationSession::new(
+        &program,
+        &policy,
+        &environment,
+        EvaluationLimits::default(),
+    )
+    .unwrap();
+    for root in ["direct", "indirect"] {
+        let result = session.evaluate_root(root).unwrap();
+        assert!(
+            result.diagnostics().is_empty(),
+            "{:?}",
+            result.diagnostics()
+        );
+        assert!(matches!(
+            result.value(),
+            Some(Value::Nominal {
+                value: super::super::PrimitiveValue::Int(7),
+                ..
+            })
+        ));
+    }
+}
+
+#[test]
+fn static_enum_matches_evaluate_selected_payloads_and_keep_specializations_separate() {
+    let policy = CheckPolicy::default();
+    let program = checked(
+        r#"
+        value I(int); value S(str); enum Target { Gnu, Musl } enum Choice<T> { Empty, Selected(T) }
+        fn unavailable(const target: S) -> I { match target { "gnu" => I(0) } }
+        fn select(const target: Target) -> _ { match target { Gnu => S("gnu"), Musl => I(7) } }
+        fn unwrap(const choice: Choice<I>) -> I { match choice { Empty => unavailable("musl"), Selected(number) => number } }
+        let target: Target = Musl;
+        let forwarded = match Choice::Selected(target) { Selected(inner) => inner, Empty => Target::Gnu };
+        let global = select(forwarded);
+        let payload = unwrap(Choice::Selected<I>(8));
+        let lazy = Choice::Selected(memoize(fn() -> I { 9 }));
+        let projected = match lazy { Selected(factory) => factory, Empty => unavailable("musl") };
+        outputs {
+            selected: I = global;
+            from_payload: I = payload;
+            other: S = select(Target::Gnu);
+            interpolated: S = "${payload}";
+            from_lazy: I = projected();
+        }
+    "#,
+        &policy,
+    );
+    let environment = EvaluationEnvironment::new(&policy);
+    let mut session = EvaluationSession::new(
+        &program,
+        &policy,
+        &environment,
+        EvaluationLimits::default(),
+    )
+    .unwrap();
+    for (root, expected) in [
+        ("selected", 7),
+        ("from_payload", 8),
+        ("from_lazy", 9),
+    ] {
+        let result = session.evaluate_root(root).unwrap();
+        assert!(
+            result.diagnostics().is_empty(),
+            "{:?}",
+            result.diagnostics()
+        );
+        assert!(
+            matches!(result.value(), Some(Value::Nominal { value: super::super::PrimitiveValue::Int(number), .. }) if *number == expected)
+        );
+    }
+    for (root, expected) in [("other", "gnu"), ("interpolated", "8")] {
+        let result = session.evaluate_root(root).unwrap();
+        assert!(
+            result.diagnostics().is_empty(),
+            "{:?}",
+            result.diagnostics()
+        );
+        assert!(
+            matches!(result.value(), Some(Value::Nominal { value: super::super::PrimitiveValue::Str(text), .. }) if text == expected)
+        );
+    }
+}

@@ -1,5 +1,5 @@
 use super::{
-    BuildError, BuildProfile, BuildResources,
+    BuildError, BuildProfile,
     journal::managed::{ManagedNamespaceSnapshot, inspect_worker_attempt},
     records::Action,
 };
@@ -161,11 +161,7 @@ pub fn inspect_managed_build_worker(
     // Acquisition.maximum_bytes was checked against the Plan before staging.
     // Here the authenticated source pin preserves those bytes, and the Action
     // resource profile supplies the independently checkable envelope.
-    let source_limit = if description.program.resources == BuildResources::Large {
-        super::MAX_LARGE_SOURCE_BYTES
-    } else {
-        super::MAX_SOURCE_BYTES
-    };
+    let source_limit = description.program.maximum_source_bytes();
     let source = pin_file(
         &attempt.stage,
         "source",
@@ -317,7 +313,7 @@ mod tests {
         let action = Action {
             program: BuildProgram {
                 profile,
-                resources: BuildResources::Standard,
+                resources: crate::build::BuildResources::Standard,
                 source_format: BuildSourceFormat::Raw,
                 outputs: vec!["out".into()],
                 steps: vec![BuildStep::Directory(BuildPath::Work(

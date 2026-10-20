@@ -397,7 +397,7 @@ impl Server {
             "semanticTokensProvider":{"legend":{"tokenTypes":presentation::TOKEN_TYPES,"tokenModifiers":["declaration","readonly","defaultLibrary"]},"full":true},
             "codeActionProvider": if self.versioned_edits { json!({"codeActionKinds":["quickfix"],"resolveProvider":true}) } else { json!(false) },
             "completionProvider":{"triggerCharacters":[":",".","{"],"resolveProvider":false},
-            "signatureHelpProvider":{"triggerCharacters":["(",","],"retriggerCharacters":[","]},
+            "signatureHelpProvider":{"triggerCharacters":["(","{",","],"retriggerCharacters":[",","="]},
             "experimental":{
                 "syroxVirtualSource":{"revision":1,"scheme":"syrox-source","request":"syrox/readSource"},
                 "syroxProjectStatus":{"revision":1,"request":"syrox/projectStatus","notification":"syrox/projectStatus"}

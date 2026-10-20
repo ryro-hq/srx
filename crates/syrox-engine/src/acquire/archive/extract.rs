@@ -72,7 +72,7 @@ impl ArchiveSink for Extraction<'_> {
             }
             MemberKind::File => {
                 let cancellation = self.cancellation;
-                let copied = parent.write_file(name, payload, size, mode, false, &mut || {
+                let copied = parent.write_source_file(name, payload, size, mode, &mut || {
                     cancellation
                         .check()
                         .map_err(|_| crate::cancellation::cancellation_io())
@@ -189,6 +189,36 @@ mod tests {
                     Path::new("run")
                 );
             }
+        }
+    }
+
+    #[test]
+    fn source_file_times_do_not_depend_on_archive_member_order_or_read_permissions() {
+        let bytes = archive(&[
+            member("configure", b"generated", b'0', 0o755),
+            member("configure.ac", b"input", b'0', 0o644),
+            member("unreadable", b"private", b'0', 0o000),
+        ]);
+        let target = tempfile::tempdir().unwrap();
+        extract(
+            &bytes,
+            ArchiveFormat::GzipTar,
+            ArchiveLimits::small_gzip(),
+            target.path(),
+        )
+        .unwrap();
+        for name in [
+            "configure",
+            "configure.ac",
+            "unreadable",
+        ] {
+            assert_eq!(
+                fs::metadata(target.path().join(name))
+                    .unwrap()
+                    .modified()
+                    .unwrap(),
+                std::time::UNIX_EPOCH
+            );
         }
     }
 

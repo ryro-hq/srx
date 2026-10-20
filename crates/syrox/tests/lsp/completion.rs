@@ -182,6 +182,198 @@ fn signature_help_survives_incomplete_calls_and_counts_nested_arguments() {
 }
 
 #[test]
+fn completion_and_signature_help_use_unparenthesized_record_receivers() {
+    let temp = tempfile::tempdir().unwrap();
+    let text = "value I(int); struct Box { entry: I; } impl Box { fn read(receiver: Self, next: I) -> I { next } } mod api { pub fn make(item: Box) -> Box { item } } let field = Box { entry = 1; }.entry; let result = Box { entry = 2; }.read(3); let created = api.make { entry = 4; }.entry;";
+    let path = temp.path().join("main.srx");
+    std::fs::write(&path, text).unwrap();
+    let document = uri(&path);
+    let mut client = Client::new(temp.path(), "utf-16");
+    client.open(&document, text);
+    client.diagnostics(&document, 1);
+    assert_eq!(
+        client.diagnostics(&document, 1)["params"]["diagnostics"],
+        json!([])
+    );
+    for (needle, name, kind) in [
+        (".entry;", "entry", 5),
+        (".read(3)", "read", 2),
+    ] {
+        let response = client.request(
+            "textDocument/completion",
+            at(&document, text, needle, 3),
+        );
+        let item = response["result"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["label"] == name)
+            .unwrap_or_else(|| panic!("{response}"));
+        assert_eq!(item["kind"], kind, "{response}");
+        assert_eq!(item["textEdit"]["newText"], name, "{response}");
+        assert_eq!(
+            item["textEdit"]["range"]["end"]["character"],
+            text.find(needle).unwrap() + 1 + name.len(),
+            "{response}"
+        );
+    }
+    let signature = client.request(
+        "textDocument/signatureHelp",
+        at(&document, text, ".read(3)", ".read(".len()),
+    );
+    assert_eq!(
+        signature["result"]["signatures"][0]["label"], "read(next: I) -> I",
+        "{signature}"
+    );
+    let constructed = "api.make { entry = 4; }.entry";
+    let response = client.request(
+        "textDocument/completion",
+        at(
+            &document,
+            text,
+            constructed,
+            constructed.len() - 3,
+        ),
+    );
+    assert!(
+        response["result"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["label"] == "entry"),
+        "{response}"
+    );
+    for (revision, member, name) in [(2, "en", "entry"), (3, "re", "read")] {
+        let changed = format!(
+            "{}let selected = Box {{ entry = 1; }}.{member};",
+            &text[..text.find("let field").unwrap()]
+        );
+        client.notify(
+            "textDocument/didChange",
+            json!({"textDocument":{"uri":document,"version":revision},"contentChanges":[{"text":changed}]}),
+        );
+        let response = client.request(
+            "textDocument/completion",
+            at(
+                &document,
+                &changed,
+                &format!(".{member}"),
+                1 + member.len(),
+            ),
+        );
+        assert!(
+            response["result"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["label"] == name),
+            "{response}"
+        );
+    }
+    client.stop();
+}
+
+#[test]
+fn completion_follows_fields_of_temporary_receivers() {
+    let temp = tempfile::tempdir().unwrap();
+    let text = "value I(int); struct Inner { entry: I; } struct Outer { inner: Inner; } fn make() -> Outer { Outer { inner = { entry = 1; }; } } let from_call = make().inner.entry; let from_literal = Outer { inner = { entry = 2; }; }.inner.entry;";
+    let path = temp.path().join("main.srx");
+    std::fs::write(&path, text).unwrap();
+    let document = uri(&path);
+    let mut client = Client::new(temp.path(), "utf-16");
+    client.open(&document, text);
+    client.diagnostics(&document, 1);
+    assert_eq!(
+        client.diagnostics(&document, 1)["params"]["diagnostics"],
+        json!([])
+    );
+    for receiver in [
+        "make().inner",
+        "Outer { inner = { entry = 2; }; }.inner",
+    ] {
+        let response = client.request(
+            "textDocument/completion",
+            at(&document, text, receiver, receiver.len() + 3),
+        );
+        assert!(
+            response["result"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["label"] == "entry" && item["detail"] == "I"),
+            "{response}"
+        );
+    }
+    client.stop();
+}
+
+#[test]
+fn signature_help_handles_explicit_and_nested_type_arguments() {
+    let temp = tempfile::tempdir().unwrap();
+    let text = "value I(int); struct Box<T> { entry: T; } fn identity<T>(item: T) -> T { item } mod api { pub fn choose<T>(first: T, second: T) -> T { second } } let item = identity<I>(1); let selected = api::choose<Box<I>>({ entry = 1; }, { entry = 2; });";
+    let path = temp.path().join("main.srx");
+    std::fs::write(&path, text).unwrap();
+    let document = uri(&path);
+    let mut client = Client::new(temp.path(), "utf-16");
+    client.open(&document, text);
+    client.diagnostics(&document, 1);
+    assert_eq!(
+        client.diagnostics(&document, 1)["params"]["diagnostics"],
+        json!([])
+    );
+    for (needle, delta, active, label) in [
+        (
+            "identity<I>(1)",
+            "identity<I>(".len(),
+            0,
+            "identity(item: T) -> T",
+        ),
+        (
+            "{ entry = 2; }",
+            0,
+            1,
+            "api::choose(first: T, second: T) -> T",
+        ),
+    ] {
+        let response = client.request(
+            "textDocument/signatureHelp",
+            at(&document, text, needle, delta),
+        );
+        assert_eq!(
+            response["result"]["activeParameter"], active,
+            "{response}"
+        );
+        assert_eq!(
+            response["result"]["signatures"][0]["label"], label,
+            "{response}"
+        );
+    }
+    let changed = text.replace("{ entry = 2; });", "");
+    client.notify(
+        "textDocument/didChange",
+        json!({"textDocument":{"uri":document,"version":2},"contentChanges":[{"text":changed}]}),
+    );
+    let response = client.request(
+        "textDocument/signatureHelp",
+        at(
+            &document,
+            &changed,
+            "api::choose",
+            changed.len() - changed.find("api::choose").unwrap(),
+        ),
+    );
+    assert_eq!(
+        response["result"]["activeParameter"], 1,
+        "{response}"
+    );
+    assert_eq!(
+        response["result"]["signatures"][0]["label"], "api::choose(first: T, second: T) -> T",
+        "{response}"
+    );
+    client.stop();
+}
+
+#[test]
 fn completion_handles_an_incomplete_namespace_after_unicode_text() {
     let temp = tempfile::tempdir().unwrap();
     let text = "value S(str); mod lib { pub fn make() {} } fn run() { S(\"😀\"); lib::make(); }";
@@ -217,7 +409,7 @@ fn completion_handles_an_incomplete_namespace_after_unicode_text() {
 #[test]
 fn std_definitions_are_read_only_revisioned_virtual_sources() {
     let temp = tempfile::tempdir().unwrap();
-    let text = "fn example() -> std::PackageId { std::PackageId(\"hello\") }";
+    let text = "fn example() -> PackageId { std::PackageId(\"hello\") }";
     let path = temp.path().join("main.srx");
     std::fs::write(&path, text).unwrap();
     let document = uri(&path);
@@ -227,7 +419,7 @@ fn std_definitions_are_read_only_revisioned_virtual_sources() {
     client.diagnostics(&document, 1);
     let definition = client.request(
         "textDocument/definition",
-        at(&document, text, "std::PackageId", 0),
+        at(&document, text, "PackageId", 0),
     );
     let virtual_uri = definition["result"]["uri"]
         .as_str()

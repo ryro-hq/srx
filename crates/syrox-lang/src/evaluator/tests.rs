@@ -8,6 +8,15 @@ use crate::{
 
 fn checked(source: &str, policy: &CheckPolicy) -> CheckedProgram {
     let mut sources = SourceSet::new();
+    let prelude = "mod std { pub enum Bool { False, True } }";
+    let source = if source.contains(prelude) {
+        sources
+            .add_standard_library("std.srx", prelude)
+            .unwrap();
+        source.replace(prelude, "")
+    } else {
+        source.to_owned()
+    };
     sources.add("main.srx", source).unwrap();
     check(
         resolve(parse_sources(&sources).unwrap()).unwrap(),
@@ -90,6 +99,167 @@ fn sorting_moves_affine_elements_stably_and_rejects_mismatched_lengths() {
 
 fn identity(path: &str) -> CanonicalItemIdentity {
     CanonicalItemIdentity::new(SourceDomainId::project(), path.split("::")).unwrap()
+}
+
+#[test]
+fn computed_defaults_keep_declaration_facts_when_discovered_inside_static_calls() {
+    let result = run(
+        r#"
+        value S(str); value I(int);
+        enum Mode { Old, New }
+        struct Inner { mode: Mode = choose("new"); }
+        struct Selection { inner: Inner = Inner {}; }
+        struct Old { port: I; } struct New { host: S; }
+        fn choose(const name: S) -> Mode { match name { "new" => Mode::New } }
+        fn select(const selection: Selection) -> _ {
+            match selection.inner.mode {
+                Old => Old { port = 7; }, New => New { host = "server"; }
+            }
+        }
+        fn nested(const unused: I) -> _ { select(Selection {}) }
+        let selected = nested(0);
+        outputs {
+            global: New = selected;
+            implicit: New = select(Selection {});
+            explicit: New = select(Selection { inner = Inner { mode = choose("new"); }; });
+        }
+        "#,
+        &CheckPolicy::default(),
+    );
+    assert!(result.is_success(), "{result:?}");
+    let values: Vec<_> = result
+        .roots()
+        .map(|root| root.value().unwrap())
+        .collect();
+    assert_eq!(values.len(), 3);
+    assert_eq!(values[0], values[1]);
+    assert_eq!(values[1], values[2]);
+}
+
+#[test]
+fn computed_method_receivers_evaluate_once_and_keep_resource_claims() {
+    let result = run(
+        r"
+        resource R(int); value I(int); struct Box { payload: R; }
+        impl R {
+            fn identity(r: R) -> R { r }
+            fn selected(r: R, const choice: I) -> R { match choice { 1 => r } }
+        }
+        fn pass(r: R) -> R { r }
+        struct Callback { run: once fn() -> R; }
+        fn callback(r: R) -> Callback { Callback { run = once fn() -> R { r }; } }
+        fn call(r: R) -> R { pass(r).identity() }
+        fn projected(boxed: Box) -> R { boxed.payload.identity() }
+        fn selected(r: R) -> R { pass(r).selected(1) }
+        fn stored(r: R) -> R { callback(r).run() }
+        outputs {
+            called: R = call(R(1));
+            projection: R = projected(Box { payload = R(1); });
+            selection: R = selected(R(1));
+            closure: R = stored(R(1));
+        }
+        ",
+        &CheckPolicy::default(),
+    );
+    assert!(result.is_success(), "{result:?}");
+    for root in result.roots() {
+        assert_eq!(root.claims().len(), 1);
+        assert!(matches!(
+            root.value(),
+            Some(Value::Nominal {
+                value: PrimitiveValue::Int(1),
+                resource: true,
+                ..
+            })
+        ));
+    }
+}
+
+#[test]
+fn constant_calls_keep_distinct_facts_for_each_selected_branch() {
+    let result = run(
+        r#"
+        mod std { pub enum Bool { False, True } }
+        value S(str); value I(int);
+        struct Selection { version: S; }
+        struct Old { port: I; } struct New { host: S; }
+        fn select(const selection: Selection) -> _ {
+            if selection.version != "new" { match selection.version { "old" => Old { port = 7; } } }
+            else { New { host = "server"; } }
+        }
+        outputs { old: Old = select({ version = "old"; }); new: New = select({ version = "new"; }); }
+    "#,
+        &CheckPolicy::default(),
+    );
+    assert!(result.diagnostics().next().is_none());
+    let names: Vec<_> = result
+        .roots()
+        .map(|root| match root.value().unwrap() {
+            Value::Struct {
+                fields,
+                ..
+            } => fields[0].0.clone(),
+            _ => panic!("expected selected struct"),
+        })
+        .collect();
+    assert_eq!(names, ["port", "host"]);
+}
+
+#[test]
+fn static_traits_dispatch_with_associated_settings_and_generic_bounds() {
+    let result = run(
+        r#"
+        value S(str); struct Settings { host: S; } struct P {}
+        trait Package { type Settings; fn render(package: Self, settings: Self::Settings) -> S; }
+        impl Package for P { type Settings = project::Settings; fn render(package: Self, settings: Self::Settings) -> S { settings.host } }
+        fn configure<T: Package>(package: T, settings: T::Settings) -> S { T::render(package, settings) }
+        outputs { text: S = configure(P {}, { host = "server"; }); }
+    "#,
+        &CheckPolicy::default(),
+    );
+    assert!(result.diagnostics().next().is_none());
+    assert!(
+        matches!(result.roots().next().unwrap().value().unwrap(), Value::Nominal { value: PrimitiveValue::Str(value), .. } if value == "server")
+    );
+}
+
+#[test]
+fn package_sets_are_values_and_specialized_closures_retain_their_facts() {
+    let result = run(
+        r#"
+        value S(str); value I(int); struct Set { system: S; } struct Selection { version: S = "one"; }
+        impl Set { fn nginx(const set: Self, const selection: Selection) -> I { match set.system { "musl" => match selection.version { "one" => 7 }, "gnu" => 8 } } }
+        fn forSystem(const system: S) -> Set { Set { system = system; } }
+        trait Render { type Settings; fn render(package: Self, settings: Self::Settings) -> S; }
+        struct P {} struct Settings { host: S; }
+        impl Render for P { type Settings = project::Settings; fn render(package: Self, settings: Self::Settings) -> S { settings.host } }
+        fn delayed<T: Render>(package: T) -> fn(T::Settings) -> S { fn(settings: T::Settings) -> S { T::render(package, settings) } }
+        outputs {
+            abi: I = let packages = forSystem("musl"); in packages.nginx { version = "one"; };
+            text: S = delayed(P {})({ host = "captured"; });
+        }
+    "#,
+        &CheckPolicy::default(),
+    );
+    assert!(
+        result.diagnostics().next().is_none(),
+        "{:?}",
+        result.diagnostics().collect::<Vec<_>>()
+    );
+    let values: Vec<_> = result
+        .roots()
+        .map(|root| root.value().unwrap())
+        .collect();
+    assert!(matches!(
+        values[0],
+        Value::Nominal {
+            value: PrimitiveValue::Int(7),
+            ..
+        }
+    ));
+    assert!(
+        matches!(values[1], Value::Nominal { value: PrimitiveValue::Str(value), .. } if value == "captured")
+    );
 }
 
 #[test]
@@ -1528,4 +1698,55 @@ fn maximum_supported_value_depth_drops_safely() {
         };
     }
     drop(value);
+}
+
+#[test]
+fn record_calls_share_contextual_inference_defaults_and_evaluation() {
+    let declarations = r#"
+        value I(int); value S(str);
+        struct Options { payload: I; name: S = "gnu"; }
+        struct lowercase { payload: I; }
+        enum Wrapped { Value(Options) }
+        enum Holder<T> { Some(T) }
+        let constructor: fn(Options) -> Holder<Options> = Holder::Some<Options>;
+        fn make(options: Options) -> I { options.payload }
+        fn Uppercase(options: Options) -> I { options.payload }
+        fn generic<T>(options: T) -> T { options }
+        mod api { pub fn make(options: Options) -> I { options.payload } }
+        let callback = fn(options: Options) -> I { options.payload };
+        fn selected(const options: Options) -> _ { match options.name { "gnu" => options.payload } }
+    "#;
+    for expression in [
+        "make({ payload = 7; })",
+        "make { payload = 7; }",
+        "api::make { payload = 7; }",
+        "api.make { payload = 7; }",
+        "callback { payload = 7; }",
+        "Uppercase { payload = 7; }",
+        "selected { payload = 7; }",
+        "generic<Options> { payload = 7; }.payload",
+        "lowercase { payload = 7; }.payload",
+        "let make = callback; in make { payload = 7; }",
+        "match (Wrapped::Value { payload = 7; }) { Value(options) => options.payload }",
+        "match (constructor { payload = 7; }) { Some(options) => options.payload }",
+    ] {
+        let source =
+            format!("{declarations} let answer = {expression}; outputs {{ result: I = answer; }}");
+        let result = run(&source, &CheckPolicy::default());
+        assert!(
+            result.is_success(),
+            "{expression}: {:?}",
+            result.diagnostics().collect::<Vec<_>>()
+        );
+        assert!(
+            matches!(
+                result.roots().next().unwrap().value(),
+                Some(Value::Nominal {
+                    value: PrimitiveValue::Int(7),
+                    ..
+                })
+            ),
+            "{expression}"
+        );
+    }
 }
