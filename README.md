@@ -42,13 +42,13 @@ environment. With the catalog checked out beside your project, save this as
 `main.srx`:
 
 ```srx
-inputs { pkgs = "path:../syrox-pkgs"; }
+inputs { pkgs = "path:../srx-pkgs"; }
 
 let packages = pkgs.forPlatform { system = "linux-x86_64"; };
 
 outputs {
     dev: Shell = Shell {
-        pkgs = [select_command(package_recipe(packages.hello_version {
+        pkgs = [select_command(package_recipe(packages.hello {
             version = "2.12.1";
         }), "out", "hello")];
         services = [];
@@ -124,7 +124,7 @@ after changing them. Evaluation and loading budgets apply to parsing and convers
 The selected package determines the configuration contract before acquisition:
 
 ```srx
-inputs { pkgs = "path:../syrox-pkgs"; }
+inputs { pkgs = "path:../srx-pkgs"; }
 
 let packages = pkgs.forPlatform { system = "linux-x86_64"; };
 
@@ -139,7 +139,7 @@ This declares an `os` output. Omitted `libc` selects GNU; add `libc = "musl";`
 to select musl. The set exposes normalized `platform.system`/`platform.libc` and
 `buildPlatform` (Linux x86_64 GNU). Package calls inherit the set's platform;
 contradictory overrides fail before acquisition. Direct package calls default to
-Linux x86_64 GNU. `forSystem("linux-x86_64-musl")` remains supported.
+Linux x86_64 GNU. Versions are explicit; use `forPlatform` to select musl.
 
 Root public names of the authenticated standard library are available directly;
 `std::Recipe` and other qualified names remain valid. Local declarations and
@@ -156,7 +156,7 @@ A public binding containing a `RecipeRef<Recipe>` is also a CLI export. Select
 the package once, then export its recipe:
 
 ```srx
-pub let hello = package_recipe(packages.hello_version { version = "2.12.1"; });
+pub let hello = package_recipe(packages.hello { version = "2.12.1"; });
 ```
 
 ```sh

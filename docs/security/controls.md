@@ -49,7 +49,7 @@ that transition. No bypass or fake independent reviewer is permitted.
 | OSPS-GV-03.02 | 2 | implemented | CONTRIBUTING, SECURITY and release/recovery docs define maintainership, access review and contribution requirements. |
 | OSPS-LE-01.01 | 2 | rollout pending | Own-author DCO policy documented; CNCF DCO2 App must be confirmed and required before integration. |
 | OSPS-QA-03.01 | 2 | verified live / migration pending | Existing success checks required; keep transitional success while verify becomes mandatory. |
-| OSPS-QA-06.01 | 2 | implemented / live run pending | Portable tests and required VM qualification; verify includes SARIF, dependency and workflow policy gates. |
+| OSPS-QA-06.01 | 2 | implemented / live run pending | Portable tests and required VM qualification; verify includes dependency and workflow policy gates. |
 | OSPS-SA-01.01 | 2 | implemented | [Threat model](threat-model.md) identifies actors, boundaries, operations and remaining risks. |
 | OSPS-SA-02.01 | 2 | implemented | Language/CLI, authenticated std, typed package contracts, host inspection and transport interfaces documented. |
 | OSPS-SA-03.01 | 2 | implemented / human review pending | Threat model plus deterministic parser, type, isolation and negative security tests; no external assessment claimed. |
@@ -75,8 +75,8 @@ that transition. No bypass or fake independent reviewer is permitted.
 | OSPS-VM-05.01 | 3 | implemented | Known exploitable dependencies and license/source violations block; exact expiring exceptions only. |
 | OSPS-VM-05.02 | 3 | pending release evidence | SPDX and Grype reports must pass before trusted publication; no release assurance from configuration alone. |
 | OSPS-VM-05.03 | 3 | implemented / live run pending | Cargo policy on every PR/merge group; daily independent dependency audit; expiry gate. |
-| OSPS-VM-06.01 | 3 | implemented | High/critical CodeQL findings and failed/incomplete analysis block; no inline SARIF suppression bypass. |
-| OSPS-VM-06.02 | 3 | implemented / live run pending | Rust/Actions CodeQL and explicit SARIF gate are included in verify, including merge groups. |
+| OSPS-VM-06.01 | 3 | excluded by maintainer | CodeQL excluded by explicit maintainer policy. Dependency and release vulnerability gates remain; no CodeQL coverage claimed. |
+| OSPS-VM-06.02 | 3 | excluded by maintainer | CodeQL excluded by explicit maintainer policy; compiler/lints, workflow checks, bounded fuzzing and VM gates remain. |
 
 ## OpenSSF Best Practices and Scorecard
 
@@ -88,7 +88,7 @@ preparation for an honest badge submission, with maintainer attestation still ne
 | Basics and change control | Public repositories/history, README, contribution guide, PR template, issues and retained identities | Verify new queue/DCO enforcement after rollout |
 | Licensing and reporting | LICENSE, scoped Cargo policy, SECURITY and private reporting | Verify distributed package license evidence on first release |
 | Quality | Rust/language/configuration/projection tests, formatting, conservative change classification, VM lanes | Retain successful new GitHub/VM runs; no local KVM available in this implementation environment |
-| Security | MFA readback, threat model, scanning, strict SARIF gate, audits and expiring exceptions | Maintainer review, recovery exercise and complete release evidence |
+| Security | MFA readback, threat model, secret scanning, vulnerability gates, audits and expiring exceptions | Maintainer review, recovery exercise and complete release evidence |
 | Release integrity | Immutable-release policy, authenticated artifacts, SPDX/Grype/provenance workflow requirements | Verify actual publication and offline verification; no SLSA level inferred |
 
 The official Scorecard action runs on main and weekly, retains SARIF for 90 days,

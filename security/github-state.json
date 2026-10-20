@@ -8,8 +8,8 @@
   "outside_collaborators": 0,
   "default_repository_permission": "read",
   "mfa_activation": "Organization owner enabled the setting after read-only readiness audit; API readback confirmed it. No members were removed.",
-  "repository_workflows": "implemented in feature branch; pending first GitHub execution",
-  "required_rules_transition": "pending successful verify workflows; retain success until then",
+  "repository_workflows": "See docs/security/rollout.md for implementation runs and remaining gates.",
+  "required_rules_transition": "See docs/security/rollout.md; success is retained until successful workflow rollout.",
   "independent_write_reviewers": 0,
   "independent_review_gap": "Only one write maintainer; zero required approvals temporarily. No independent-review claim.",
   "dco_app": {
@@ -19,5 +19,26 @@
     "prior_pr_status": "ACTION_REQUIRED on unsigned contributions; enforcement pending rollout"
   },
   "updater_credentials": "absent; workflow disabled pending maintainer configuration",
-  "immutable_releases": true
+  "immutable_releases": true,
+  "dependabot_security_updates": true,
+  "codeql": {
+    "enabled": false,
+    "policy": "Removed by explicit maintainer request, including advanced workflows, SARIF gates and proposed exceptions.",
+    "organization_audit": {
+      "not_configured": [
+        ".github",
+        "srx",
+        "srx-pkgs",
+        "srx.nvim",
+        "srx-vscode",
+        "srx-opencode",
+        "ryro-bot",
+        "myrden"
+      ],
+      "code_security_unavailable_empty": [
+        "ryro-monorepo"
+      ],
+      "changed": "myrden default setup disabled; all other default setups were already off"
+    }
+  }
 }

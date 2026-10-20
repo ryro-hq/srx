@@ -159,6 +159,8 @@ fn qualification_validates_fixtures_and_authenticates_their_bytes() {
     );
     for invalid in [
         description.replace("command = 'nginx'", "command = '../nginx'"),
+        description.replace("command = 'nginx'", "command = '.'"),
+        description.replace("filename = 'server.conf'", "filename = '..'"),
         description.replace(
             "configuration = 'valid.conf'",
             "configuration = '../valid.conf'",
