@@ -131,10 +131,7 @@ jobs:
           cache-key: host-tests
           save-cache: 'false'
       - name: Language and CLI tests
-        run: |
-          cargo test --locked -p syrox-lang
-          cargo test --locked -p syrox --no-default-features --bins \
-            --test cli --test diagnostics --test public_bindings --test language_reference --test os_profiles --test usability --test format --test lsp --test vm_harness
+        run: cargo xtask test --suite portable
 
   build:
     needs: changes

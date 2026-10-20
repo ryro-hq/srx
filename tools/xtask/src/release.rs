@@ -80,8 +80,13 @@ fn legal_files(source: &Path, destination: &Path) -> Result {
         .any(|prefix| name.starts_with(prefix))
             && entry.file_type()?.is_file()
         {
-            if entry.metadata()?.len() > 4 * 1024 * 1024 {
-                return Err("oversized license file".into());
+            // Rust's aggregate COPYRIGHT.html includes its third-party notices.
+            if entry.metadata()?.len() > 64 * 1024 * 1024 {
+                return Err(format!(
+                    "oversized license file: {}",
+                    entry.path().display()
+                )
+                .into());
             }
             fs::copy(entry.path(), destination.join(name.as_ref()))?;
         }

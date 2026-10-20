@@ -22,9 +22,7 @@ fuzz_target!(|data: &[u8]| {
     } else {
         "toml"
     };
-    let literal = serde_json::to_string(text)
-        .unwrap()
-        .replace('$', "\\$");
+    let literal = srx_fuzz::configuration_literal(text);
     let main = format!(
         "value Name(str); struct Config {{ name: Name = \"default\"; }} outputs {{ parsed: Config = std::{format}::decode<Config>({literal}); edited: std::ConfigText = std::{format}::render(std::{format}::patch(std::{format}::document<Config>({literal}), {{name = \"patched\";}})); }}"
     );
