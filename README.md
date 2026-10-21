@@ -1,10 +1,4 @@
 <p align="center">
-
-Developer entry point: `cargo xtask check`. Use `cargo xtask fmt` to format explicitly
-and `cargo xtask test --suite portable` for local tests. See [testing](docs/testing.md),
-[contributing](CONTRIBUTING.md) and [security](SECURITY.md). The related package
-catalog is [srx-pkgs](https://github.com/ryro-hq/srx-pkgs); runtime ryro-bot is separate.
-
   <img src="assets/syrox.png" width="180" alt="Syrox mascot: a penguin in a package box" />
 </p>
 
@@ -16,7 +10,8 @@ catalog is [srx-pkgs](https://github.com/ryro-hq/srx-pkgs); runtime ryro-bot is 
 </p>
 
 <p align="center">
-  <a href="https://github.com/ryro-hq/syrox/actions/workflows/ci.yml"><img src="https://github.com/ryro-hq/syrox/actions/workflows/ci.yml/badge.svg?branch=main" alt="Syrox CI on main" /></a>
+  <a href="https://github.com/ryro-hq/srx/actions/workflows/ci.yml"><img src="https://github.com/ryro-hq/srx/actions/workflows/ci.yml/badge.svg?branch=main" alt="Syrox CI on main" /></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/ryro-hq/srx"><img src="https://api.scorecard.dev/projects/github.com/ryro-hq/srx/badge" alt="OpenSSF Scorecard" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache-2.0 license" /></a>
   <img src="https://img.shields.io/badge/status-experimental-orange.svg" alt="Experimental" />
 </p>
@@ -32,14 +27,42 @@ or building.
 
 Syrox is experimental and currently targets Linux.
 
+## Get started
+
+The repository pins its Rust toolchain. Build the CLI and worker:
+
+```sh
+git clone https://github.com/ryro-hq/srx.git
+cd srx
+rustup target add x86_64-unknown-linux-musl
+# Linux build host: install musl-gcc, pkg-config and native link tools first.
+export CC_x86_64_unknown_linux_musl=musl-gcc
+export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
+RUSTFLAGS="-C target-feature=+crt-static" LZMA_API_STATIC=1 \
+  cargo build --release --locked -p syrox --bin syrox-worker --target x86_64-unknown-linux-musl
+RUSTFLAGS="-C target-feature=+crt-static" LZMA_API_STATIC=1 \
+  SYROX_EMBED_WORKER="$PWD/target/x86_64-unknown-linux-musl/release/syrox-worker" \
+  cargo build --release --locked -p syrox --bin srx --target x86_64-unknown-linux-musl
+export PATH="$PWD/target/x86_64-unknown-linux-musl/release:$PATH"
+```
+
+The language server ships with `srx`.
+
 ## The language
 
 See the [language reference](docs/language.md) for checked, executable examples
 of bindings, record calls, platform conditions and shared recipes.
 
-Use packages from [syrox-pkgs](https://github.com/ryro-hq/syrox-pkgs) in your own
-environment. With the catalog checked out beside your project, save this as
-`main.srx`:
+Use packages from [srx-pkgs](https://github.com/ryro-hq/srx-pkgs) in your own
+environment. In a separate workspace, check out the catalog beside a new project:
+
+```sh
+git clone https://github.com/ryro-hq/srx-pkgs.git
+mkdir my-environment
+cd my-environment
+```
+
+Save this as `main.srx`:
 
 ```srx
 inputs { pkgs = "path:../srx-pkgs"; }
@@ -62,11 +85,28 @@ the recipe; your project chooses the packages and commands it exposes.
 Check and lock the catalog, then inspect your project:
 
 ```sh
-srx project lock ../syrox-pkgs
+srx project lock ../srx-pkgs
 srx project check .
 srx project lock .
 srx project plan .
 ```
+
+Save this as `build.toml` for the Hello example:
+
+```toml
+[build]
+host-toolchain = "/usr"
+
+[network]
+allow-https = [
+  "https://ftp.gnu.org/gnu/hello/hello-2.12.1.tar.gz",
+  "https://ftp.gnu.org/gnu/glibc/glibc-2.44.tar.xz",
+]
+```
+
+Building requires the declared host tools, including a compiler, make, Python,
+gawk, bison and patch for GNU glibc. `srx host inspect` reports native kernel
+capabilities. See [testing](docs/testing.md) for the qualified Linux environments.
 
 On a configured Linux build host, build and run the selected command:
 
@@ -74,9 +114,6 @@ On a configured Linux build host, build and run the selected command:
 srx shell .#dev --command hello --non-interactive \
     --config build.toml --store ./store -- --greeting 'Hello from Syrox!'
 ```
-
-`build.toml` supplies the host toolchain and source permissions described in
-the [catalog's setup](https://github.com/ryro-hq/syrox-pkgs#build-and-select-a-command).
 
 ## Typed configuration
 
@@ -201,24 +238,34 @@ ordinary functions require compatible branches and exhaustive matches.
 Qualification builds and runs each required combination and verifies offline
 bundle import; a missing or failed combination prevents a release manifest.
 
-## Get started
 
-The repository pins its Rust toolchain. Build the CLI and worker:
+## Develop
+
+Use the pinned toolchain and start with the native maintenance entry point:
 
 ```sh
-git clone https://github.com/ryro-hq/syrox.git
-cd syrox
-rustup target add x86_64-unknown-linux-musl
-# Linux build host: install musl-gcc, pkg-config and native link tools first.
-export RUSTFLAGS="-C target-feature=+crt-static" LZMA_API_STATIC=1
-export CC_x86_64_unknown_linux_musl=musl-gcc
-export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
-cargo build --release --locked -p syrox --bin syrox-worker --target x86_64-unknown-linux-musl
-SYROX_EMBED_WORKER="$PWD/target/x86_64-unknown-linux-musl/release/syrox-worker" \
-  cargo build --release --locked -p syrox --bin srx --target x86_64-unknown-linux-musl
-export PATH="$PWD/target/x86_64-unknown-linux-musl/release:$PATH"
+cargo xtask check
+cargo xtask fmt
+cargo xtask test --suite portable
 ```
 
-The language server ships with `srx`.
+`check` validates sources and locked compilation; `fmt` rewrites formatting
+explicitly. See [testing](docs/testing.md), [contributing](CONTRIBUTING.md),
+[security](SECURITY.md) and [rollout evidence](docs/security/rollout.md).
+The [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/ryro-hq/srx)
+links the badge to the published repository checks.
+
+| Path | Responsibility |
+| --- | --- |
+| `crates/syrox/` | CLI, worker and native VM harness |
+| `crates/syrox-engine/` | Authentication, evaluation, acquisition, builds and runtime |
+| `crates/syrox-lang/` | Parser, type checker, formatter and language server |
+| `std/` | Authenticated standard library and configuration APIs |
+| `tools/xtask/` | Rust maintenance, policy and release commands |
+| `docs/` | Language, testing, runtime and security contracts |
+
+Package recipes and qualification belong to
+[srx-pkgs](https://github.com/ryro-hq/srx-pkgs). Runtime ryro-bot is a separate
+project.
 
 Licensed under [Apache-2.0](LICENSE).
