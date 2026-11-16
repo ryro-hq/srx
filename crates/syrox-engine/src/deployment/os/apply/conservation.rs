@@ -329,7 +329,7 @@ mod tests {
                 crate::deployment::manifest::tests::prepared_service_payload_fixture_kind(
                     &crate::runtime::tests::elf(2, None, &[], None, None),
                     "",
-                    "Os",
+                    "Services",
                 );
             let store_path = first.path().join("store");
             let store = Store::open_existing(&store_path).unwrap();
@@ -392,7 +392,7 @@ mod tests {
                 crate::deployment::manifest::tests::prepared_service_payload_fixture_with_source(
                     &crate::runtime::tests::elf(2, None, &[], None, None),
                     "",
-                    "Os",
+                    "Services",
                     Some(&store_path),
                     transform,
                 );

@@ -1,4 +1,6 @@
-use super::commands::{build, bundle, format, host, install_self, os, run, session, shell, store};
+use super::commands::{
+    build, bundle, format, host, install_self, run, services, session, shell, store,
+};
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
@@ -52,10 +54,10 @@ pub(crate) enum Command {
     Run(run::Arguments),
     /// Run an exposed managed command with temporary Shell configuration.
     Shell(shell::Arguments),
-    /// Prepare, inspect and apply retained Os generations.
-    Os {
+    /// Prepare, inspect and apply retained Services generations.
+    Services {
         #[command(subcommand)]
-        command: os::Command,
+        command: services::Command,
     },
     /// Inspect or recover recorded managed Shell sessions.
     Session {
@@ -105,7 +107,7 @@ pub(crate) enum ProjectCommand {
         path: Option<PathBuf>,
         #[arg(short = 'f', long)]
         file: Option<PathBuf>,
-        /// Select one Os or Shell output and its referenced packages.
+        /// Select one Services or Shell output and its referenced packages.
         #[arg(long)]
         output: Option<String>,
     },

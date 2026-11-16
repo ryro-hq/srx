@@ -143,7 +143,7 @@ consumer. A `RecipeRef<Recipe>` defers a factory and memoizes its result.
 Aliases retain the same identity; calling `recipe_ref` twice creates two instances.
 Select outputs with `recipe_output`, and commands with `recipe_command`.
 A public recipe reference is available to `srx info .#example`. Add acquisition,
-a build program and declared outputs before selecting it in an `Os`/`Shell`
+a build program and declared outputs before selecting it in a `Services`/`Shell`
 consumer or running `srx build .#example`. Locks are required before planning or
 realization.
 

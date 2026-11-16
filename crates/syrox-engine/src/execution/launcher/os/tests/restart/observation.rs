@@ -416,7 +416,7 @@ fn restart_observation_retries_only_torn_invocation_snapshots() {
     for message in [
         "manager ownership changed; reconnect required",
         "invalid invocation identifier",
-        "loaded Os unit changed during observation",
+        "loaded Services unit changed during observation",
     ] {
         snapshots = 0;
         let error = retry_restart_observation::<()>(&cancel, deadline(), || {

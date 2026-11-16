@@ -233,7 +233,7 @@ fn generation() -> (
         crate::deployment::manifest::tests::prepared_service_payload_fixture_kind(
             &crate::runtime::tests::elf(2, None, &[], None, None),
             "",
-            "Os",
+            "Services",
         );
     let worker = temp.path().join("candidate-worker");
     fs::write(&worker, WORKER).unwrap();

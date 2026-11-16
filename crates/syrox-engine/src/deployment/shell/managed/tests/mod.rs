@@ -45,7 +45,7 @@ fn configuration(kind: &str) -> (tempfile::TempDir, PreparedConsumer) {
 
 #[test]
 fn os_is_rejected_before_private_directory_or_manager_access() {
-    let (root, prepared) = configuration("Os");
+    let (root, prepared) = configuration("Services");
     let journal_path = root.path().join("journal");
     fs::create_dir(&journal_path).unwrap();
     fs::set_permissions(&journal_path, fs::Permissions::from_mode(0o700)).unwrap();

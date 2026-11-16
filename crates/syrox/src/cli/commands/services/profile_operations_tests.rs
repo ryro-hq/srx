@@ -107,6 +107,8 @@ fn ambiguous_invocations_are_not_used_for_logs_and_pending_effects_block_new_ope
             job: None,
         }];
         let error = require_settled(&status, "web").unwrap_err();
-        assert!(error.contains("srx os recover 1234567890abcdef1234567890abcdef --profile web"));
+        assert!(
+            error.contains("srx services recover 1234567890abcdef1234567890abcdef --profile web")
+        );
     }
 }

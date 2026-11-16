@@ -12,7 +12,7 @@ use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, thiserror::Error)]
-#[error("Os manager effect failed during {stage}{detail}", detail = .source.as_ref().map(|error| format!(": {error}")).unwrap_or_default())]
+#[error("Services manager effect failed during {stage}{detail}", detail = .source.as_ref().map(|error| format!(": {error}")).unwrap_or_default())]
 pub(super) struct ApplyManagerError {
     stage: &'static str,
     #[source]
@@ -153,7 +153,7 @@ impl Manager for SystemdManager {
             .map(|observed| observed.fingerprint())
             .map_err(|error| {
                 eprintln!(
-                    "Os loaded unit {}: {error}",
+                    "Services loaded unit {}: {error}",
                     contract.unit().as_str()
                 );
                 ApplyManagerError::caused_by("observe loaded unit", error)

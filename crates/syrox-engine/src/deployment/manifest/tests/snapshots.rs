@@ -421,7 +421,7 @@ fn prepared(kind: &str) -> (tempfile::TempDir, PreparedConsumer) {
 }
 #[test]
 fn freeze_keeps_prepared_configuration_without_source_store_or_worker_and_rejects_shell() {
-    let (temp, consumer) = prepared("Os");
+    let (temp, consumer) = prepared("Services");
     fs::remove_file(temp.path().join("main.srx")).unwrap();
     let generation = PreparedGeneration::freeze(consumer, launcher()).unwrap();
     assert_eq!(
@@ -441,7 +441,7 @@ fn freeze_keeps_prepared_configuration_without_source_store_or_worker_and_reject
     let (_temp, consumer) = prepared("Shell");
     assert!(matches!(
         PreparedGeneration::freeze(consumer, launcher()),
-        Err(GenerationError::NotOs)
+        Err(GenerationError::NotServices)
     ));
 }
 
@@ -544,7 +544,7 @@ fn shell_snapshot_borrows_preparation_and_is_distinct_from_os_generation() {
         (bytes.clone(), pin)
     );
     assert!(GenerationManifest::decode_bounded(&bytes, pin).is_err());
-    let (_temp, os) = prepared("Os");
+    let (_temp, os) = prepared("Services");
     assert!(matches!(
         shell_snapshot(&os, launcher()),
         Err(GenerationError::NotShell)

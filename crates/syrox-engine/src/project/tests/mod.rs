@@ -78,7 +78,7 @@ fn package_plan(source: &str) -> Result<crate::plan::Plan, ProjectOperationError
 }
 
 // Low-level value serialization tests deliberately bypass destination selection.
-// The public project planner rejects these values as Os/Shell destinations.
+// The public project planner rejects these values as Services/Shell destinations.
 fn value_projection_plan(
     path: &Path,
     config: &CheckConfiguration,

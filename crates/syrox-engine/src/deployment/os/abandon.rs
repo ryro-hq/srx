@@ -4,7 +4,7 @@ use std::path::Path;
 use std::time::Instant;
 
 #[derive(Debug, thiserror::Error)]
-#[error("cannot abandon Os operation: {stage}")]
+#[error("cannot abandon Services operation: {stage}")]
 pub struct OsAbandonmentError {
     stage: &'static str,
 }

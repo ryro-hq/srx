@@ -51,9 +51,9 @@ pub(super) fn apply(
         .map_err(|e| e.to_string())?
         .consumer()
         .kind()
-        != syrox_engine::plan::PlanConsumerKind::Os
+        != syrox_engine::plan::PlanConsumerKind::Services
     {
-        return Err("profile output must be an Os consumer".into());
+        return Err("profile output must be a Services consumer".into());
     }
     let worker = crate::cli::worker_path::installed()?;
     let digest = crate::cli::worker_path::digest(&worker, cancel)?;
@@ -186,7 +186,7 @@ pub(super) fn stop(arguments: &StopArguments, cancel: &Cancellation) -> Result<u
 fn require_settled(status: &OsStatus, name: &str) -> Result<(), String> {
     if !status.pending_effects.is_empty() {
         return Err(format!(
-            "profile has pending effects; run srx os recover {} --profile {name} before another operation",
+            "profile has pending effects; run srx services recover {} --profile {name} before another operation",
             status
                 .active_operation
                 .as_deref()

@@ -85,7 +85,7 @@ fn evidence_errors_expose_stage_without_persisted_contents() {
     let error = evidence("decode configuration")(io::Error::other("SECRET_ARGV_ENV"));
     assert_eq!(
         error.to_string(),
-        "Os worker evidence failed: decode configuration"
+        "Services worker evidence failed: decode configuration"
     );
     assert!(!format!("{error:?}").contains("SECRET_ARGV_ENV"));
 }

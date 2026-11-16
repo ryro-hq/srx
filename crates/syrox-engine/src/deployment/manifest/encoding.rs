@@ -179,7 +179,7 @@ impl GenerationManifest {
         }
         if header == HEADER && (!self.session_states.is_empty() || !self.secrets.is_empty()) {
             return Err(GenerationError::Invalid(
-                "session state and secrets are not supported by Os",
+                "session state and secrets are not supported by Services",
             ));
         }
         super::validate_manifest::manifest(self)?;
@@ -221,7 +221,7 @@ impl GenerationManifest {
     }
 }
 /// A structurally verified Shell snapshot remains inert data. Its distinct wire
-/// domain prevents it from being accepted as an Os generation or vice versa.
+/// domain prevents it from being accepted as a Services generation or vice versa.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ShellSessionManifest {
     operational: GenerationManifest,

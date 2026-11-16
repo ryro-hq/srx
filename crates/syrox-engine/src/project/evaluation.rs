@@ -176,7 +176,7 @@ impl ProjectEvaluation<'_> {
         })
     }
 
-    /// Include one authenticated Os/Shell output, without forcing unrelated
+    /// Include one authenticated Services/Shell output, without forcing unrelated
     /// outputs. Finish with `into_selected_prepared_plan` to retain only the
     /// explicit selections and their referenced recipes.
     pub fn select_consumer(&mut self, name: &str) -> Result<(), ProjectOperationError> {
@@ -212,7 +212,7 @@ impl ProjectEvaluation<'_> {
             .ok_or_else(|| ProjectOperationError::MissingOutput {
                 name: name.to_owned(),
             })?;
-        if !["Os", "Shell"].iter().any(|contract| {
+        if !["Services", "Shell"].iter().any(|contract| {
             is_std_nominal(
                 ty,
                 &self.project.checked,
@@ -307,7 +307,7 @@ impl ProjectEvaluation<'_> {
         Ok(true)
     }
 
-    /// A full Plan includes only authenticated Os/Shell destinations alongside
+    /// A full Plan includes only authenticated deployment destinations alongside
     /// explicitly selected library recipes. Libraries are not output values.
     pub fn include_project_outputs(&mut self) -> Result<(), ProjectOperationError> {
         let names: Vec<_> = self.root_names().map(str::to_owned).collect();

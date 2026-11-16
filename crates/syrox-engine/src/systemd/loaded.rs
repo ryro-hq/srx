@@ -80,7 +80,7 @@ impl SystemdManager {
         let budget = Budget::new(timeout, cancellation)?;
         if &self.scope != contract.scope() {
             return Err(SystemdError::Invalid(
-                "Os unit scope differs from manager",
+                "Services unit scope differs from manager",
             ));
         }
         let mut reference = self.load_unit_reference(contract.unit(), &budget)?;
@@ -109,7 +109,7 @@ impl SystemdManager {
                     || self.observe_identity_with(&budget)? != manager
                 {
                     return Err(invalid(
-                        "loaded Os unit changed during observation",
+                        "loaded Services unit changed during observation",
                     ));
                 }
                 if self.bus.configuration_revision() != revision {
@@ -196,7 +196,10 @@ pub(super) fn validate(property: &Property, value: &Value) -> Result<(), Systemd
     }
     Err(SystemdError::Remote {
         name: "syrox.UnsupportedLoadedUnit".into(),
-        message: format!("loaded Os property differs: {}", property.name),
+        message: format!(
+            "loaded Services property differs: {}",
+            property.name
+        ),
     })
 }
 fn read(
@@ -759,7 +762,7 @@ mod tests {
         assert!(decode(&reply, &Value::U64(0)).is_err());
     }
     #[test]
-    #[ignore = "requires real user manager and a separately provisioned exact Os unit; never starts it"]
+    #[ignore = "requires real user manager and a separately provisioned exact Services unit; never starts it"]
     fn real_loaded_os_unit_observation_gate() {
         use std::path::PathBuf;
         let env =

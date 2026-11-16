@@ -23,7 +23,7 @@ pub(crate) enum Command {
     Stop(profile_operations::StopArguments),
     /// Read logs for recorded invocations through the optional journalctl program.
     Logs(profile_operations::LogArguments),
-    /// Realize an Os consumer and durably retain a prepared generation.
+    /// Realize a Services consumer and durably retain a prepared generation.
     Prepare(PrepareArguments),
     /// Apply a retained candidate through the explicitly selected service manager.
     Apply(apply::Arguments),
@@ -77,7 +77,7 @@ pub(crate) enum Command {
 
 #[derive(Debug, clap::Args)]
 pub(crate) struct PrepareArguments {
-    /// Locked project and Os output, for example .#system.
+    /// Locked project and Services output, for example .#system.
     reference: String,
     /// Existing owned mode-0700 directory for installation state.
     #[arg(long)]
@@ -307,7 +307,8 @@ fn prepare(
         .map_err(|error| error.to_string())?
     else {
         return Err(
-            "os prepare requires a locked project and Os output, for example .#system".into(),
+            "services prepare requires a locked project and Services output, for example .#system"
+                .into(),
         );
     };
     let prepared = syrox_engine::project::prepare_project_consumer_with(path, checks, name)
@@ -316,9 +317,9 @@ fn prepare(
         .map_err(|error| error.to_string())?
         .consumer()
         .kind()
-        != PlanConsumerKind::Os
+        != PlanConsumerKind::Services
     {
-        return Err("generation preparation requires an Os consumer".into());
+        return Err("generation preparation requires a Services consumer".into());
     }
     let worker = crate::cli::worker_path::installed()?;
     let digest = crate::cli::worker_path::digest(&worker, cancel)?;

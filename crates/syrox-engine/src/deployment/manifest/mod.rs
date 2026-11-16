@@ -1,7 +1,7 @@
 //! Preparing a plan consumer's outputs and commands.
 //!
 //! The result keeps invocations and the views they need. Installing configuration
-//! or starting processes are later steps chosen by the Shell or Os path.
+//! or starting processes are later steps chosen by the Shell or Services path.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -358,8 +358,8 @@ pub(crate) use encoding::{GenerationManifest, LauncherIdentity};
 
 #[derive(Debug, Error)]
 pub(crate) enum GenerationError {
-    #[error("generation preparation requires an Os consumer")]
-    NotOs,
+    #[error("generation preparation requires a Services consumer")]
+    NotServices,
     #[error("session snapshot requires a Shell consumer")]
     NotShell,
     #[error("invalid generation: {0}")]
@@ -384,8 +384,8 @@ impl PreparedGeneration {
         consumer: PreparedConsumer,
         launcher: LauncherIdentity,
     ) -> ManifestResult<Self> {
-        if consumer.consumer().kind() != PlanConsumerKind::Os {
-            return Err(GenerationError::NotOs);
+        if consumer.consumer().kind() != PlanConsumerKind::Services {
+            return Err(GenerationError::NotServices);
         }
         let manifest = operational_manifest(&consumer, launcher)?;
         let bytes = manifest.canonical_bytes()?;

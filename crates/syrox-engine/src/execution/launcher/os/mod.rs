@@ -23,15 +23,15 @@ use context::{Arguments, check, remaining};
 
 #[derive(Debug, Error)]
 pub enum OsWorkerError {
-    #[error("Os start denied: {0}")]
+    #[error("Services start denied: {0}")]
     Denied(&'static str),
-    #[error("invalid Os worker: {0}")]
+    #[error("invalid Services worker: {0}")]
     Invalid(&'static str),
-    #[error("Os worker I/O failed: {0}")]
+    #[error("Services worker I/O failed: {0}")]
     Io(#[from] io::Error),
     #[error(transparent)]
     Manager(#[from] crate::systemd::SystemdError),
-    #[error("Os worker evidence failed: {0}")]
+    #[error("Services worker evidence failed: {0}")]
     Evidence(&'static str),
 }
 fn invalid(message: &'static str) -> OsWorkerError {
@@ -180,7 +180,7 @@ pub unsafe fn run_os_service(
 fn payload_envelope(status: std::process::ExitStatus) -> i32 {
     // The manager observes the launcher envelope, not the original payload status.
     eprintln!(
-        "syrox Os payload: code={:?} signal={:?}",
+        "syrox Services payload: code={:?} signal={:?}",
         status.code(),
         status.signal()
     );

@@ -26,7 +26,7 @@ locks their inputs, and gives you an inspectable plan before downloading sources
 or building.
 
 - Compose packages with typed recipes, modules, and explicit dependencies.
-- Declare `Shell` and `Os` environments alongside their services and configuration.
+- Declare `Shell` and `Services` environments alongside their services and configuration.
 - Lock local projects and pinned GitHub inputs.
 - Get diagnostics, completion, navigation, and formatting in your editor.
 
@@ -135,7 +135,7 @@ services.nginx = {
 };
 ```
 
-This declares an `os` output. Omitted `libc` selects GNU; add `libc = "musl";`
+This declares an `os` output of type `Services`. Omitted `libc` selects GNU; add `libc = "musl";`
 to select musl. The set exposes normalized `platform.system`/`platform.libc` and
 `buildPlatform` (Linux x86_64 GNU). Package calls inherit the set's platform;
 contradictory overrides fail before acquisition. Direct package calls default to
@@ -178,12 +178,16 @@ Configure the service installation once, then operate it by profile:
 
 ```sh
 srx project lock .
-srx os init .#os --name web --user --config ./build.toml
-srx os apply --profile web
-srx os status --profile web
-srx os logs nginx --profile web --follow
-srx os stop --profile web
+srx services init .#os --name web --user --config ./build.toml
+srx services apply --profile web
+srx services status --profile web
+srx services logs nginx --profile web --follow
+srx services stop --profile web
 ```
+
+Existing projects and scripts must follow the
+[Services migration](docs/migrations/services.md) to replace `Os` and `srx os`
+and explicitly refresh standard-library locks.
 
 See [installation profiles](docs/os-profiles.md) for ownership, rollback,
 recovery and Linux requirements, and [artifact selection](docs/artifacts.md)

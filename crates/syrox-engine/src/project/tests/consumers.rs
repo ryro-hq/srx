@@ -1,7 +1,9 @@
 use super::*;
 
 fn consumer_source(services: &str) -> String {
-    format!("outputs {{ os: std::Os = std::Os {{ pkgs = []; services = [{services}]; }}; }}")
+    format!(
+        "outputs {{ os: std::Services = std::Services {{ pkgs = []; services = [{services}]; }}; }}"
+    )
 }
 
 fn srx_string(text: &str) -> String {
@@ -36,9 +38,9 @@ fn service_with_files(id: &str, paths: &[&str]) -> String {
 fn empty_os_and_shell_are_distinct_pure_consumers() {
     let plan = package_plan(
         r"
-        use std::{Os, Shell};
+        use std::{Services, Shell};
         outputs {
-            os: Os = Os { pkgs = []; services = []; };
+            os: Services = Services { pkgs = []; services = []; };
             shell: Shell = Shell { pkgs = []; services = []; };
         }
         ",
@@ -49,7 +51,7 @@ fn empty_os_and_shell_are_distinct_pure_consumers() {
     assert_eq!(consumers[0].name(), "os");
     assert_eq!(
         consumers[0].kind(),
-        crate::plan::PlanConsumerKind::Os
+        crate::plan::PlanConsumerKind::Services
     );
     assert_eq!(consumers[0].path(), ["os"]);
     assert_eq!(
@@ -78,7 +80,7 @@ fn empty_os_and_shell_are_distinct_pure_consumers() {
 
 #[test]
 fn both_root_fields_are_required_while_service_dependencies_and_files_default_empty() {
-    for name in ["Os", "Shell"] {
+    for name in ["Services", "Shell"] {
         for fields in ["pkgs = [];", "services = [];"] {
             let source =
                 format!("outputs {{ selected: std::{name} = std::{name} {{ {fields} }}; }}");
@@ -105,14 +107,14 @@ fn configuration_only_service_preserves_public_text_without_creating_files() {
     project.write(
         "main.srx",
         r#"
-        use std::{Os, Service, ServiceId, ConfigFile, ConfigPath, ConfigText};
+        use std::{Services, Service, ServiceId, ConfigFile, ConfigPath, ConfigText};
         fn file(path: ConfigPath, text: ConfigText) -> ConfigFile {
             ConfigFile { path = path; text = text; }
         }
         fn configure(id: ServiceId) -> Service {
             Service { id = id; files = [file("config/message", "Olá\nsegunda linha")]; }
         }
-        outputs { os: Os = Os { pkgs = []; services = [configure("message")]; }; }
+        outputs { os: Services = Services { pkgs = []; services = [configure("message")]; }; }
         "#,
     );
     let config = package_configuration();
@@ -148,7 +150,7 @@ fn service_dependencies_expand_without_direct_exposure_or_an_application() {
         pub publish(factories, recipe): std::Recipe;
         mod aliases { pub use project::package; }
 outputs {
-os: std::Os = std::Os {
+os: std::Services = std::Services {
                 pkgs = [];
                 services = [std::Service { id = "configured"; pkgs = [std::select_package(package)]; }];
             };
@@ -187,7 +189,7 @@ fn repeated_references_and_aliases_share_identity_but_homonymous_instances_do_no
         pub publish(factories, recipe): std::Recipe;
         mod aliases { pub use project::first; }
 outputs {
-os: std::Os = std::Os {
+os: std::Services = std::Services {
                 pkgs = [std::select_package(first), std::select_package(aliases::first), std::select_package(first), std::select_package(second)];
                 services = [std::Service {
                     id = "configuration";
@@ -238,7 +240,7 @@ fn imported_homonymous_packages_keep_origin_and_service_aliases_keep_the_provide
         r#"
         inputs { left = "path:../left"; right = "path:../right"; }
         outputs {
-            os: std::Os = std::Os {
+            os: std::Services = std::Services {
                 pkgs = [std::select_package(left::package), std::select_package(right::package)];
                 services = [
                     std::Service { id = "left"; pkgs = [std::select_package(left::alias()), std::select_package(left::package)]; },
@@ -278,7 +280,7 @@ fn separate_roots_keep_their_own_exposure_and_service_names() {
         mod factories { mod a { pub fn recipe() -> std::Recipe { project::first() } } mod b { pub fn recipe() -> std::Recipe { project::second() } } }
         pub publish(factories, recipe): std::Recipe;
         outputs {
-os: std::Os = std::Os {
+os: std::Services = std::Services {
                 pkgs = [std::select_package(a)]; services = [std::Service { id = "web"; pkgs = [std::select_package(b)]; }];
             };
             shell: std::Shell = std::Shell {
@@ -319,7 +321,7 @@ fn selecting_one_consumer_does_not_force_an_unselected_recipe_or_consumer() {
         mod factories { mod good { pub fn recipe() -> std::Recipe { project::recipe() } } mod bad { pub fn recipe() -> std::Recipe { project::broken() } } }
         pub publish(factories, recipe): std::Recipe;
         outputs {
-os: std::Os = std::Os { pkgs = [std::select_package(good)]; services = []; };
+os: std::Services = std::Services { pkgs = [std::select_package(good)]; services = []; };
             shell: std::Shell = std::Shell { pkgs = [std::select_package(bad)]; services = []; };
         }
         "#,
@@ -356,7 +358,7 @@ fn consumer_selection_keeps_only_the_requested_root_when_values_reference_anothe
         pub publish(factories, recipe): std::Recipe;
         mod aliases { pub use project::package; }
 outputs {
-os: std::Os = std::Os { pkgs = [std::select_package(package)]; services = []; };
+os: std::Services = std::Services { pkgs = [std::select_package(package)]; services = []; };
             shell: std::Shell = std::Shell { pkgs = os.pkgs; services = []; };
         }
         "#,
@@ -378,10 +380,10 @@ os: std::Os = std::Os { pkgs = [std::select_package(package)]; services = []; };
 fn local_nominal_lookalikes_are_not_projected_or_accepted_as_consumers() {
     let error = package_plan(
         r"
-        struct Os { pkgs: [std::RecipeRef<std::Recipe>]; services: [std::Service]; }
+        struct Services { pkgs: [std::RecipeRef<std::Recipe>]; services: [std::Service]; }
         struct Shell { pkgs: [std::RecipeRef<std::Recipe>]; services: [std::Service]; }
         outputs {
-            os: Os = Os { pkgs = []; services = []; };
+            os: Services = Services { pkgs = []; services = []; };
             shell: Shell = Shell { pkgs = []; services = []; };
         }
         ",
@@ -395,7 +397,7 @@ fn local_nominal_lookalikes_are_not_projected_or_accepted_as_consumers() {
     let project = TempProject::new();
     project.write(
         "main.srx",
-        "struct Os {} fn broken() -> Os { broken() } outputs { fake: Os = broken(); }",
+        "struct Services {} fn broken() -> Services { broken() } outputs { fake: Services = broken(); }",
     );
     let config = package_configuration();
     lock_project_with(&project.0, &config).unwrap();
@@ -409,9 +411,9 @@ fn local_nominal_lookalikes_are_not_projected_or_accepted_as_consumers() {
 fn os_forced_through_a_generic_recipe_reference_is_not_a_consumer_output() {
     let error = package_plan(
         r"
-        struct Wrapper { reference: std::RecipeRef<std::Os>; }
-        fn configuration() -> std::Os {
-            std::Os { pkgs = []; services = []; }
+        struct Wrapper { reference: std::RecipeRef<std::Services>; }
+        fn configuration() -> std::Services {
+            std::Services { pkgs = []; services = []; }
         }
         outputs {
             wrapper: Wrapper = Wrapper { reference = std::recipe_ref(configuration); };
@@ -553,7 +555,7 @@ fn projecting_consumer_acquisitions_does_not_fetch_or_create_a_store() {
         mod factories { mod reference { pub fn recipe() -> std::Recipe { project::recipe() } } }
         pub publish(factories, recipe): std::Recipe;
         outputs {
-os: std::Os = std::Os {
+os: std::Services = std::Services {
                 pkgs = [];
                 services = [std::Service { id = "data"; pkgs = [std::select_package(reference)]; }];
             };
@@ -603,7 +605,7 @@ fn prepared_consumer_keeps_asset_owner_and_does_not_force_other_factories() {
         mod factories { mod bad { pub fn recipe() -> std::Recipe { project::broken() } } }
         pub publish(factories, recipe): std::Recipe;
         outputs {
-os: std::Os = std::Os { pkgs = [std::select_package(bad)]; services = []; };
+os: std::Services = std::Services { pkgs = [std::select_package(bad)]; services = []; };
             shell: std::Shell = std::Shell {
                 pkgs = [std::select_package(provider::data)];
                 services = [std::Service { id = "data"; pkgs = [std::select_package(provider::data)]; }];
@@ -770,7 +772,7 @@ fn session_state_requires_declaration_and_managed_shell_destination() {
     );
     for rejected in [
         source.replace("state = std::ServiceState::Session;", ""),
-        source.replace("std::Shell", "std::Os"),
+        source.replace("std::Shell", "std::Services"),
     ] {
         assert!(package_plan(&rejected).is_err());
     }
@@ -792,7 +794,7 @@ fn restart_source(policy: &str, consumer: &str) -> String {
 
 #[test]
 fn process_restart_is_explicit_bounded_and_os_only() {
-    for consumer in ["Os", "Shell"] {
+    for consumer in ["Services", "Shell"] {
         let plan = package_plan(&restart_source("", consumer)).unwrap();
         let process = &plan.consumers().next().unwrap().services()[0].processes()[0];
         assert_eq!(
@@ -804,7 +806,7 @@ fn process_restart_is_explicit_bounded_and_os_only() {
         let policy = format!(
             "restart = std::ProcessRestart::OnFailure(std::RestartLimits {{ delay_seconds = {delay}; window_seconds = {window}; burst = {burst}; }});"
         );
-        let plan = package_plan(&restart_source(&policy, "Os")).unwrap();
+        let plan = package_plan(&restart_source(&policy, "Services")).unwrap();
         assert_eq!(
             plan.consumers().next().unwrap().services()[0].processes()[0].restart(),
             crate::execution::restart::ProcessRestart::OnFailure(
@@ -830,14 +832,14 @@ fn process_restart_is_explicit_bounded_and_os_only() {
             "restart = std::ProcessRestart::OnFailure(std::RestartLimits {{ delay_seconds = {delay}; window_seconds = {window}; burst = {burst}; }});"
         );
         assert!(matches!(
-            package_plan(&restart_source(&policy, "Os")),
+            package_plan(&restart_source(&policy, "Services")),
             Err(ProjectOperationError::Plan(_))
         ));
     }
     // A standalone '-' is not a language token: negative text is rejected
     // during source checking, before restart policy projection.
     let negative = "restart = std::ProcessRestart::OnFailure(std::RestartLimits { delay_seconds = -1; window_seconds = 1; burst = 1; });";
-    let error = package_plan(&restart_source(negative, "Os")).unwrap_err();
+    let error = package_plan(&restart_source(negative, "Services")).unwrap_err();
     assert!(
         matches!(error, ProjectOperationError::Check(_)),
         "{error}"
@@ -851,7 +853,7 @@ fn process_restart_is_explicit_bounded_and_os_only() {
             "restart = std::ProcessRestart::OnFailure(std::RestartLimits {{ {missing} }});"
         );
         assert!(matches!(
-            package_plan(&restart_source(&policy, "Os")),
+            package_plan(&restart_source(&policy, "Services")),
             Err(ProjectOperationError::Check(_))
         ));
     }
@@ -919,7 +921,7 @@ fn secret_files_require_declared_names_and_managed_shell_destination() {
             "secrets = [\"token\", \"token\"];",
         ),
         source.replace("\"token\"", "\"../secret\""),
-        source.replace("std::Shell", "std::Os"),
+        source.replace("std::Shell", "std::Services"),
         source.replace(
             "secrets = [\"token\"];",
             &format!(

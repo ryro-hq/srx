@@ -45,7 +45,7 @@ impl OsUnitContract {
         }
         if input.uid == 0 || input.gid == 0 || input.uid == u32::MAX || input.gid == u32::MAX {
             return Err(SystemdError::Invalid(
-                "Os launcher requires explicit nonzero uid/gid",
+                "Services launcher requires explicit nonzero uid/gid",
             ));
         }
         if matches!(input.scope, SystemdScope::User { .. }) {

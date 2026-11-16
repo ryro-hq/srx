@@ -1,6 +1,6 @@
 # Authorized local artifacts
 
-An artifact descriptor lets `srx build`, `run`, `shell`, and OS preparation use
+An artifact descriptor lets `srx build`, `run`, `shell`, and service preparation use
 already qualified package bundles. The same resolver handles package outputs,
 commands, service validators, and runtime libraries. Recipes continue to describe
 how to build the package; the user's configuration chooses how to obtain it.

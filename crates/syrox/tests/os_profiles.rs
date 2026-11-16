@@ -36,14 +36,14 @@ fn init_binds_identity_without_building_and_recorded_commands_work_offline() {
     std::fs::create_dir(&project).unwrap();
     std::fs::write(
         project.join("main.srx"),
-        "outputs { os: Os = Os { pkgs = []; services = []; }; }",
+        "outputs { os: Services = Services { pkgs = []; services = []; }; }",
     )
     .unwrap();
     let reference = format!("{}#os", project.display());
     let report = success(
         home.path(),
         &[
-            "os", "init", &reference, "--name", "web", "--user", "--json",
+            "services", "init", &reference, "--name", "web", "--user", "--json",
         ],
     );
     assert_eq!(report["applied"], false);
@@ -59,7 +59,7 @@ fn init_binds_identity_without_building_and_recorded_commands_work_offline() {
     let status = success(
         home.path(),
         &[
-            "os",
+            "services",
             "status",
             "--profile",
             "web",
@@ -73,7 +73,7 @@ fn init_binds_identity_without_building_and_recorded_commands_work_offline() {
         success(
             home.path(),
             &[
-                "os",
+                "services",
                 "list",
                 "--profile",
                 "web",
@@ -86,7 +86,7 @@ fn init_binds_identity_without_building_and_recorded_commands_work_offline() {
         success(
             home.path(),
             &[
-                "os",
+                "services",
                 "stop",
                 "--profile",
                 "web",
@@ -100,7 +100,7 @@ fn init_binds_identity_without_building_and_recorded_commands_work_offline() {
         !run(
             home.path(),
             &[
-                "os", "init", &reference, "--name", "web"
+                "services", "init", &reference, "--name", "web"
             ]
         )
         .status
@@ -120,7 +120,10 @@ fn init_binds_identity_without_building_and_recorded_commands_work_offline() {
     for command in [
         "status", "list", "stop", "apply", "recover",
     ] {
-        let output = run(home.path(), &["os", command, "--profile", "web"]);
+        let output = run(
+            home.path(),
+            &["services", command, "--profile", "web"],
+        );
         assert!(!output.status.success());
         assert!(
             String::from_utf8_lossy(&output.stderr).contains("identity differs"),
@@ -140,7 +143,7 @@ fn profile_execution_cannot_mix_explicit_authority_and_rejects_profile_symlinks(
     let mixed = run(
         home.path(),
         &[
-            "os",
+            "services",
             "apply",
             "--profile",
             "web",
@@ -158,7 +161,7 @@ fn profile_execution_cannot_mix_explicit_authority_and_rejects_profile_symlinks(
     let output = run(
         home.path(),
         &[
-            "os",
+            "services",
             "status",
             "--profile",
             "web",

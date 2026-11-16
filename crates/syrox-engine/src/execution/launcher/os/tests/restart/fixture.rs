@@ -109,7 +109,7 @@ impl Fixture {
             crate::deployment::manifest::tests::prepared_service_payload_fixture_with_source(
                 &input.payload,
                 r#"std::CommandArgument::Literal("restart78"), std::CommandArgument::Literal("witness"), std::CommandArgument::Literal("release")"#,
-                "Os",
+                "Services",
                 Some(&root.join("store")),
                 |source| {
                     source.replace(

@@ -54,7 +54,7 @@ impl GenerationDiff {
     /// Bounded by manifest resource counts; does not print configuration content,
     /// arguments, environment values or incidental paths from the local machine.
     pub(crate) fn render(&self) -> String {
-        let mut text = String::from("Prepared Os difference (no changes applied)\n");
+        let mut text = String::from("Prepared Services difference (no changes applied)\n");
         for change in &self.changes {
             if change.kind == ChangeKind::Unchanged {
                 continue;

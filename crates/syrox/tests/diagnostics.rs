@@ -12,7 +12,7 @@ fn operational_commands_report_source_locations_before_realization() {
     fs::write(&config, "").unwrap();
     fs::write(
         &source,
-        "outputs { os: Os = Os { pkgs = []; services = []; }; }",
+        "outputs { os: Services = Services { pkgs = []; services = []; }; }",
     )
     .unwrap();
     let locked = Command::new(env!("CARGO_BIN_EXE_srx"))
@@ -41,7 +41,7 @@ fn operational_commands_report_source_locations_before_realization() {
                 "--non-interactive",
             ],
             vec![
-                "os",
+                "services",
                 "prepare",
                 ".#os",
                 "--installation",

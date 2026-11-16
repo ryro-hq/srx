@@ -21,11 +21,11 @@ use std::time::{Duration, Instant};
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum PreparationError {
-    #[error("invalid Os resource preparation: {0}")]
+    #[error("invalid Services resource preparation: {0}")]
     Invalid(&'static str),
-    #[error("Os resource preparation cancelled")]
+    #[error("Services resource preparation cancelled")]
     Cancelled,
-    #[error("Os resource preparation deadline expired")]
+    #[error("Services resource preparation deadline expired")]
     Deadline,
     #[error(transparent)]
     Io(#[from] io::Error),
@@ -379,7 +379,7 @@ mod tests {
                 crate::deployment::manifest::tests::prepared_service_payload_fixture_kind(
                     &crate::runtime::tests::elf(2, None, &[], None, None),
                     "",
-                    "Os",
+                    "Services",
                 );
             let worker = project.path().join("candidate-worker");
             fs::write(&worker, b"authenticated worker fixture").unwrap();

@@ -6,11 +6,11 @@ use std::time::Instant;
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum OsPathsError {
-    #[error("invalid Os execution paths: {0}")]
+    #[error("invalid Services execution paths: {0}")]
     Invalid(&'static str),
-    #[error("Os execution path observation cancelled")]
+    #[error("Services execution path observation cancelled")]
     Cancelled,
-    #[error("Os execution path observation deadline expired")]
+    #[error("Services execution path observation deadline expired")]
     Deadline,
     #[error(transparent)]
     Io(#[from] io::Error),

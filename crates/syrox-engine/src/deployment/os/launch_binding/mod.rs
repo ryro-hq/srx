@@ -16,7 +16,7 @@ pub(crate) use context::OsLaunchContext;
 const HEADER: &[u8] = b"syrox-os-launch-v3\n";
 pub(crate) const MAX_LAUNCH_BINDING_BYTES: usize = 32 * 1024;
 #[derive(Debug, Error)]
-#[error("invalid Os launch binding: {0}")]
+#[error("invalid Services launch binding: {0}")]
 pub(crate) struct LaunchBindingError(&'static str);
 type Result<T> = std::result::Result<T, LaunchBindingError>;
 

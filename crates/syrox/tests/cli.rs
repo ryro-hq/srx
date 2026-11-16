@@ -296,11 +296,11 @@ fn selected_consumer_plan_is_lazy_and_does_not_materialize_configuration() {
                     "0000000000000000000000000000000000000000000000000000000000000000", 1024)
             ]; });
         } }
-        fn broken() -> std::Os { broken() }
+        fn broken() -> std::Services { broken() }
         mod factories::broken_catalog { pub fn recipe() -> std::Recipe { recipe() } }
         pub publish(factories, recipe): std::Recipe;
         outputs {
-            os: std::Os = broken();
+            os: std::Services = broken();
             shell: std::Shell = std::Shell {
                 pkgs = [];
                 services = [std::Service {
@@ -399,7 +399,7 @@ fn selected_consumer_plan_rejects_missing_and_nonstandard_outputs() {
         assert_eq!(invalid.status.code(), Some(1));
         let diagnostic = String::from_utf8_lossy(&invalid.stderr);
         assert!(
-            diagnostic.contains("Os") || diagnostic.contains("Shell"),
+            diagnostic.contains("Services") || diagnostic.contains("Shell"),
             "{diagnostic}"
         );
         assert!(!diagnostic.contains("function call depth limit reached"));

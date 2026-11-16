@@ -170,7 +170,7 @@ pub(super) fn hash_reader(
 }
 pub(super) fn check(deadline: Instant, cancel: &Cancellation) -> Result<(), OsWorkerError> {
     if cancel.is_cancelled() {
-        return Err(io::Error::other("Os startup cancelled").into());
+        return Err(io::Error::other("Services startup cancelled").into());
     }
     remaining(deadline)?;
     Ok(())
@@ -178,7 +178,11 @@ pub(super) fn check(deadline: Instant, cancel: &Cancellation) -> Result<(), OsWo
 pub(super) fn remaining(deadline: Instant) -> Result<Duration, OsWorkerError> {
     let duration = deadline.saturating_duration_since(Instant::now());
     if duration.is_zero() {
-        Err(io::Error::new(io::ErrorKind::TimedOut, "Os startup deadline").into())
+        Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "Services startup deadline",
+        )
+        .into())
     } else {
         Ok(duration)
     }

@@ -85,7 +85,7 @@ mod std::deployment {
         secrets: [SecretName] = [];
         validators: [CommandName] = [];
     }
-    struct Os {
+    struct Services {
         pkgs: [PackageSelection];
         services: [Service];
     }

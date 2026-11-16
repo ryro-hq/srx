@@ -44,7 +44,7 @@ pub struct OsRecoveryRequest {
     pub stop_timeout: Duration,
 }
 #[derive(Debug, thiserror::Error)]
-#[error("Os recovery failed during {stage}{detail}; retained evidence was preserved", detail = .source.as_ref().map(|error| format!(": {error}")).unwrap_or_default())]
+#[error("Services recovery failed during {stage}{detail}; retained evidence was preserved", detail = .source.as_ref().map(|error| format!(": {error}")).unwrap_or_default())]
 pub struct OsRecoveryError {
     stage: &'static str,
     #[source]

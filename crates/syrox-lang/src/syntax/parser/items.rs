@@ -233,14 +233,14 @@ impl Parser<'_> {
                         ty: Type {
                             span: point(6),
                             kind: TypeKind::Named {
-                                path: Self::generated_path(point(6), &["std", "Os"]),
+                                path: Self::generated_path(point(6), &["std", "Services"]),
                                 arguments: Vec::new(),
                             },
                         },
                         value: super::Expression {
                             span,
                             kind: super::ExpressionKind::Struct {
-                                path: Self::generated_path(point(5), &["std", "Os"]),
+                                path: Self::generated_path(point(5), &["std", "Services"]),
                                 type_arguments: Vec::new(),
                                 record_span: span,
                                 fields,

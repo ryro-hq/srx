@@ -323,7 +323,9 @@ pub enum ProjectOperationError {
     MissingOutput {
         name: String,
     },
-    #[error("project output `{name}` must have authenticated std::Os or std::Shell type")]
+    #[error(
+        "project output `{name}` must have authenticated std::Services, std::Shell, std::System or std::HostConfiguration type"
+    )]
     InvalidConsumerOutput {
         name: String,
     },
@@ -664,7 +666,7 @@ pub fn prepare_project_with(
     prepare_project_platform(path, configuration)
 }
 
-/// Project only the requested Os/Shell destinations from one verified snapshot.
+/// Project only the requested deployment destinations from one verified snapshot.
 /// Repeated names select the same root; referenced recipes remain lazy.
 pub fn plan_project_outputs_with(
     path: &Path,
@@ -682,7 +684,7 @@ pub fn plan_project_outputs_with(
     }
 }
 
-/// Plan one authenticated Os/Shell output and its referenced recipes. Other
+/// Plan one authenticated deployment output and its referenced recipes. Other
 /// outputs remain unevaluated, and no packages or configuration are realized.
 pub fn plan_project_consumer_with(
     path: &Path,
@@ -692,7 +694,7 @@ pub fn plan_project_consumer_with(
     prepare_project_consumer_with(path, configuration, name).map(PreparedPlan::into_plan)
 }
 
-/// Select one authenticated Os/Shell output from one locked evaluation and
+/// Select one authenticated deployment output from one locked evaluation and
 /// retain its source snapshots for realization. Unselected factories stay lazy.
 pub fn prepare_project_consumer_with(
     path: &Path,

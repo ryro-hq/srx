@@ -152,7 +152,7 @@ fn display_consumers<W: fmt::Write + ?Sized>(plan: &Plan, formatter: &mut W) -> 
         formatter.write_str("consumer ")?;
         display_string(formatter, consumer.name())?;
         let kind = match consumer.kind() {
-            PlanConsumerKind::Os => "Os",
+            PlanConsumerKind::Services => "Services",
             PlanConsumerKind::Shell => "Shell",
         };
         write!(formatter, " {kind} node {}:", consumer.domain())?;

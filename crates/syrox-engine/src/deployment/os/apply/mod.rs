@@ -359,7 +359,7 @@ pub struct OsApplyRequest {
     pub stop_timeout: Duration,
 }
 #[derive(Debug, thiserror::Error)]
-#[error("Os application failed during {stage}; retained evidence was preserved")]
+#[error("Services application failed during {stage}; retained evidence was preserved")]
 pub struct OsApplyError {
     stage: &'static str,
 }

@@ -1,6 +1,53 @@
 use super::*;
 
-const EMPTY: &str = "outputs { os: Os = Os { pkgs = []; services = []; }; }";
+const EMPTY: &str = "outputs { os: Services = Services { pkgs = []; services = []; }; }";
+
+#[test]
+fn services_migration_requires_explicit_relocking_of_the_standard_library() {
+    let project = TempProject::new();
+    let config = package_configuration();
+    // Recreate the former nominal contract while retaining the authenticated
+    // source inventory. The old project is checked and locked by that snapshot.
+    let legacy_sources = AuthenticatedStandardLibrary::bundled()
+        .sources()
+        .map(|source| {
+            AuthenticatedStandardSource::from_authenticated(
+                source.name(),
+                source.text().replace("Services", "Os"),
+            )
+            .unwrap()
+        })
+        .collect();
+    let legacy = CheckConfiguration {
+        standard_library: Some(
+            AuthenticatedStandardLibrary::from_authenticated(legacy_sources).unwrap(),
+        ),
+        ..config.clone()
+    };
+    project.write("main.srx", &EMPTY.replace("Services", "Os"));
+    lock_project_with(&project.0, &legacy).unwrap();
+    let before = fs::read(project.0.join("Syrox.lock")).unwrap();
+
+    project.write("main.srx", EMPTY);
+    assert!(matches!(
+        prepare_project_consumer_refresh_root_with(&project.0, &config, "os"),
+        Err(ProjectOperationError::StandardLibraryDrift)
+    ));
+    assert_eq!(
+        fs::read(project.0.join("Syrox.lock")).unwrap(),
+        before
+    );
+
+    lock_project_with(&project.0, &config).unwrap();
+    let prepared = prepare_project_consumer_with(&project.0, &config, "os").unwrap();
+    let consumer = prepared.plan().consumers().next().unwrap();
+    assert_eq!(consumer.name(), "os");
+    assert_eq!(
+        consumer.kind(),
+        crate::plan::PlanConsumerKind::Services
+    );
+    assert_eq!(fs::read_dir(&project.0).unwrap().count(), 2);
+}
 
 #[test]
 fn root_refresh_retains_dependencies_and_prepares_the_edited_snapshot() {

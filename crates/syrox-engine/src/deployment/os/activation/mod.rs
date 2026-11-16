@@ -24,9 +24,9 @@ use record::{Attempt, Binding, Effect, Operation, invalid};
 pub(super) const MAX_STATE_BYTES: usize = 8 * 1024 * 1024;
 #[derive(Debug, Error)]
 pub(crate) enum ActivationError {
-    #[error("Os start denied: {0}")]
+    #[error("Services start denied: {0}")]
     StartDenied(&'static str),
-    #[error("invalid Os activation: {0}")]
+    #[error("invalid Services activation: {0}")]
     Invalid(&'static str),
     #[error(transparent)]
     Installation(#[from] InstallationError),

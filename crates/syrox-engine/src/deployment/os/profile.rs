@@ -271,7 +271,7 @@ fn open_error(error: OpenError) -> io::Error {
     }
 }
 
-/// Credentials used by the existing unprivileged Os execution contract.
+/// Credentials used by the existing unprivileged Services execution contract.
 pub fn profile_credentials() -> io::Result<(u32, u32)> {
     let (uid, gid) = (fd::real_uid(), fd::real_gid());
     if uid == 0 || gid == 0 || uid != fd::effective_uid() || gid != fd::effective_gid() {

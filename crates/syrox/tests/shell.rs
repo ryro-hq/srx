@@ -36,7 +36,7 @@ fn shell_requires_an_explicit_execution_mode() {
 #[test]
 fn shell_rejects_wrong_destination_and_missing_exposure_before_store() {
     for (kind, expected) in [
-        ("Os", "not a Shell"),
+        ("Services", "not a Shell"),
         ("Shell", "no exposed command"),
     ] {
         let root = tempfile::tempdir().unwrap();
@@ -185,7 +185,7 @@ fn managed_flags_require_each_other_and_explicit_execution_mode() {
 #[test]
 fn managed_destination_and_exposure_are_checked_before_state_or_store() {
     for (kind, expected) in [
-        ("Os", "not a Shell"),
+        ("Services", "not a Shell"),
         ("Shell", "no exposed command"),
     ] {
         let root = tempfile::tempdir().unwrap();

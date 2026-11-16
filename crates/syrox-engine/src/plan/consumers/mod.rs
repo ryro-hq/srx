@@ -10,7 +10,7 @@ pub use commands::{
     PlanCommandArgument, PlanCommandEnvironment, PlanServiceCommand, PlanServiceProcess,
 };
 
-const OS_PATH: &[&str] = &["std", "deployment", "Os"];
+const SERVICES_PATH: &[&str] = &["std", "deployment", "Services"];
 const SHELL_PATH: &[&str] = &["std", "deployment", "Shell"];
 const SELECTION_PATH: &[&str] = &["std", "deployment", "PackageSelection"];
 const COMMAND_NAME_PATH: &[&str] = &["std", "pkg", "CommandName"];
@@ -24,7 +24,7 @@ const MAX_CONFIG_COMPONENT_BYTES: usize = 255;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlanConsumerKind {
-    Os,
+    Services,
     Shell,
 }
 
@@ -203,8 +203,8 @@ impl<'a> ErrorContext<'a> {
 }
 
 fn kind(ty: &CanonicalType) -> Option<PlanConsumerKind> {
-    if exact_nominal(ty, OS_PATH) {
-        Some(PlanConsumerKind::Os)
+    if exact_nominal(ty, SERVICES_PATH) {
+        Some(PlanConsumerKind::Services)
     } else if exact_nominal(ty, SHELL_PATH) {
         Some(PlanConsumerKind::Shell)
     } else {
@@ -295,7 +295,7 @@ fn consumer(
         path: None,
     };
     let path = match kind {
-        PlanConsumerKind::Os => OS_PATH,
+        PlanConsumerKind::Services => SERVICES_PATH,
         PlanConsumerKind::Shell => SHELL_PATH,
     };
     let fields = fields(
@@ -313,9 +313,12 @@ fn consumer(
             .flat_map(PlanService::processes)
             .any(|process| process.restart() != crate::execution::restart::ProcessRestart::Never)
     {
-        return context.invalid("process restart is supported only by Os", budget);
+        return context.invalid(
+            "process restart is supported only by Services",
+            budget,
+        );
     }
-    if kind == PlanConsumerKind::Os
+    if kind == PlanConsumerKind::Services
         && services.iter().any(|service| {
             service.state == PlanServiceState::Session || !service.secrets.is_empty()
         })
@@ -995,7 +998,7 @@ mod tests {
 
     fn deployment(services: Vec<Value>) -> Value {
         structure(
-            OS_PATH,
+            SERVICES_PATH,
             vec![
                 ("pkgs", typed_list(selection_type(), vec![])),
                 (
@@ -1014,7 +1017,7 @@ mod tests {
                 ["os"],
             )
             .unwrap(),
-            PlanConsumerKind::Os,
+            PlanConsumerKind::Services,
             value,
             &SelectionIndex {
                 references: &BTreeMap::new(),
@@ -1159,7 +1162,7 @@ mod tests {
         let foreign = CanonicalType::Nominal(Arc::new(
             CanonicalItemIdentity::new(
                 syrox_lang::source::SourceDomainId::project(),
-                OS_PATH.iter().copied(),
+                SERVICES_PATH.iter().copied(),
             )
             .unwrap(),
         ));

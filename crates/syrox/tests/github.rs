@@ -44,7 +44,9 @@ fn github_cli_reads_and_fetches_pinned_projects_offline_without_rewriting_the_lo
         .output()
         .unwrap();
     assert!(!plan.status.success());
-    assert!(String::from_utf8_lossy(&plan.stderr).contains("authenticated std::Os or std::Shell"));
+    assert!(String::from_utf8_lossy(&plan.stderr).contains(
+        "authenticated std::Services, std::Shell, std::System or std::HostConfiguration"
+    ));
     assert_eq!(
         std::fs::read_to_string(directory.path().join("Syrox.lock")).unwrap(),
         lock

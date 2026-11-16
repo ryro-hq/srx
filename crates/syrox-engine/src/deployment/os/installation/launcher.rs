@@ -351,7 +351,7 @@ mod tests {
             crate::deployment::manifest::tests::prepared_service_payload_fixture_kind(
                 &crate::runtime::tests::elf(2, None, &[], None, None),
                 "",
-                "Os",
+                "Services",
             );
         let worker = project.path().join("worker");
         fs::write(&worker, WORKER).unwrap();

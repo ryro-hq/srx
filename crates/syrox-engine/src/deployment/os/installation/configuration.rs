@@ -459,7 +459,7 @@ mod tests {
             let directory = tempfile::tempdir().unwrap();
             let project = directory.path().join("project");
             fs::create_dir(&project).unwrap();
-            fs::write(project.join("main.srx"), r#"outputs { os: std::Os = std::Os { pkgs = []; services = [std::Service { id = "git"; files = [std::ConfigFile { path = "nested/config"; text = "controlled"; }]; }, std::Service { id = "empty"; }]; }; }"#).unwrap();
+            fs::write(project.join("main.srx"), r#"outputs { os: std::Services = std::Services { pkgs = []; services = [std::Service { id = "git"; files = [std::ConfigFile { path = "nested/config"; text = "controlled"; }]; }, std::Service { id = "empty"; }]; }; }"#).unwrap();
             let checks = crate::project::CheckConfiguration {
                 standard_library: Some(crate::project::AuthenticatedStandardLibrary::bundled()),
                 ..crate::project::CheckConfiguration::default()

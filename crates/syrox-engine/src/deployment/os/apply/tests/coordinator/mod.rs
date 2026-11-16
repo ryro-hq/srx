@@ -33,7 +33,7 @@ fn config_consumer() -> (
     fs::write(
         directory.path().join("main.srx"),
         r#"outputs {
-        target: std::Os = std::Os { pkgs = []; services = [std::Service {
+        target: std::Services = std::Services { pkgs = []; services = [std::Service {
             id = "config"; files = [std::ConfigFile { path = "only"; text = "data"; }];
         }]; };
     }"#,
@@ -82,7 +82,7 @@ impl Fixture {
             crate::deployment::manifest::tests::prepared_service_payload_fixture_with_source(
                 &crate::runtime::tests::elf(2, None, &[], None, None),
                 "",
-                "Os",
+                "Services",
                 None,
                 transform,
             )
@@ -649,7 +649,7 @@ impl Fixture {
             crate::deployment::manifest::tests::prepared_service_payload_fixture_with_source(
                 &crate::runtime::tests::elf(2, None, &[], None, None),
                 "",
-                "Os",
+                "Services",
                 Some(self.paths.store()),
                 transform,
             );

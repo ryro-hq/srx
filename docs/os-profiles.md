@@ -4,11 +4,11 @@ Configure a named installation once, then select it with `--profile`:
 
 ```sh
 srx project lock .
-srx os init .#os --name web --user --config ./build.toml
-srx os apply --profile web
-srx os status --profile web
-srx os logs nginx --profile web --follow
-srx os stop --profile web
+srx services init .#os --name web --user --config ./build.toml
+srx services apply --profile web
+srx services status --profile web
+srx services logs nginx --profile web --follow
+srx services stop --profile web
 ```
 
 `init` writes configuration and initializes installation metadata. It does not
@@ -49,12 +49,12 @@ packages. Updating dependencies remains an explicit `srx project lock .` action.
 Additional operations:
 
 ```sh
-srx os status --profile web --recorded --json
-srx os list --profile web --json
-srx os rollback RETAINED_PIN --profile web
-srx os recover --profile web
-srx os recover OPERATION --profile web --new-boot
-srx os recover OPERATION --profile web --manager-changed
+srx services status --profile web --recorded --json
+srx services list --profile web --json
+srx services rollback RETAINED_PIN --profile web
+srx services recover --profile web
+srx services recover OPERATION --profile web --new-boot
+srx services recover OPERATION --profile web --manager-changed
 ```
 
 Default status combines journal evidence with bounded live unit observations and

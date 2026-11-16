@@ -8,7 +8,7 @@ let editor_settings = Service {
         }];
 };
 outputs {
-    os: Os = Os {
+    os: Services = Services {
         pkgs = [];
         services = [editor_settings];
     };

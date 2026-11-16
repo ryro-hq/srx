@@ -1,4 +1,4 @@
-//! Persistent generations and application of Os configuration.
+//! Persistent generations and application of Services configuration.
 //!
 //! # Preparing and applying a generation
 //!

@@ -389,7 +389,7 @@ mod tests {
 
     #[test]
     fn wrong_destination_and_configuration_only_fail_before_manager_or_state_access() {
-        for kind in ["Os", "Shell"] {
+        for kind in ["Services", "Shell"] {
             let root = tempfile::tempdir().unwrap();
             std::fs::write(
                 root.path().join("main.srx"),
@@ -428,7 +428,7 @@ mod tests {
             };
             let error = ManagedShell::start(prepared, &configuration, &Cancellation::default())
                 .unwrap_err();
-            if kind == "Os" {
+            if kind == "Services" {
                 assert!(matches!(error, SessionError::NotShell));
             } else {
                 assert!(

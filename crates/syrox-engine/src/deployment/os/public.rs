@@ -17,7 +17,7 @@ impl From<InstallationError> for OsGenerationError {
         // JSON errors can quote persisted input, including configuration text.
         let message = match error {
             InstallationError::Encoding(_) | InstallationError::Generation(_) => {
-                "invalid Os candidate description; evidence preserved".into()
+                "invalid Services candidate description; evidence preserved".into()
             }
             error => error.to_string(),
         };
@@ -111,7 +111,7 @@ pub struct OsPreparation<'a> {
     pub launcher_digest: ContentDigest,
 }
 
-/// Persist an Os candidate, its roots, executable launcher snapshot and private
+/// Persist a Services candidate, its roots, executable launcher snapshot and private
 /// configuration. Prepared journal state describes retained candidate bytes;
 /// an error while publishing derived files preserves that candidate for retry.
 pub fn prepare_os_generation(
@@ -237,7 +237,7 @@ mod tests {
             crate::deployment::manifest::tests::prepared_service_payload_fixture_kind(
                 &crate::runtime::tests::elf(2, None, &[], None, None),
                 "",
-                "Os",
+                "Services",
             );
         let path = root.path().join("installation");
         fs::create_dir(&path).unwrap();

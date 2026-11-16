@@ -229,7 +229,7 @@ mod tests {
             commands = [std::Command {{ name = "test"; output = "out"; path = "bin/test"; }}];
         }} }} }} pub publish(factories, recipe): std::Recipe;
         outputs {{
-            os: std::Os = std::Os {{ pkgs = [std::select_package(recipe)]; services = []; }};
+            os: std::Services = std::Services {{ pkgs = [std::select_package(recipe)]; services = []; }};
             shell: std::Shell = std::Shell {{ pkgs = [std::select_package(recipe)]; services = []; }};
         }}"#)).unwrap();
         let checks = CheckConfiguration {

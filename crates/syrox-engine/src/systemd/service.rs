@@ -156,7 +156,7 @@ pub(super) fn properties(
 }
 fn dependencies(service: &SystemdService, scope: &SystemdScope, result: &mut Vec<Property>) {
     // systemd v257 service_add_default_dependencies/unit_set_default_slice;
-    // same bounded default dependency profile used by persistent Os contracts.
+    // same bounded default dependency profile used by persistent Services contracts.
     // No arbitrary mounted-path or administrator-added unit is accepted.
     let system = matches!(scope, SystemdScope::System);
     let slice = if system {

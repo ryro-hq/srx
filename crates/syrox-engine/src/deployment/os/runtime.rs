@@ -1,4 +1,4 @@
-//! Preparing the runtime of an Os generation's process.
+//! Preparing the runtime of a Services generation's process.
 //!
 //! The caller owns configuration publication and separation of installation from
 //! cwd. A directory descriptor cannot stop its owner from removing files;
@@ -25,11 +25,11 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub(crate) enum OsRuntimeError {
-    #[error("invalid retained Os runtime: {0}")]
+    #[error("invalid retained Services runtime: {0}")]
     Invalid(&'static str),
-    #[error("Os runtime preparation cancelled")]
+    #[error("Services runtime preparation cancelled")]
     Cancelled,
-    #[error("Os runtime preparation deadline expired")]
+    #[error("Services runtime preparation deadline expired")]
     Deadline,
     #[error(transparent)]
     Io(#[from] io::Error),
@@ -140,8 +140,10 @@ pub(crate) fn prepare_bound_os_runtime(
 }
 fn render(service: &str, argument: &Argument) -> Result<String> {
     match argument {
-        Argument::StateDirectory => Err(invalid("session state is not supported by Os")),
-        Argument::SecretFile(_) => Err(invalid("secrets are not supported by Os")),
+        Argument::StateDirectory => Err(invalid(
+            "session state is not supported by Services",
+        )),
+        Argument::SecretFile(_) => Err(invalid("secrets are not supported by Services")),
         Argument::Literal(value) => Ok(value.clone()),
         Argument::File(path) => {
             // GenerationManifest already validates that File refers to a declared
@@ -420,7 +422,7 @@ mod tests {
                 crate::deployment::manifest::tests::prepared_service_payload_fixture_kind(
                     &crate::runtime::tests::elf(2, None, &[], None, None),
                     r#"std::CommandArgument::Literal("--config"), std::CommandArgument::File("nested/config")"#,
-                    "Os",
+                    "Services",
                 );
             let worker = project.path().join("launcher");
             fs::write(&worker, b"retained candidate").unwrap();

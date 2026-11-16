@@ -7,7 +7,7 @@ mod std {
     pub use result::Result;
     // Pure deployment plans; activation and process supervision are separate consumers.
     pub use deployment::{
-        Os,
+        Services,
         Shell,
         Service,
         ServiceState,

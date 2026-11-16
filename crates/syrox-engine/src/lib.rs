@@ -18,7 +18,7 @@
 //! application, loader and libraries before execution. Its handles keep those
 //! files alive until the processes that can use them have settled.
 //!
-//! # Shell sessions and Os generations
+//! # Shell sessions and Services generations
 //!
 //! [`deployment::shell`] owns temporary sessions and their commands, configuration
 //! and secrets. [`deployment::os`] owns persistent generations and records the
@@ -34,13 +34,13 @@
 //!
 //! Recovery reconciles durable records with observed execution before releasing
 //! resources. Start with the [build journal] for interrupted builds or
-//! [Os recovery] for installations. A missing reply can leave
+//! [Services recovery] for installations. A missing reply can leave
 //! an effect unresolved; neither cancellation nor reading a journal proves that
 //! execution has ended.
 //!
 //! [Build cancellation]: ../src/syrox_engine/build/cancellation/mod.rs.html
 //! [build journal]: ../src/syrox_engine/build/journal/mod.rs.html
-//! [Os recovery]: ../src/syrox_engine/deployment/os/apply/recovery/mod.rs.html
+//! [Services recovery]: ../src/syrox_engine/deployment/os/apply/recovery/mod.rs.html
 
 #[cfg(not(target_os = "linux"))]
 compile_error!("syrox-engine supports Linux only");

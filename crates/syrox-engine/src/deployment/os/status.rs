@@ -4,7 +4,7 @@ use std::path::Path;
 use std::time::Instant;
 
 #[derive(Debug, thiserror::Error)]
-#[error("cannot observe Os installation journal")]
+#[error("cannot observe Services installation journal")]
 pub struct OsStatusError;
 
 #[derive(Debug)]

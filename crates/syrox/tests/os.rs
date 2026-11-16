@@ -60,9 +60,9 @@ fn project(binary: &Path, root: &Path, kind: &str, text: &str) {
 fn os_prepares_reopens_and_diffs_after_project_and_launcher_are_removed() {
     let root = tempfile::tempdir().unwrap();
     let binary = fixture(root.path());
-    project(&binary, root.path(), "Os", "first");
+    project(&binary, root.path(), "Services", "first");
     let arguments = [
-        "os",
+        "services",
         "prepare",
         ".#system",
         "--installation",
@@ -104,7 +104,7 @@ fn os_prepares_reopens_and_diffs_after_project_and_launcher_are_removed() {
     );
     let again = success(&run(&binary, root.path(), &arguments));
     assert_eq!(first, again);
-    project(&binary, root.path(), "Os", "second");
+    project(&binary, root.path(), "Services", "second");
     let second = success(&run(&binary, root.path(), &arguments));
     assert_ne!(first["pin"], second["pin"]);
     fs::remove_file(root.path().join("main.srx")).unwrap();
@@ -120,7 +120,7 @@ fn os_prepares_reopens_and_diffs_after_project_and_launcher_are_removed() {
         &binary,
         root.path(),
         &[
-            "os",
+            "services",
             "inspect",
             pin,
             "--installation",
@@ -135,7 +135,7 @@ fn os_prepares_reopens_and_diffs_after_project_and_launcher_are_removed() {
         &binary,
         root.path(),
         &[
-            "os",
+            "services",
             "list",
             "--installation",
             "installation",
@@ -147,7 +147,7 @@ fn os_prepares_reopens_and_diffs_after_project_and_launcher_are_removed() {
         &binary,
         root.path(),
         &[
-            "os",
+            "services",
             "diff",
             pin,
             second["pin"].as_str().unwrap(),
@@ -172,7 +172,7 @@ fn wrong_destination_and_untrusted_installation_fail_before_store_creation() {
     let root = tempfile::tempdir().unwrap();
     let binary = fixture(root.path());
     let args = [
-        "os",
+        "services",
         "prepare",
         ".#system",
         "--installation",
@@ -183,7 +183,7 @@ fn wrong_destination_and_untrusted_installation_fail_before_store_creation() {
     project(&binary, root.path(), "Shell", "inert");
     let wrong = run(&binary, root.path(), &args);
     assert!(!wrong.status.success());
-    assert!(String::from_utf8_lossy(&wrong.stderr).contains("requires an Os consumer"));
+    assert!(String::from_utf8_lossy(&wrong.stderr).contains("requires a Services consumer"));
     assert!(
         !root
             .path()
@@ -191,7 +191,7 @@ fn wrong_destination_and_untrusted_installation_fail_before_store_creation() {
             .exists()
     );
     assert!(!root.path().join("store").exists());
-    project(&binary, root.path(), "Os", "inert");
+    project(&binary, root.path(), "Services", "inert");
     fs::set_permissions(
         root.path().join("installation"),
         fs::Permissions::from_mode(0o755),
@@ -209,14 +209,14 @@ fn inspection_never_initializes_missing_state_or_store() {
     let binary = Path::new(env!("CARGO_BIN_EXE_srx"));
     for args in [
         vec![
-            "os",
+            "services",
             "list",
             "--installation",
             "missing",
             "--json",
         ],
         vec![
-            "os",
+            "services",
             "inspect",
             "invalid-pin",
             "--installation",
@@ -225,7 +225,7 @@ fn inspection_never_initializes_missing_state_or_store() {
             "store",
         ],
         vec![
-            "os",
+            "services",
             "inspect",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "--installation",
@@ -262,7 +262,7 @@ fn os_worker_rejects_invalid_arguments_before_opening_installation_or_store() {
 
 fn apply_arguments() -> Vec<&'static str> {
     vec![
-        "os",
+        "services",
         "apply",
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "--installation",
@@ -368,7 +368,7 @@ fn os_apply_refuses_credential_changes_before_creating_state() {
         Path::new(env!("CARGO_BIN_EXE_srx")),
         root.path(),
         &[
-            "os",
+            "services",
             "apply",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "--installation",
@@ -405,7 +405,7 @@ fn os_status_does_not_initialize_missing_installation() {
         Path::new(env!("CARGO_BIN_EXE_srx")),
         root.path(),
         &[
-            "os",
+            "services",
             "status",
             "--installation",
             "missing",
@@ -424,14 +424,14 @@ fn os_status_reads_unselected_journal_without_store_or_project() {
     project(
         &binary,
         root.path(),
-        "Os",
+        "Services",
         "private fixture content",
     );
     success(&run(
         &binary,
         root.path(),
         &[
-            "os",
+            "services",
             "prepare",
             ".#system",
             "--installation",
@@ -447,7 +447,7 @@ fn os_status_reads_unselected_journal_without_store_or_project() {
     fs::remove_file(root.path().join("Syrox.lock")).unwrap();
     fs::remove_file(root.path().join("bin/syrox-worker")).unwrap();
     let arguments = [
-        "os",
+        "services",
         "status",
         "--installation",
         "installation",
@@ -560,7 +560,7 @@ fn os_recover_refuses_changed_credentials_before_state_or_manager_access() {
         Path::new(env!("CARGO_BIN_EXE_srx")),
         root.path(),
         &[
-            "os",
+            "services",
             "recover",
             "1234567890abcdef1234567890abcdef",
             "--installation",
@@ -599,7 +599,7 @@ fn os_abandon_requires_canonical_operation_and_installation() {
             binary,
             root.path(),
             &[
-                "os",
+                "services",
                 "abandon",
                 operation,
                 "--installation",
@@ -614,7 +614,7 @@ fn os_abandon_requires_canonical_operation_and_installation() {
         binary,
         root.path(),
         &[
-            "os",
+            "services",
             "abandon",
             "1234567890abcdef1234567890abcdef",
         ],
@@ -630,7 +630,7 @@ fn os_abandon_never_initializes_missing_installation() {
         Path::new(env!("CARGO_BIN_EXE_srx")),
         root.path(),
         &[
-            "os",
+            "services",
             "abandon",
             "1234567890abcdef1234567890abcdef",
             "--installation",

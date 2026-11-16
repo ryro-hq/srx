@@ -1,4 +1,4 @@
-//! Consuming a plan in a Shell session or Os installation.
+//! Consuming a plan in a Shell session or Services installation.
 //!
 //! Preparation gathers commands, packages and configuration in [`manifest`].
 //! [`shell`] uses a temporary session; [`os`] keeps generations and a journal for

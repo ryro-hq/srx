@@ -34,13 +34,13 @@ const RECORD_HEADER: &[u8] = b"syrox-os-candidate-v1\n";
 
 #[derive(Debug, Error)]
 pub(crate) enum InstallationError {
-    #[error("invalid Os installation: {0}")]
+    #[error("invalid Services installation: {0}")]
     Invalid(&'static str),
-    #[error("Os candidate publication is uncertain: {0}")]
+    #[error("Services candidate publication is uncertain: {0}")]
     Uncertain(&'static str),
-    #[error("Os preparation cancelled")]
+    #[error("Services preparation cancelled")]
     Cancelled,
-    #[error("Os preparation deadline expired")]
+    #[error("Services preparation deadline expired")]
     Deadline,
     #[error(transparent)]
     Io(#[from] io::Error),

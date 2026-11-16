@@ -9,7 +9,7 @@ use crate::lsp;
 use arguments::{Cli, Command, HostCommand, StandardLibrarySelection};
 use clap::Parser as _;
 use commands::{
-    build, bundle, format, host, install_self, os, project, run, session, shell, store,
+    build, bundle, format, host, install_self, project, run, services, session, shell, store,
 };
 use std::process::ExitCode;
 use syrox_engine::project::{AuthenticatedStandardLibrary, CheckConfiguration};
@@ -62,9 +62,9 @@ pub(crate) fn run(cli: Cli) -> ExitCode {
         Command::Build(arguments) => build::run(&arguments, &configuration),
         Command::Run(arguments) => run::run(&arguments, &configuration),
         Command::Shell(arguments) => shell::run(&arguments, &configuration),
-        Command::Os {
+        Command::Services {
             command,
-        } => os::run(&command, &configuration),
+        } => services::run(&command, &configuration),
         Command::Session {
             command,
         } => session::run(&command),

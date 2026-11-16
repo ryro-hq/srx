@@ -11,7 +11,7 @@ use syrox_engine::{
 
 #[derive(Debug, clap::Args)]
 pub(crate) struct InitArguments {
-    /// Project and Os output, for example .#os.
+    /// Project and Services output, for example .#os.
     reference: String,
     #[arg(long)]
     name: String,
@@ -144,7 +144,9 @@ pub(crate) fn init(arguments: &InitArguments, cancel: &Cancellation) -> Result<u
     } = syrox_engine::project::reference::parse_project_reference(&arguments.reference)
         .map_err(|e| e.to_string())?
     else {
-        return Err("os init requires a project and Os output, for example .#os".into());
+        return Err(
+            "services init requires a project and Services output, for example .#os".into(),
+        );
     };
     let destination = profile_path(&arguments.name)?;
     if destination
@@ -241,7 +243,7 @@ pub(crate) fn init(arguments: &InitArguments, cancel: &Cancellation) -> Result<u
         );
     } else {
         println!(
-            "profile {} configured at {}\ninstallation {}\napply with: srx os apply --profile {}",
+            "profile {} configured at {}\ninstallation {}\napply with: srx services apply --profile {}",
             profile.name,
             destination.display(),
             profile.installation_id,
