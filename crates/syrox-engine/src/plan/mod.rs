@@ -28,9 +28,16 @@ pub use outputs::PlanOutputRef;
 mod apps;
 pub use apps::{PlanCommand, PlanCommandRef, PlanRuntimeFile};
 mod consumers;
+mod systems;
 pub use consumers::{
     PlanCommandArgument, PlanCommandEnvironment, PlanConfigFile, PlanConsumer, PlanConsumerKind,
     PlanPackageSelection, PlanService, PlanServiceCommand, PlanServiceProcess, PlanServiceState,
+};
+pub use systems::{
+    PlanDataCompatibility, PlanHostConfiguration, PlanHostMount, PlanKconfigValue, PlanKernel,
+    PlanKernelModule, PlanKernelOption, PlanKernelTristate, PlanPersistentVolume, PlanSysctl,
+    PlanSystem, PlanSystemBoot, PlanSystemDirectory, PlanSystemExposure, PlanSystemFile,
+    PlanSystemHealth, PlanSystemIdentity, PlanSystemLayout, PlanSystemLink, PlanSystemUser,
 };
 mod display;
 use display::canonical_display_bytes;
@@ -179,6 +186,12 @@ impl PlanAcquisition {
 
 #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
 pub enum PlanError {
+    #[error("system declaration {root:?} has invalid {field}: {reason}")]
+    InvalidSystem {
+        root: String,
+        field: String,
+        reason: String,
+    },
     #[error("consumer {root:?} is invalid: {reason}")]
     InvalidConsumer {
         root: String,
@@ -425,6 +438,8 @@ pub struct Plan {
     imports: Vec<PlanImportedResult>,
     commands: Vec<PlanCommand>,
     consumers: Vec<PlanConsumer>,
+    systems: Vec<PlanSystem>,
+    hosts: Vec<PlanHostConfiguration>,
     package_edges: usize,
     roots: Vec<PlanRoot>,
     canonical_display_bytes: usize,
@@ -467,6 +482,13 @@ impl Plan {
     /// Pure deployment descriptions; their presence does not activate a consumer.
     pub fn consumers(&self) -> impl ExactSizeIterator<Item = &PlanConsumer> {
         self.consumers.iter()
+    }
+
+    pub fn systems(&self) -> impl ExactSizeIterator<Item = &PlanSystem> {
+        self.systems.iter()
+    }
+    pub fn host_configurations(&self) -> impl ExactSizeIterator<Item = &PlanHostConfiguration> {
+        self.hosts.iter()
     }
 
     pub fn roots(&self) -> impl ExactSizeIterator<Item = &PlanRoot> {
@@ -535,6 +557,17 @@ impl Plan {
             standard_library,
             &mut budget,
         )?;
+        let (systems, hosts) = systems::extract(
+            &components,
+            &consumers::SelectionIndex {
+                references: &references,
+                builds: &builds,
+                imports: &imports,
+                commands: &commands,
+            },
+            standard_library,
+            &mut budget,
+        )?;
         let mut plan = Self {
             lock_digest,
             policy_identity,
@@ -545,6 +578,8 @@ impl Plan {
             imports,
             commands,
             consumers,
+            systems,
+            hosts,
             package_edges,
             roots,
             canonical_display_bytes: 0,
@@ -1692,6 +1727,8 @@ mod tests {
     #[test]
     fn canonical_display_has_an_exact_byte_boundary_without_rendering_a_copy() {
         let mut plan = Plan {
+            systems: Vec::new(),
+            hosts: Vec::new(),
             lock_digest: [0; 32],
             policy_identity: "test".to_owned(),
             standard_library: None,

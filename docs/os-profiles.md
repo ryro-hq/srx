@@ -1,5 +1,9 @@
 # Installation profiles
 
+Projects and scripts using the former `Os` type or `srx os` commands must follow
+the [Services migration](migrations/services.md). Existing profile locations and
+installation identities remain valid.
+
 Configure a named installation once, then select it with `--profile`:
 
 ```sh

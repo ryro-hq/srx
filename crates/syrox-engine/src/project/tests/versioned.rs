@@ -224,6 +224,10 @@ fn service_attribute_syntax_uses_the_selected_contract_and_honors_disable() {
             let plan = plan_project_with(&project.0, &config).unwrap();
             let output = plan.consumers().next().unwrap();
             assert_eq!(output.name(), "os");
+            assert_eq!(
+                output.kind(),
+                crate::plan::PlanConsumerKind::Services
+            );
             assert_eq!(output.services()[0].id(), "nginx");
             assert_eq!(output.services()[0].files().is_empty(), !enabled);
         }

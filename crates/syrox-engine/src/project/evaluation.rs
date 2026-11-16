@@ -212,11 +212,18 @@ impl ProjectEvaluation<'_> {
             .ok_or_else(|| ProjectOperationError::MissingOutput {
                 name: name.to_owned(),
             })?;
-        if !["Services", "Shell"].iter().any(|contract| {
+        if ![
+            ("deployment", "Services"),
+            ("deployment", "Shell"),
+            ("system", "System"),
+            ("system", "HostConfiguration"),
+        ]
+        .iter()
+        .any(|(module, contract)| {
             is_std_nominal(
                 ty,
                 &self.project.checked,
-                &["std", "deployment", contract],
+                &["std", module, contract],
             )
         }) {
             return Err(ProjectOperationError::InvalidConsumerOutput {

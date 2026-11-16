@@ -37,6 +37,7 @@ mod program;
 pub(crate) mod publication;
 pub(crate) mod records;
 pub(crate) mod shared;
+pub mod system;
 use crate::cancellation::Cancellation;
 pub(crate) use bootstrap::linux::retained_build_with_inputs;
 #[cfg(target_arch = "x86_64")]
@@ -182,6 +183,8 @@ pub enum BuildError {
         "invalid build request: a bounded program, declared paths and a valid deadline are required"
     )]
     InvalidRequest,
+    #[error(transparent)]
+    Budget(#[from] crate::system::budget::BudgetError),
     #[error("build inputs or instruction program do not match the selected Plan")]
     UnsupportedInputs,
     #[error("build source is absent or exceeds the selected resource limit")]

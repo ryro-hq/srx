@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "qualified_on": "2026-11-02",
+  "scope": "explicit workspace inspection/reconciliation through the real CLI, plus all prior helper/component cases",
+  "predecessor_fixture": "system-workspace-rpc-vm.json",
+  "execution": { "firmware": "OVMF UEFI", "accelerator": "TCG", "cpus": 2, "memory_bytes": 2147483648, "network": false, "host_shares": false, "host_block_devices": false, "direct_kernel_boot": false, "qemu_exit_code": 0, "normal_poweroff": true },
+  "inputs": {
+    "guest_sha256": "935e797efefe1380a8e325705504b56b1cb3fb34ac616b4c7591a9b99a096ba2",
+    "helper_sha256": "4d7def7357daf815339742f78deeb205ce1009a253e3cb026c08aec8815e7eb1",
+    "engine_tests_sha256": "a78e7f4bd7cd7fdea825a19b9892ebce1a5b4e1e46da0deb72cb4589faa4c341",
+    "cli": { "path": ".syrox/qualified-workers/srx-system-workspace-recover-2026-11-02-v4", "bytes": 71154064, "sha256": "011543d12c43d65b5a6af61ca3d0b655cc90f0b42560f7b0045d87375524ca88", "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)", "target": "x86_64-unknown-linux-gnu", "crt_static": true, "vendored_liblzma": true, "bootstrap": "development host toolchain; not qualified managed bootstrap" },
+    "probe": { "path": ".syrox/qualified-workers/helper-probe-2026-11-02-v15", "bytes": 3947208, "sha256": "6b65c6ef0bc9321015ffd09aca2a4043996818926128fa09115a2e6a099c0523" },
+    "payload": { "path": ".syrox/test-tools/qemu/helper-tools-20261102-v15.ext4", "bytes": 402653184, "sha256": "cc728f3febbf6fed263365ea342063b9d352d8d2b57e723501f375a1c4e367fc", "unchanged_after_vm": true },
+    "virtual_plan_disk": { "path": ".syrox/test-tools/qemu/helper-plan-data-v15.raw", "bytes": 4294967296, "sha256": "8479e43911dc45e89f934fe48d01297e16f51d17aa561d4d1c216b1ae0fcddca", "unchanged_after_vm": true }
+  },
+  "results": {
+    "distinct_cases": 64,
+    "previous_cases": 59,
+    "new_cases": ["workspace-rpc-cli-abandon", "workspace-rpc-cli-inspect", "workspace-rpc-cli-wrong-hash", "workspace-rpc-cli-recover", "workspace-rpc-cli-terminal"],
+    "explicit_selector": "--workspace-operation",
+    "caller_uid": 1000,
+    "caller_gid": 1000,
+    "wrong_hash_refused_without_journal_or_image_change": true,
+    "exact_reviewed_hash_reconciled": true,
+    "both_image_hashes_preserved": true,
+    "reconciled_filesystem_health_verified": false,
+    "legacy_scratch_cli_cases_repeated": true,
+    "prepared_component_action_sha256": "7952d80f4f239a54e23f4a797eefa2457a190f46adc27856bd0baddafd9bfcaf",
+    "required_final_markers": 5
+  },
+  "evidence": { "serial_log": ".syrox/work-logs/helper-probe-vm-v15.log", "serial_sha256": "987dbcea4d39148ad7fb938484dd91dab8eccfbc92f0c3a68baada5c869548e0", "source_snapshot": ".syrox/qualified-workers/workspace-cli-sources-2026-11-02-v15", "source_snapshot_scope": "syrox-system crate, CLI command/test sources and workspace Cargo manifests; partial development snapshot", "native_cli_test_log": ".syrox/work-logs/workspace-cli-preflight-v1.log" },
+  "not_qualified": ["complete System recipe execution/all runtime budgets", "manager gate and FDSTORE custody", "System build receipts and CLI build", "cross-reset recovery", "own managed bootstrap/userspace/kernel", "SRX-built bootable images", "provisioning", "A/B generations", "distribution adoption", "signed system publication"]
+}

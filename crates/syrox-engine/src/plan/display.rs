@@ -91,6 +91,7 @@ fn display_plan<W: fmt::Write + ?Sized>(plan: &Plan, formatter: &mut W) -> fmt::
     display_imports(plan, formatter)?;
     display_commands(plan, formatter)?;
     display_consumers(plan, formatter)?;
+    display_systems(plan, formatter)?;
     for root in &plan.roots {
         write!(formatter, "root {}:", root.domain)?;
         display_path(formatter, &root.path)?;
@@ -115,6 +116,93 @@ fn display_plan<W: fmt::Write + ?Sized>(plan: &Plan, formatter: &mut W) -> fmt::
             }
             writeln!(formatter, "#{}", claim.boundary)?;
         }
+    }
+    Ok(())
+}
+
+fn display_systems<W: fmt::Write + ?Sized>(plan: &Plan, formatter: &mut W) -> fmt::Result {
+    for system in &plan.systems {
+        formatter.write_str("planned system ")?;
+        display_string(formatter, &system.name)?;
+        writeln!(
+            formatter,
+            " platform linux-x86_64 kernel {:?}",
+            system.kernel.release
+        )?;
+        writeln!(
+            formatter,
+            "  storage nodes {} root-a {:?} root-b {:?} esp {:?}",
+            system.storage.nodes.len(),
+            system.root_a,
+            system.root_b,
+            system.esp
+        )?;
+        writeln!(
+            formatter,
+            "  identity hostname {:?} users {}",
+            system.identity.hostname,
+            system.identity.users.len()
+        )?;
+        writeln!(
+            formatter,
+            "  boot signing-credential {:?} attempts {}",
+            system.boot.signing_credential, system.boot.attempts
+        )?;
+        writeln!(
+            formatter,
+            "  health timeout {} network {} essential {:?}",
+            system.health.timeout_seconds,
+            system.health.require_network,
+            system.health.essential_services
+        )?;
+        for option in &system.kernel.kconfig {
+            writeln!(
+                formatter,
+                "  requested kconfig {} {:?}",
+                option.symbol, option.value
+            )?;
+        }
+        for volume in &system.persistent {
+            writeln!(
+                formatter,
+                "  persistent {:?} target {:?} compatibility {:?}",
+                volume.filesystem, volume.target, volume.compatibility
+            )?;
+        }
+        let request = system.budget;
+        writeln!(
+            formatter,
+            "  requested budget memory {} cpu-percent {} processes {} descriptors {} scratch {} files {} output {} duration {}",
+            request.memory_bytes,
+            request.cpu_percent,
+            request.processes,
+            request.descriptors,
+            request.scratch_bytes,
+            request.files,
+            request.output_bytes,
+            request.duration_seconds
+        )?;
+        writeln!(
+            formatter,
+            "  declaration only; builder admission, device binding and installation authorization are separate"
+        )?;
+    }
+    for host in &plan.hosts {
+        formatter.write_str("planned host configuration ")?;
+        display_string(formatter, &host.name)?;
+        writeln!(
+            formatter,
+            " sysctls {} modules {} mounts {} services {} kernel {}",
+            host.sysctls.len(),
+            host.modules.len(),
+            host.mounts.len(),
+            host.services.services().len(),
+            host.kernel.is_some()
+        )?;
+        writeln!(
+            formatter,
+            "  selected ownership only; adoption and application require observed state"
+        )?;
     }
     Ok(())
 }

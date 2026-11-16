@@ -32,6 +32,7 @@ fn operational_commands_report_source_locations_before_realization() {
             vec!["info", ".", "--search", "app"],
             vec!["build", ".#app", "--dry-run"],
             vec!["build", ".", "--all", "--dry-run"],
+            vec!["system", "plan", ".#host", "--json"],
             vec!["run", ".#app", "--command", "main"],
             vec![
                 "shell",
@@ -74,7 +75,7 @@ fn operational_commands_report_source_locations_before_realization() {
         ] {
             let mut command = Command::new(env!("CARGO_BIN_EXE_srx"));
             command.args(&args);
-            if args[0] != "project" {
+            if !["project", "system"].contains(&args[0]) {
                 command.arg("--config").arg(&config);
             }
             let output = command

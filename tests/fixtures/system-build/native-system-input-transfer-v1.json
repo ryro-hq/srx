@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "date": "2026-11-02",
+  "scope": "native_nonroot_system_input_resources_and_credential_checked_seqpacket_transfer",
+  "command": "cargo test --locked -p syrox-engine --lib build::system::",
+  "exit": 0,
+  "development_toolchain": "rustc 1.98.1 (48a229cea 2026-09-01); development host toolchain, not SRX-qualified source bootstrap",
+  "binary": {
+    "path": ".syrox/qualified-workers/system-input-transfer-tests-2026-11-02-v1",
+    "bytes": 89390160,
+    "sha256": "29fe02035823efff43c577cd55f2f5e1d3a1a8bddc8d6a6abfd7571b8b0f5a04",
+    "uses_development_host_loader_and_libraries": true
+  },
+  "source_snapshot": {
+    "path": ".syrox/qualified-workers/system-input-transfer-sources-2026-11-02-v1",
+    "complete_workspace_snapshot_attestation": false,
+    "files": [
+      {
+        "path": ".syrox/qualified-workers/system-input-transfer-sources-2026-11-02-v1/crates__syrox-engine__src__build__system__input_transfer.rs",
+        "bytes": 10659,
+        "sha256": "235955a6ea63757a3a95676f2f365acefde459b20abd6a3207a485c56a95028e"
+      },
+      {
+        "path": ".syrox/qualified-workers/system-input-transfer-sources-2026-11-02-v1/crates__syrox-engine__src__build__system__resources.rs",
+        "bytes": 16539,
+        "sha256": "cb6367aa84580b537239083148068fd23aa416f839b70b763b18bf1698dba97e"
+      },
+      {
+        "path": ".syrox/qualified-workers/system-input-transfer-sources-2026-11-02-v1/crates__syrox-engine__src__build__system__resources__reader.rs",
+        "bytes": 5589,
+        "sha256": "9fde243e11e7fa9b29cd6d82aa2f2ccd7c9362af12eb276b454719cde20a26d5"
+      },
+      {
+        "path": ".syrox/qualified-workers/system-input-transfer-sources-2026-11-02-v1/crates__syrox-engine__src__build__system__resources__wire.rs",
+        "bytes": 4088,
+        "sha256": "503669261635b52a5c8ea870b441a9207d5e3912aef8996e74477849843639ad"
+      },
+      {
+        "path": ".syrox/qualified-workers/system-input-transfer-sources-2026-11-02-v1/crates__syrox-engine__src__build__system__tests__resources.rs",
+        "bytes": 19402,
+        "sha256": "af94eed91dc048930a059e774d50beaa2a1b4da7fa411c6d183e471878f5468d"
+      },
+      {
+        "path": ".syrox/qualified-workers/system-input-transfer-sources-2026-11-02-v1/crates__syrox-engine__src__build__system__tests__resources__transfer.rs",
+        "bytes": 12849,
+        "sha256": "56826a9ba5a2f0e88ebd2e3b92a376167a76b99a23750e9848ce27763d6d73b3"
+      }
+    ],
+    "subsequent_source_changes": "Historical qualification before a test-variable rename, a doc clarification and aggregate-export scan optimization; a new qualification is required for that optimization."
+  },
+  "metadata_fixture": {
+    "bytes": 281,
+    "sha256": "e2c3488f82e03dd9fd6c8c8253ec566dc6202bb9e38b4d0b65e511282062a132",
+    "independent_assembly": "Python hashlib/struct plus documented struct-ordered JSON; metadata only, no real interest authority"
+  },
+  "observed": {
+    "system_tests_passed": 33,
+    "ignored_top_level_cases": 2,
+    "explicit_child_entry_test_passed": 1,
+    "inputs_in_cross_process_test": 33,
+    "input_storage": "17 chunked v3 and 16 legacy blob v2",
+    "descriptors": 84,
+    "fds_per_batch_maximum": 64,
+    "metadata_fragment_bytes_maximum": 1024,
+    "session_nonce_bytes": 32,
+    "cross_process_action_sha256": "bc52ebb83e091839f6d5d1ab45e3bd6c9bb617ddf096875951e15a0d078f1f3a",
+    "parent_gc_after_sender_preparation_drop_and_original_root_retirement": true,
+    "child_revalidated_and_read_last_input_after_parent_gc": true,
+    "final_gc_collected_source_after_child_exit": true,
+    "wide_v3_files": 16385,
+    "materialization_regressions_passed": 11,
+    "ordinary_managed_resource_regressions_passed": 10
+  },
+  "evidence": [
+    {
+      "path": ".syrox/work-logs/system-input-transfer-tests-unsandboxed-v1-initial.log",
+      "bytes": 4610,
+      "sha256": "fdd693a4ec96d2b5f0a24ac4669fd675c31fc8064dac37c400274b88616c7dc3"
+    },
+    {
+      "path": ".syrox/work-logs/system-input-resources-tests-v2.log",
+      "bytes": 3772,
+      "sha256": "9f132916f46cdeaa9b166900df2b1dca1f68fc25a4494a9c6657434cd79e1df7"
+    },
+    {
+      "path": ".syrox/work-logs/system-input-transfer-materialize-regressions.log",
+      "bytes": 1502,
+      "sha256": "8f10cc9f9bd5a22a392dbac8be223b1db169b2324212df2a6c4c6ee91a4af26c"
+    },
+    {
+      "path": ".syrox/work-logs/system-input-transfer-managed-resource-regressions.log",
+      "bytes": 1470,
+      "sha256": "6e03c25456c0c45f5bdfe6f5787c9fcd4b2a66e3d58d39697e8ef8b2f13d929a"
+    }
+  ],
+  "failed_environment_attempt": {
+    "path": ".syrox/work-logs/system-input-transfer-tests-v1.log",
+    "reason": "Sandbox socketpair EPERM blocked all four transport tests; rerun as the same non-root user outside that sandbox passed."
+  },
+  "limits_of_qualification": {
+    "kernel_message_pid_uid_gid_checked": true,
+    "nonce_action_manifest_reserve_offsets_and_counts_checked": true,
+    "receiver_custody_acquired": true,
+    "executable_image_or_manager_binding_qualified": false,
+    "fdstore_or_namespace_gate_qualified": false,
+    "system_recipe_executed": false,
+    "all_runtime_budget_dimensions_enforced": false,
+    "build_receipt_created": false,
+    "root_helper_or_vm_test_performed_in_this_increment": false,
+    "own_toolchain_or_kernel_or_system_boot_qualified": false,
+    "physical_devices_or_host_boot_modified": false,
+    "complete_system_qualified": false
+  }
+}

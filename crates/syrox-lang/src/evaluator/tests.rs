@@ -36,6 +36,24 @@ fn run(source: &str, policy: &CheckPolicy) -> RealizedProgram {
 }
 
 #[test]
+fn signed_literals_survive_refinement_matching_and_canonical_evaluation() {
+    let result = run(
+        r#"value I(int) where -9223372036854775808..=9223372036854775807;
+        value S(str);
+        fn select(const number: I) -> I { match number { -17 => -9223372036854775808, _ => 0 } }
+        let selected = select(-17);
+        outputs { result: S = "${selected}"; }"#,
+        &CheckPolicy::default(),
+    );
+    assert!(result.diagnostics().next().is_none());
+    assert!(matches!(
+        result.roots().next().unwrap().value().unwrap(),
+        Value::Nominal { value: PrimitiveValue::Str(value), .. }
+            if value == "-9223372036854775808"
+    ));
+}
+
+#[test]
 fn sorting_moves_affine_elements_stably_and_rejects_mismatched_lengths() {
     let policy = CheckPolicy::default();
     let result = run(

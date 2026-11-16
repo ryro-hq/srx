@@ -37,11 +37,11 @@ pub struct PreparedManagedBuild {
     source_interest: ObjectLease,
     timeout_seconds: u32,
 }
-/// Authenticated input bytes and granular retention, without a staging operation.
+/// Authenticated source descriptor and granular retention, without a staging operation.
 /// This can survive producer admission without holding the global Store barrier.
 pub struct ManagedBuildInputs {
     pub(super) action: Action,
-    pub(super) source: Vec<u8>,
+    pub(super) source: super::source::Source,
     pub(super) worker: Vec<u8>,
     pub(super) inputs: Vec<MaterializedArtifact>,
     pub(super) source_interest: ObjectLease,
@@ -64,6 +64,7 @@ impl ManagedBuildInputs {
     /// This standalone method does not itself perform shared producer admission.
     pub fn stage(self, cancellation: &Cancellation) -> Result<PreparedManagedBuild, BuildError> {
         cancellation.check()?;
+        self.source.revalidate_metadata(cancellation)?;
         for input in &self.inputs {
             input
                 .verify_view(cancellation)
@@ -111,8 +112,14 @@ impl ManagedBuildInputs {
         let stage = linux_fd::open_beneath(operation.directory.fd(), Path::new("stage"), true)
             .map_err(|error| BuildError::Cache(format!("staging directory: {error:?}")))?;
         let mut files = Vec::new();
+        self.source.stage(&stage, cancellation)?;
+        files.push(PinnedFile {
+            name: "source",
+            file: linux_fd::open_existing_regular(stage.fd(), Path::new("source"))?,
+            digest: self.source.digest(),
+            size: self.source.size(),
+        });
         for (name, bytes, executable) in [
-            ("source", self.source.as_slice(), false),
             ("worker", self.worker.as_slice(), true),
             (
                 "build-action",
@@ -612,7 +619,7 @@ pub fn prepare_managed_build_inputs(
     let description = BuildDescription::from_plan(plan, &request.package)?;
     let lease = store.operation()?;
     let limit = source_limit(plan, request)?;
-    let mut reader = lease
+    let reader = lease
         .open_verified_checked(description.source, limit, || {
             if cancellation.is_cancelled() {
                 Err(crate::cancellation::cancellation_io())
@@ -628,12 +635,7 @@ pub fn prepare_managed_build_inputs(
             }
         })?
         .ok_or(BuildError::InvalidRequest)?;
-    let source = read_source(
-        &mut reader,
-        description.source,
-        limit,
-        cancellation,
-    )?;
+    let source = super::source::Source::capture(&reader, description.source, limit, cancellation)?;
     cancellation.check()?;
     let mut action = Action::new(
         request,
@@ -690,7 +692,7 @@ fn source_limit(plan: &Plan, request: &BuildSpecification) -> Result<u64, BuildE
     Ok(limit.min(declared_limit))
 }
 
-fn prepare_inputs(
+pub(in crate::build) fn prepare_inputs(
     plan: &Plan,
     request: &BuildSpecification,
     store: &Store,
@@ -698,6 +700,38 @@ fn prepare_inputs(
     action: &mut Action,
     cancellation: &Cancellation,
 ) -> Result<Vec<MaterializedArtifact>, BuildError> {
+    prepare_inputs_with_policy(
+        plan,
+        request,
+        store,
+        lease,
+        action,
+        cancellation,
+        InputPolicy::Managed,
+    )
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::build) enum InputPolicy {
+    Managed,
+    System,
+}
+
+pub(in crate::build) fn prepare_inputs_with_policy(
+    plan: &Plan,
+    request: &BuildSpecification,
+    store: &Store,
+    lease: &crate::store::OperationLease,
+    action: &mut Action,
+    cancellation: &Cancellation,
+    policy: InputPolicy,
+) -> Result<Vec<MaterializedArtifact>, BuildError> {
+    let maximum_references = match policy {
+        InputPolicy::Managed => 4096,
+        InputPolicy::System => {
+            usize::try_from(crate::store::MAX_ROOT_REFERENCES - 3).expect("bounded references")
+        }
+    };
     let mut inputs = Vec::new();
     let mut references = std::collections::BTreeSet::new();
     let mut visited = 0;
@@ -707,10 +741,13 @@ fn prepare_inputs(
             .expect("validated build")
             .inputs(),
     ) {
-        let input = binding
-            .output
-            .open_for_build(store, cancellation)
-            .map_err(|error| materialization_error(&error))?;
+        let input = match policy {
+            InputPolicy::Managed => binding.output.open_for_build(store, cancellation),
+            // Explicit System consumption revalidates the complete root and
+            // chunk closure; this does not expand the legacy worker protocol.
+            InputPolicy::System => binding.output.open(store, cancellation),
+        }
+        .map_err(|error| materialization_error(&error))?;
         super::linux::verify_selected_output(
             plan,
             selected,
@@ -720,7 +757,7 @@ fn prepare_inputs(
             &mut visited,
         )?;
         references.extend(input.retained_references().iter().copied());
-        if references.len() > 4096 {
+        if references.len() > maximum_references {
             return Err(BuildError::UnsupportedInputs);
         }
         action
@@ -730,32 +767,6 @@ fn prepare_inputs(
     }
     Ok(inputs)
 }
-fn read_source(
-    reader: &mut impl std::io::Read,
-    expected: ContentDigest,
-    limit: u64,
-    cancellation: &Cancellation,
-) -> Result<Vec<u8>, BuildError> {
-    let mut source = Vec::new();
-    let mut chunk = [0_u8; 16 * 1024];
-    loop {
-        cancellation.check()?;
-        let count = reader.read(&mut chunk)?;
-        if count == 0 {
-            break;
-        }
-        if source.len() as u64 + count as u64 > limit {
-            return Err(BuildError::InvalidRequest);
-        }
-        source.extend_from_slice(&chunk[..count]);
-    }
-    cancellation.check()?;
-    if ContentDigest::sha256(&source) != expected {
-        return Err(BuildError::InputChanged);
-    }
-    Ok(source)
-}
-
 fn verify_file(pinned: &PinnedFile, cancellation: &Cancellation) -> Result<(), BuildError> {
     let file = std::fs::File::from(pinned.file.fd().try_clone_to_owned()?);
     let mode = if pinned.name == "worker" {

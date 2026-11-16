@@ -11,6 +11,10 @@ impl AuthenticatedStandardLibrary {
     pub fn bundled() -> Self {
         let sources = [
             (
+                "std/system.srx",
+                include_str!("../../../../std/system.srx"),
+            ),
+            (
                 "std/yaml.srx",
                 include_str!("../../../../std/yaml.srx"),
             ),

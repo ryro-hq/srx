@@ -1,4 +1,6 @@
 pub use crate::build::managed::entry::run_managed_build_entry;
+#[cfg(target_arch = "x86_64")]
+pub use crate::build::system::namespace::run_payload as run_system_build_payload;
 pub use crate::execution::launcher::os::{OsWorkerError, run_os_service};
 pub use crate::execution::launcher::owner::{SessionOwnerError, run_session_owner};
 pub use crate::execution::launcher::service::{ServiceWorkerError, run_session_service};
@@ -13,6 +15,24 @@ use crate::build::{
     bootstrap::{sandbox, worker},
 };
 use std::path::{Path, PathBuf};
+
+/// System IR execution only after namespace/manager/resource admission; this
+/// grants neither execution admission nor Store/result-publication authority.
+///
+/// # Safety
+/// Dedicated single-threaded payload child; exit after return, including errors.
+/// Caller authenticates the action, budget, helper observation, immutable input
+/// mounts and namespace lifecycle. Policy installation closes descriptors >=3.
+#[cfg(target_arch = "x86_64")]
+#[allow(unsafe_code)]
+pub unsafe fn run_system_build_worker(
+    action: &crate::build::system::SystemBuildAction,
+    observation: &crate::system::workspace::WorkspaceObservation,
+    cancellation: &crate::cancellation::Cancellation,
+) -> Result<(), BuildError> {
+    // SAFETY: delegated dedicated-process and authenticated admission contract.
+    unsafe { worker::run_system(action, observation, cancellation) }
+}
 
 /// Internal subprocess entry; requires the sandbox's private mount layout.
 /// Calling this function does not confer build or Store publication authority.

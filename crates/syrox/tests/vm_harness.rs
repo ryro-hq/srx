@@ -453,7 +453,7 @@ fn editor_contract_mismatch_and_command_failure_preserve_failed_report() {
 #[test]
 fn registry_classifies_every_ignored_test_and_filters_restart_exactly() {
     let entries = common::gates();
-    assert_eq!(entries.len(), 77);
+    assert_eq!(entries.len(), 85);
     let counts: Vec<_> = [
         "gate",
         "qualification",
@@ -470,7 +470,7 @@ fn registry_classifies_every_ignored_test_and_filters_restart_exactly() {
             .count()
     })
     .collect();
-    assert_eq!(counts, [45, 1, 23, 4, 1, 3]);
+    assert_eq!(counts, [45, 1, 25, 4, 1, 9]);
     let selection = common::Selection::parse(&[
         "shell_restart".into(),
         "--nocapture".into(),

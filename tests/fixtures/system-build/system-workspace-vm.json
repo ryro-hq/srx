@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "qualified_on": "2026-11-02",
+  "scope": "dual-volume workspace primitives in a guarded disposable QEMU guest",
+  "execution": { "firmware": "OVMF UEFI", "accelerator": "TCG", "cpus": 1, "memory_bytes": 2147483648, "network": false, "host_shares": false, "host_block_devices": false, "direct_kernel_boot": false, "qemu_exit_code": 0, "normal_poweroff": true },
+  "inputs": {
+    "guest": { "path": ".syrox/test-tools/qemu/fedora-coreos-44.20260928.3.1-qemu.x86_64.qcow2", "sha256": "935e797efefe1380a8e325705504b56b1cb3fb34ac616b4c7591a9b99a096ba2", "role": "external fixed test environment, not an SRX-built system" },
+    "probe": { "path": ".syrox/qualified-workers/helper-probe-2026-11-02-v11", "bytes": 3696152, "sha256": "107472aa762bde02f28cee9e7950374064dd7db4127619738490891184f4febb", "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)", "target": "x86_64-unknown-linux-gnu", "crt_static": true, "elf_interpreter": false, "needed_shared_libraries": false, "bootstrap": "development host toolchain, not the qualified managed bootstrap" },
+    "payload": { "path": ".syrox/test-tools/qemu/helper-tools-20261102-v11.ext4", "bytes": 402653184, "sha256": "0e07cf69903d93b30e95f60bd2ecd172c3a1963263ae1a2f29f91f6db280e1d6", "unchanged_after_vm": true },
+    "ignition": { "path": ".syrox/test-tools/qemu/helper-probe-v11.ign", "sha256": "d87a83f0dcd0d2730d8c79a24c340c637db0e8f10485adb7657aeb7c5a48cea3" },
+    "virtual_plan_disk": { "path": ".syrox/test-tools/qemu/helper-plan-data-v11.raw", "bytes": 4294967296, "sha256": "8479e43911dc45e89f934fe48d01297e16f51d17aa561d4d1c216b1ae0fcddca", "unchanged_after_vm": true },
+    "unchanged_helper_sha256": "cbad2c343cf836adb950423dc933ad798ae32283ca2d93992ee19568312df56f",
+    "formatter_sha256": "59935ec5c57f7f3b2e5ef1119d7480275264a9f5adecb862b7bd2ae813fd83ec",
+    "checker_sha256": "da1f6de6ac3a2efd7fc6d2581199ce7109a22dee7843ce923e4111a92666a95a",
+    "engine_scratch_tests_sha256": "e06da68940ea4146810ec09108e371d4af92d0e399c0742fa9783a99fe34322f"
+  },
+  "workspace": { "builder_uid": 1000, "builder_gid": 1000, "scratch_image_bytes": 67108864, "output_image_bytes": 134217728, "admitted_files": 1024, "scratch_total_inodes": 336, "output_total_inodes": 672, "total_inodes": 1008, "worker_effective_capabilities_after_attachment": 0 },
+  "results": { "distinct_cases": 43, "previous_cases": 33, "new_workspace_cases": ["alias-image-refused", "pair-mounted", "role-observation-refused", "target-alias-refused", "bytes-scratch", "bytes-output", "inodes-scratch", "inodes-output", "private-namespace", "loop-release-independent"], "filesystem_checks_after_teardown": 2, "final_markers": ["SRX_HELPER_ACTIVATION_PROBE_OK", "SRX_WORKSPACE_PROBE_OK", "SRX_HELPER_PROBE_OK"] },
+  "evidence": { "serial_log": ".syrox/work-logs/helper-probe-vm-v11.log", "serial_sha256": "356bc652e18a51d5bda9c151193297712b38dfc61ed3133c656193dd56f832f5", "source_snapshot": ".syrox/qualified-workers/workspace-sources-2026-11-02-v11" },
+  "not_qualified": ["production two-volume helper RPC/journal/recovery", "complete System executor and all runtime budgets", "sparse logical-length enforcement by filesystem capacity", "managed source bootstrap", "SRX-built bootable system", "provisioning", "A/B generations", "distribution adoption", "signed system publication"]
+}

@@ -60,6 +60,25 @@ fn invalid_sources_never_emit_partial_formatted_text() {
 }
 
 #[test]
+fn signed_literals_keep_their_sign_in_refinements_patterns_and_expressions() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("signed.srx");
+    fs::write(&path, "value I(int) where -9223372036854775808..=0;fn select(x:I)->I{match x{-17=>-9223372036854775808,_=>-0}}\n").unwrap();
+    let first = command().arg(&path).output().unwrap();
+    assert!(first.status.success(), "{first:?}");
+    let text = String::from_utf8(first.stdout.clone()).unwrap();
+    assert!(text.contains("-17 => -9223372036854775808"));
+    assert!(text.contains("_ => -0"));
+    fs::write(&path, &first.stdout).unwrap();
+    let second = command()
+        .arg(&path)
+        .arg("--check")
+        .output()
+        .unwrap();
+    assert!(second.status.success(), "{second:?}");
+}
+
+#[test]
 fn stdin_preserves_literal_bytes_and_file_inputs_are_bounded() {
     let mut child = command()
         .arg("-")

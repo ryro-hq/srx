@@ -19,7 +19,7 @@ pub(super) mod managed;
 
 pub(super) const MAX_OPERATIONS: usize = 1024;
 const MAX_FILES: usize = 32;
-const TEMP_PREFIX: &str = ".syrox-build.tmp.";
+pub(super) const TEMP_PREFIX: &str = ".syrox-build.tmp.";
 const AUTHORIZED: &[u8] = b"syrox-build-authorized\n";
 const REVOKED: &[u8] = b"syrox-build-revoked\n";
 const CLEANED: &[u8] = b"syrox-build-cleaned\n";

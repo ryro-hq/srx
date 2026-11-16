@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "qualified_on": "2026-11-02",
+  "scope": "production two-volume helper/client protocol and prepared System component workspace custody",
+  "execution": { "firmware": "OVMF UEFI", "accelerator": "TCG", "cpus": 2, "memory_bytes": 2147483648, "network": false, "host_shares": false, "host_block_devices": false, "direct_kernel_boot": false, "qemu_exit_code": 0, "normal_poweroff": true },
+  "inputs": {
+    "guest": { "path": ".syrox/test-tools/qemu/fedora-coreos-44.20260928.3.1-qemu.x86_64.qcow2", "sha256": "935e797efefe1380a8e325705504b56b1cb3fb34ac616b4c7591a9b99a096ba2", "role": "external fixed test environment, not an SRX-built system" },
+    "helper": { "path": ".syrox/qualified-workers/syrox-system-helper-2026-11-02-v3", "bytes": 4047776, "sha256": "4d7def7357daf815339742f78deeb205ce1009a253e3cb026c08aec8815e7eb1" },
+    "probe": { "path": ".syrox/qualified-workers/helper-probe-2026-11-02-v14", "bytes": 3937256, "sha256": "6ab525868dc0aa2823b781eac4829df02badc9f49810db686254df87118cb558" },
+    "engine_tests": { "path": ".syrox/qualified-workers/system-workspace-tests-2026-11-02-v3", "bytes": 91050536, "sha256": "a78e7f4bd7cd7fdea825a19b9892ebce1a5b4e1e46da0deb72cb4589faa4c341", "vendored_liblzma": true },
+    "test_executable_build": { "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)", "target": "x86_64-unknown-linux-gnu", "crt_static": true, "elf_interpreter": false, "needed_shared_libraries": false, "bootstrap": "development host toolchain; not qualified managed bootstrap" },
+    "payload": { "path": ".syrox/test-tools/qemu/helper-tools-20261102-v14.ext4", "bytes": 402653184, "sha256": "ec84c82ff0094fe7982e424782c4bc61c56c3b20166ea82a9ed1c35cb0c660f5", "unchanged_after_vm": true },
+    "ignition": { "path": ".syrox/test-tools/qemu/helper-probe-v14.ign", "sha256": "d6e4e29fbbbb508b28919d82fa25952f4cb44822a39ec28eebc57cd34d7a527b" },
+    "virtual_plan_disk": { "path": ".syrox/test-tools/qemu/helper-plan-data-v14.raw", "bytes": 4294967296, "sha256": "8479e43911dc45e89f934fe48d01297e16f51d17aa561d4d1c216b1ae0fcddca", "unchanged_after_vm": true },
+    "formatter_sha256": "59935ec5c57f7f3b2e5ef1119d7480275264a9f5adecb862b7bd2ae813fd83ec",
+    "checker_sha256": "da1f6de6ac3a2efd7fc6d2581199ce7109a22dee7843ce923e4111a92666a95a",
+    "unchanged_cli_sha256": "219e77561642ae44a309e429cecd26f7c72c198bc65155e7dc147e72f2b05154"
+  },
+  "workspace": { "client_uid": 1000, "client_gid": 1000, "scratch_image_bytes": 67108864, "output_image_bytes": 134217728, "admitted_files": 1024, "scratch_total_inodes": 336, "output_total_inodes": 672, "root_policy_maxima_differ_from_caller_policy": true, "control_endpoint_parent": "/run", "socket_mode": "0660" },
+  "results": {
+    "distinct_cases": 59,
+    "previous_helper_and_primitive_cases": 43,
+    "new_cases": ["grant", "grant-second", "engine-inputs", "terminal-second", "budget-refused", "disconnect", "legacy-inspect", "inspect", "wrong-hash", "recover", "terminal", "retain", "inspect-retained", "recover-blocked", "inspect-after-retained", "recover-after-retained"],
+    "prepared_component_action_sha256": "7952d80f4f239a54e23f4a797eefa2457a190f46adc27856bd0baddafd9bfcaf",
+    "prepared_component_checks": ["explicit declaration lock", "authenticated source/action preparation", "real two-image helper grant", "ordered root export", "both roots written/read/fsynced", "Store GC while custody and workspace are held", "input revalidation after GC", "external root copies closed before release", "two-image release receipt", "no local build attempt or receipt"],
+    "recovery_images_unchanged": true,
+    "final_markers": ["SRX_HELPER_ACTIVATION_PROBE_OK", "SRX_WORKSPACE_PROBE_OK", "SRX_SYSTEM_COMPONENT_WORKSPACE_OK", "SRX_WORKSPACE_RPC_PROBE_OK", "SRX_HELPER_PROBE_OK"]
+  },
+  "evidence": { "serial_log": ".syrox/work-logs/helper-probe-vm-v14.log", "serial_sha256": "2a0d63f36a5956e71f350a30e7ab5740fd85e84a0d1384741eedbff4aa2621c7", "source_snapshot": ".syrox/qualified-workers/workspace-rpc-sources-2026-11-02-v14", "source_snapshot_scope": "syrox-system crate, System engine sources and Cargo manifests; partial development snapshot, not a complete bootstrap attestation", "failed_attempts": ["system-workspace-rpc-v12-unqualified.json", "system-workspace-rpc-v13-unqualified.json"] },
+  "not_qualified": ["complete System recipe execution and all runtime budgets", "authenticated worker/manager gate and FDSTORE custody", "System build receipts and CLI build", "cross-reset recovery", "managed source bootstrap", "SRX-built bootable system", "provisioning", "A/B generations", "distribution adoption", "signed system publication"]
+}

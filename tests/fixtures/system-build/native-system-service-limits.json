@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "date": "2026-10-23",
+  "scope": "native_nonroot_system_action_service_limit_mapping_and_live_readback",
+  "command": ".syrox/qualified-workers/system-service-limits-2026-10-23-v1 /run/user/1000/bus /home/fullzer4/Work/Ryro/syrox/.syrox/system-service-limits-probe-v3",
+  "exit": 0,
+  "development_toolchain": "rustc 1.98.1 (48a229cea 2026-09-01); host toolchain, not an SRX-qualified bootstrap",
+  "binary": {
+    "path": ".syrox/qualified-workers/system-service-limits-2026-10-23-v1",
+    "bytes": 5889560,
+    "sha256": "71069ea6a2bc3719afa9711f7e8d63fb46cb7f71dcd16fcf97254cc6a43da37f",
+    "uses_development_host_dynamic_loader_and_libraries": true
+  },
+  "harness_source": {
+    "path": "crates/syrox-engine/examples/system_service_limits.rs",
+    "bytes": 10522,
+    "sha256": "9f1758a4da781ee4e36702d6f5a66c928b52c46d1f6323bf0672c3062f186365",
+    "complete_source_snapshot_attestation": false
+  },
+  "adapter_sources": [
+    {
+      "path": "crates/syrox-engine/src/build/system/limits.rs",
+      "bytes": 5984,
+      "sha256": "da85dbc005bb7ffa67a0c48a8aade9c00996ac27ebea9b0ace0c901cb3b6daa6"
+    },
+    {
+      "path": "crates/syrox-engine/src/build/system/records.rs",
+      "bytes": 7887,
+      "sha256": "a23162855400d2e02d4c63ccab0f51d690ffaa5cde769e40266ab3ab21442a43"
+    }
+  ],
+  "action": {
+    "path": ".syrox/system-service-limits-probe-v3/action",
+    "bytes": 697,
+    "sha256": "bdb7f1762cd748fddb23a9ee47b31d8c80c1691cb3b92245ef431fff4479bee2"
+  },
+  "requested_budget": {
+    "cpu_percent": 125,
+    "descriptors": 64,
+    "duration_seconds": 30,
+    "files": 4096,
+    "memory_bytes": 134217728,
+    "output_bytes": 8388608,
+    "processes": 16,
+    "scratch_bytes": 16777216
+  },
+  "observed_kernel": {
+    "cpu_max": [
+      125000,
+      100000
+    ],
+    "memory_max": 134217728,
+    "pids_max": 16,
+    "swap_max": 0
+  },
+  "observed_process_limits": {
+    "nofile": [
+      64,
+      64
+    ],
+    "fsize": [
+      16777216,
+      16777216
+    ],
+    "core": [
+      0,
+      0
+    ]
+  },
+  "unit": "syrox-system-limits-89985-1792771892001147430.service",
+  "manager_sha256": "d60b541854a0a4c4f858a380eb1c4b2dd08bd77e1a4cdacdb1fd35b987466395",
+  "contract_sha256": "a1ba56e49230772cfbf806e3269853b64f566b2d4d8a1441444734514f6ef22e",
+  "start_and_stop_jobs": "Observed Done; live invocation PID/cgroup and manager contract bracketed; no live unit after stop",
+  "evidence": {
+    "report": {
+      "path": ".syrox/system-service-limits-probe-v3/report.json",
+      "bytes": 1337,
+      "sha256": "333a745f6af9888d2f02534a23a62a06ebadff4a0c89d573553a9c1987dd9d53"
+    },
+    "child_report": {
+      "path": ".syrox/system-service-limits-probe-v3/child.json",
+      "bytes": 280,
+      "sha256": "5e39dec7a59fabc727da727a99bdd17984de3d69e8df6fdbf8ea06af867bf0f1"
+    },
+    "native_log": {
+      "path": ".syrox/work-logs/system-service-limits-native-v3.log",
+      "bytes": 94,
+      "sha256": "fd1649092e24cb8810f0dddb3fe7e3e47ef68148b28dcf8a6ff3bb98b797c840"
+    }
+  },
+  "previous_attempts": [
+    {
+      "log": ".syrox/work-logs/system-service-limits-native-v1.log",
+      "result": "sandbox denied Unix socket; no unit started"
+    },
+    {
+      "log": ".syrox/work-logs/system-service-limits-native-v2.log",
+      "result": "passed before two lint-only source changes; final frozen binary qualified separately in v3"
+    }
+  ],
+  "limits_of_qualification": {
+    "capacity_values_are_diagnostic_selections": true,
+    "kernel_and_child_readbacks_independently_matched": true,
+    "runtime_duration_manager_property_observed_seconds": 30,
+    "runtime_deadline_expiration_or_resource_exhaustion_tested": false,
+    "scratch_disk_and_inode_enforcement_qualified": false,
+    "all_eight_runtime_budget_dimensions_qualified": false,
+    "system_recipe_executed": false,
+    "worker_image_authentication_qualified": false,
+    "build_receipt_created": false,
+    "own_toolchain_qualified": false,
+    "kernel_or_boot_qualified": false,
+    "physical_devices_or_host_boot_modified": false,
+    "complete_system_qualified": false
+  }
+}

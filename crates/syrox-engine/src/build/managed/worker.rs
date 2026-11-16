@@ -137,7 +137,8 @@ pub fn inspect_managed_build_worker(
         &mut files,
         cancellation,
         deadline,
-    )?;
+    )?
+    .0;
     let description = Action::parse(&action_bytes)?;
     if description.digest() != action
         || description.program.profile != BuildProfile::Managed
@@ -154,7 +155,8 @@ pub fn inspect_managed_build_worker(
         &mut files,
         cancellation,
         deadline,
-    )?;
+    )?
+    .0;
     if program != description.program.encode() {
         return Err(BuildError::InputChanged);
     }
@@ -170,8 +172,9 @@ pub fn inspect_managed_build_worker(
         &mut files,
         cancellation,
         deadline,
-    )?;
-    if ContentDigest::sha256(&source) != description.source {
+    )?
+    .1;
+    if source != description.source {
         return Err(BuildError::InputChanged);
     }
     let worker = pin_file(
@@ -182,7 +185,8 @@ pub fn inspect_managed_build_worker(
         &mut files,
         cancellation,
         deadline,
-    )?;
+    )?
+    .0;
     if ContentDigest::sha256(&worker) != description.worker {
         return Err(BuildError::InputChanged);
     }
@@ -215,13 +219,21 @@ fn pin_file(
     files: &mut Vec<PinnedStageFile>,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<Vec<u8>, BuildError> {
+) -> Result<(Vec<u8>, ContentDigest), BuildError> {
     let file = linux_fd::open_existing_regular(stage.fd(), Path::new(name))?;
     let size = file.metadata().size();
     if size > maximum {
         return Err(BuildError::InvalidRequest);
     }
-    let (bytes, digest) = read_file(&file, size, mode, true, cancellation, deadline)?;
+    // Source is verified by digest; the other fixed protocol roles are decoded.
+    let (bytes, digest) = read_file(
+        &file,
+        size,
+        mode,
+        name != "source",
+        cancellation,
+        deadline,
+    )?;
     let reopened = linux_fd::open_existing_regular(stage.fd(), Path::new(name))?;
     if reopened.metadata().identity() != file.metadata().identity() {
         return Err(BuildError::InputChanged);
@@ -233,7 +245,7 @@ fn pin_file(
         size,
         mode,
     });
-    Ok(bytes)
+    Ok((bytes, digest))
 }
 fn read_file(
     pinned: &linux_fd::OpenedPath,

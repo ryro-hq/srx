@@ -81,6 +81,45 @@ fn project_command(arguments: &[&str]) -> Output {
         .expect("srx should start")
 }
 
+#[test]
+fn services_is_the_public_command_namespace_and_os_is_rejected_without_effects() {
+    let home = tempfile::tempdir().unwrap();
+    for (arguments, expected_code) in [
+        (vec!["--help"], 0),
+        (vec!["services", "--help"], 0),
+        (vec!["os", "status", "--profile", "web"], 2),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_srx"))
+            .args(&arguments)
+            .current_dir(home.path())
+            .env("HOME", home.path())
+            .env("XDG_CONFIG_HOME", home.path().join("config"))
+            .env("XDG_STATE_HOME", home.path().join("state"))
+            .env("XDG_DATA_HOME", home.path().join("data"))
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(expected_code),
+            "{output:?}"
+        );
+        if expected_code == 0 {
+            let help = String::from_utf8(output.stdout).unwrap();
+            assert!(help.contains("services"), "{help}");
+            assert!(
+                !help.lines().any(|line| line.starts_with("  os ")),
+                "{help}"
+            );
+        } else {
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains("unrecognized subcommand 'os'")
+            );
+            assert!(output.stdout.is_empty());
+        }
+    }
+    assert_eq!(std::fs::read_dir(home.path()).unwrap().count(), 0);
+}
+
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures")
@@ -165,7 +204,7 @@ fn check_reports_success_and_language_errors_with_distinct_exit_codes() {
         fixture("valid.srx").to_str().unwrap(),
     ]);
     assert!(valid.status.success());
-    assert!(String::from_utf8_lossy(&valid.stdout).contains("16 top-level declaration(s)"));
+    assert!(String::from_utf8_lossy(&valid.stdout).contains("17 top-level declaration(s)"));
 
     let without_std = run(&[
         "--std",
@@ -226,7 +265,7 @@ fn check_accepts_project_directories_and_reports_loader_errors() {
         "{}",
         String::from_utf8_lossy(&valid.stderr)
     );
-    assert!(String::from_utf8_lossy(&valid.stdout).contains("16 top-level declaration(s)"));
+    assert!(String::from_utf8_lossy(&valid.stdout).contains("17 top-level declaration(s)"));
 
     let invalid = project_command(&[
         "check",

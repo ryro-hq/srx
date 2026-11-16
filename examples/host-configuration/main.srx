@@ -1,0 +1,14 @@
+outputs {
+    host: HostConfiguration = HostConfiguration {
+        sysctls = [std::system::SysctlSetting {
+                name = "vm.swappiness";
+                value = "10";
+            }];
+        modules = [];
+        mounts = [];
+        services = Services {
+            pkgs = [];
+            services = [];
+        };
+    };
+}

@@ -16,6 +16,7 @@ pub(crate) mod namespace_protocol;
 pub(crate) mod preparation;
 pub(crate) mod resources;
 pub(crate) mod retention_protocol;
+pub(in crate::build) mod source;
 pub(crate) mod supervision;
 pub(crate) mod transfer;
 pub(crate) mod worker;

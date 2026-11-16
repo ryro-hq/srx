@@ -45,7 +45,7 @@ fn text(path: &Path) -> io::Result<CString> {
     CString::new(path.as_os_str().as_bytes()).map_err(io::Error::other)
 }
 
-fn mount(
+pub(crate) fn mount(
     source: Option<&Path>,
     target: &Path,
     kind: Option<&std::ffi::CStr>,
@@ -634,6 +634,11 @@ fn prepare_request_filesystem(
     if let Some(null) = null {
         environment::validate_cwd(&request.cwd)?;
         environment::mount(root, null.as_fd(), tty.as_ref())?;
+    } else {
+        // Direct application profiles also need the conventional null device.
+        // Keep their existing identity, mount and session authority unchanged.
+        let null = environment::open_null()?;
+        environment::mount_null(root, null.as_fd())?;
     }
     drop(tty);
     mount_request_bindings(root, request, managed_environment)?;
@@ -746,7 +751,7 @@ fn mount_request_bindings(
     Ok(())
 }
 
-fn close_inherited_descriptors(kept: &[i32]) -> io::Result<()> {
+pub(crate) fn close_inherited_descriptors(kept: &[i32]) -> io::Result<()> {
     let mut kept: Vec<_> = kept
         .iter()
         .copied()

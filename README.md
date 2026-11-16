@@ -32,6 +32,24 @@ or building.
 
 Syrox is experimental and currently targets Linux.
 
+`srx system inspect --builder-directory /existing/scratch --json` also reports
+filesystem capacity and observed project quotas without creating the directory
+or changing quotas; see [system builders](docs/system-builders.md).
+
+`srx system inspect --json` reports read-only kernel, disk identity, partition,
+storage topology and mount-namespace observations. It needs no project, Store or
+external utilities. Full-system builds and provisioning are still being
+implemented in the [Linux system roadmap](docs/design/linux-system-management.md).
+
+`srx system plan ./project#host --json` compares a locked `System` or
+`HostConfiguration` with read-only Linux observations, including selected sysctls
+and a System storage binding attempt. [System declarations](docs/system-declarations.md)
+explain unresolved checks and the separate authority needed to apply changes.
+
+The image libraries compose authenticated initramfs, dm-verity trees, GPT RAW and qcow2
+streams in the chunked Store; see [system images](docs/system-images.md) for their
+contracts and verified limits. Bootable system images remain under implementation.
+
 ## The language
 
 See the [language reference](docs/language.md) for checked, executable examples
@@ -188,13 +206,13 @@ srx services logs nginx --profile web --follow
 srx services stop --profile web
 ```
 
-Existing projects and scripts must follow the
-[Services migration](docs/migrations/services.md) to replace `Os` and `srx os`
-and explicitly refresh standard-library locks.
-
 See [installation profiles](docs/os-profiles.md) for ownership, rollback,
 recovery and Linux requirements, and [artifact selection](docs/artifacts.md)
 for automatic consumption of explicitly authorized local bundles.
+
+Existing projects and scripts must follow the
+[Services migration](docs/migrations/services.md) to replace `Os` and `srx os`
+and explicitly refresh standard-library locks.
 
 Package modules use ordinary `if`, `==`/`!=`, literal `match` and static traits.
 `package_traits::Package` associates an implementation with `Settings`,

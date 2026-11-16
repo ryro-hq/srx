@@ -4,6 +4,19 @@ use std::ffi::OsStr;
 use std::fs;
 use std::os::unix::fs::MetadataExt as _;
 
+#[derive(Clone, Copy)]
+pub(super) struct TransferLimits {
+    pub entries: usize,
+    pub bytes: u64,
+}
+impl TransferLimits {
+    fn legacy(resources: super::super::BuildResources) -> Self {
+        Self {
+            entries: crate::acquire::archive::MAX_LARGE_ARCHIVE_ENTRIES,
+            bytes: resources.envelope().work_tmpfs,
+        }
+    }
+}
 struct Budget {
     entries: usize,
     bytes: u64,
@@ -11,12 +24,12 @@ struct Budget {
     maximum_bytes: u64,
 }
 impl Budget {
-    fn new(resources: super::super::BuildResources) -> Self {
+    fn new(limits: TransferLimits) -> Self {
         Self {
             entries: 0,
             bytes: 0,
-            maximum_entries: crate::acquire::archive::MAX_LARGE_ARCHIVE_ENTRIES,
-            maximum_bytes: resources.envelope().work_tmpfs,
+            maximum_entries: limits.entries,
+            maximum_bytes: limits.bytes,
         }
     }
     fn entry(&mut self, depth: usize, bytes: u64) -> Result<(), BuildError> {
@@ -40,6 +53,22 @@ pub(in crate::build) fn transfer(
     destination: &Path,
     moving: bool,
     resources: super::super::BuildResources,
+    check: &mut dyn FnMut() -> io::Result<()>,
+) -> Result<(), BuildError> {
+    transfer_bounded(
+        source,
+        destination,
+        moving,
+        TransferLimits::legacy(resources),
+        check,
+    )
+}
+
+pub(super) fn transfer_bounded(
+    source: &Path,
+    destination: &Path,
+    moving: bool,
+    limits: TransferLimits,
     check: &mut dyn FnMut() -> io::Result<()>,
 ) -> Result<(), BuildError> {
     check()?;
@@ -81,7 +110,7 @@ pub(in crate::build) fn transfer(
             return Err(BuildError::Output);
         }
     }
-    let mut budget = Budget::new(resources);
+    let mut budget = Budget::new(limits);
     // Validate the entire source even for the constant-time rename fast path.
     scan(
         &source_parent,
@@ -108,7 +137,7 @@ pub(in crate::build) fn transfer(
         &target_parent,
         &target_name,
         0,
-        &mut Budget::new(resources),
+        &mut Budget::new(limits),
         check,
     )?;
     if moving {
@@ -116,7 +145,7 @@ pub(in crate::build) fn transfer(
             &source_parent,
             &source_name,
             0,
-            &mut Budget::new(resources),
+            &mut Budget::new(limits),
             check,
         )?;
     }

@@ -50,12 +50,21 @@ fn init_binds_identity_without_building_and_recorded_commands_work_offline() {
     assert_eq!(report["manager_verified"], false);
     let path = home.path().join("config/syrox/os/web.json");
     let profile = syrox_engine::deployment::os::profile::read_os_profile(&path).unwrap();
+    assert_eq!(profile.version, 1);
     assert_eq!(report["installation"], profile.installation_id);
+    let original_profile = std::fs::read(&path).unwrap();
     assert!(!profile.store.exists());
     assert_eq!(
         std::fs::read_dir(&profile.units).unwrap().count(),
         0
     );
+    // Recorded operations must still work for an installation whose project
+    // has not yet migrated its old type or standard-library lock.
+    std::fs::write(
+        project.join("main.srx"),
+        "outputs { os: Os = Os { pkgs = []; services = []; }; }",
+    )
+    .unwrap();
     let status = success(
         home.path(),
         &[
@@ -95,6 +104,7 @@ fn init_binds_identity_without_building_and_recorded_commands_work_offline() {
         )["changed"],
         false
     );
+    assert_eq!(std::fs::read(&path).unwrap(), original_profile);
     let before = std::fs::read(&path).unwrap();
     assert!(
         !run(

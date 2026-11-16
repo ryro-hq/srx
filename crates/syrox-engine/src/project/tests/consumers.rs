@@ -35,7 +35,7 @@ fn service_with_files(id: &str, paths: &[&str]) -> String {
 }
 
 #[test]
-fn empty_os_and_shell_are_distinct_pure_consumers() {
+fn empty_services_and_shell_are_distinct_pure_consumers() {
     let plan = package_plan(
         r"
         use std::{Services, Shell};
@@ -76,6 +76,18 @@ fn empty_os_and_shell_are_distinct_pure_consumers() {
     assert_eq!(plan.packages().len(), 0);
     assert_eq!(plan.builds().len(), 0);
     assert_eq!(plan.commands().len(), 0);
+}
+
+#[test]
+fn removed_os_contract_is_not_an_alias_for_services() {
+    for contract in ["Os", "std::Os", "std::deployment::Os"] {
+        let source =
+            format!("outputs {{ os: {contract} = {contract} {{ pkgs = []; services = []; }}; }}");
+        assert!(matches!(
+            package_plan(&source),
+            Err(ProjectOperationError::Check(_))
+        ));
+    }
 }
 
 #[test]
@@ -836,12 +848,12 @@ fn process_restart_is_explicit_bounded_and_os_only() {
             Err(ProjectOperationError::Plan(_))
         ));
     }
-    // A standalone '-' is not a language token: negative text is rejected
-    // during source checking, before restart policy projection.
+    // Negative integer literals are valid syntax; restart policy projection
+    // rejects them as outside the admitted limits.
     let negative = "restart = std::ProcessRestart::OnFailure(std::RestartLimits { delay_seconds = -1; window_seconds = 1; burst = 1; });";
     let error = package_plan(&restart_source(negative, "Services")).unwrap_err();
     assert!(
-        matches!(error, ProjectOperationError::Check(_)),
+        matches!(error, ProjectOperationError::Plan(_)),
         "{error}"
     );
     for missing in [

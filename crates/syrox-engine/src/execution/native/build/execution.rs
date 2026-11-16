@@ -6,7 +6,7 @@ use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
 use std::process::{Command, Stdio};
 
 use super::super::{checked, process, signals::SignalFd};
-use super::{BuildCapture, NamespaceLayout};
+use super::BuildCapture;
 
 pub(super) struct Writers {
     pub artifacts: File,
@@ -84,18 +84,14 @@ pub(super) fn null_stdio(null: BorrowedFd<'_>) -> io::Result<()> {
 }
 
 pub(super) fn execute(
-    layout: &NamespaceLayout,
+    arguments: &[String],
     signals: &SignalFd,
     mut acknowledged: UnixStream,
     writers: Writers,
 ) -> io::Result<i32> {
     let mut command = Command::new("/syrox-worker");
     command
-        .args([
-            "__build-managed-worker",
-            &layout.source_directory,
-            &layout.action.to_string(),
-        ])
+        .args(arguments)
         .env_clear()
         .current_dir("/work")
         .stdin(Stdio::from(

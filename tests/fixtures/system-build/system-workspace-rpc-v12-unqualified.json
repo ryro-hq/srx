@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "date": "2026-11-02",
+  "qualified": false,
+  "scope": "attempt to run production two-volume helper tests in a disposable guest",
+  "execution": { "accelerator": "TCG", "cpus": 1, "memory_bytes": 2147483648, "firmware_disk_boot": true, "direct_kernel_boot": false, "network": false, "host_shares": false, "host_block_devices": false },
+  "probe_sha256": "1dabe9a1768ee301e3dd9e79644dc088a9af6a60572c7b4a988606586edec790",
+  "helper_sha256": "4d7def7357daf815339742f78deeb205ce1009a253e3cb026c08aec8815e7eb1",
+  "payload": { "path": ".syrox/test-tools/qemu/helper-tools-20261102-v12.ext4", "sha256": "7536f5d0441333a856cdc0ddd803a26b9e7c4ba91e5995ddad9cdc97c1e31b61", "unchanged_after_attempt": true },
+  "ignition": { "path": ".syrox/test-tools/qemu/helper-probe-v12.ign", "sha256": "d6e4e29fbbbb508b28919d82fa25952f4cb44822a39ec28eebc57cd34d7a527b" },
+  "failure": "guest device-discovery timeouts for the tools disk, boot device and ttyS0 prevented the SRX probe service from starting",
+  "srx_test_cases_run": 0,
+  "normal_poweroff": false,
+  "termination": "explicit interrupt after dependency failure; exec session returned 130",
+  "concurrent_host_work": "engine test compilation, Clippy and rustdoc ran during part of guest boot; no claim that this caused the failure",
+  "serial_log": ".syrox/work-logs/helper-probe-vm-v12.log",
+  "serial_sha256": "46135a46eabd8223581f9c569d56ac8bc1492a04f8f9827fad7df4bad0a8d691",
+  "retry": "new disposable OS snapshot, variables, data disk, temporary directory and log; same immutable payload/driver/helper, two TCG CPUs and no concurrent compilation"
+}

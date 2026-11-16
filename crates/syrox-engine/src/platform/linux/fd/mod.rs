@@ -33,8 +33,8 @@ pub(crate) use process::{
     proc_self_pid, real_gid, real_uid, require_unique_pidfd, validate_pidfd, wait_pidfd,
 };
 pub(crate) use syrox_system::descriptor::{
-    FlockMode, flock, open_path, receive_fd, require_readonly, send_fd, seqpacket_pair,
-    status_flags,
+    FlockMode, flock, open_path, peer_credentials, receive_fd, require_readonly, send_fd,
+    seqpacket_pair, status_flags,
 };
 mod group_pidfd;
 mod launch;

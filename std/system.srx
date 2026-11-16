@@ -1,0 +1,227 @@
+pub mod std::system {
+    // These values describe desired state. Evaluation never opens devices,
+    // resolves credentials, builds components or grants privileged authority.
+    pub value SystemName(str);
+    pub value SystemPath(str);
+    pub value SystemText(str);
+    pub value SystemBytes(int);
+    pub value SystemCount(int);
+    pub value SystemSeconds(int);
+    pub value SystemUserId(int);
+    pub value SystemMode(int);
+    pub value CredentialReference(str);
+    pub enum SystemPlatform {
+        LinuxX86_64
+    }
+    pub struct SystemBuildBudget {
+        memory_bytes: SystemBytes;
+        cpu_percent: SystemCount;
+        processes: SystemCount;
+        descriptors: SystemCount;
+        scratch_bytes: SystemBytes;
+        files: SystemCount;
+        output_bytes: SystemBytes;
+        duration_seconds: SystemSeconds;
+    }
+    pub struct SystemFileSource {
+        output: OutputRef<Recipe>;
+        path: SystemPath;
+    }
+    pub value KernelSymbol(str);
+    pub value KernelRelease(str);
+    pub value KernelArgument(str);
+    pub value KernelInteger(int);
+    pub enum KernelTristate {
+        Disabled,
+        Module,
+        Builtin
+    }
+    pub enum KconfigValue {
+        Boolean(Bool),
+        Tristate(KernelTristate),
+        Integer(KernelInteger),
+        Hexadecimal(SystemText),
+        Text(SystemText)
+    }
+    pub struct KernelOption {
+        symbol: KernelSymbol;
+        value: KconfigValue;
+    }
+    pub struct ModuleParameter {
+        name: SystemName;
+        value: SystemText;
+    }
+    pub struct KernelModule {
+        name: SystemName;
+        parameters: [ModuleParameter] = [];
+    }
+    pub struct SysctlSetting {
+        name: SystemName;
+        value: SystemText;
+    }
+    pub struct Kernel {
+        image: SystemFileSource;
+        modules: OutputRef<Recipe>;
+        headers: OutputRef<Recipe>;
+        configuration: SystemFileSource;
+        release: KernelRelease;
+        kconfig: [KernelOption] = [];
+        command_line: [KernelArgument] = [];
+        load: [KernelModule] = [];
+        sysctls: [SysctlSetting] = [];
+    }
+    pub value StorageNodeId(str);
+    pub struct DiskSelector {
+        wwid: Option<SystemText> = Option::None;
+        serial: Option<SystemText> = Option::None;
+    }
+    pub enum PartitionKind {
+        Esp,
+        LinuxData
+    }
+    pub enum RaidLevel {
+        Raid1,
+        Raid10
+    }
+    pub enum FilesystemKind {
+        Ext4,
+        Fat32
+    }
+    pub struct DiskResource {
+        selector: DiskSelector;
+    }
+    pub struct PartitionResource {
+        disk: StorageNodeId;
+        start_bytes: SystemBytes;
+        size_bytes: SystemBytes;
+        partition_kind: PartitionKind;
+    }
+    pub struct RaidResource {
+        members: [StorageNodeId];
+        level: RaidLevel;
+        usable_bytes: SystemBytes;
+    }
+    pub struct Luks2Resource {
+        source: StorageNodeId;
+        credential: CredentialReference;
+        usable_bytes: SystemBytes;
+    }
+    pub struct VolumeGroupResource {
+        sources: [StorageNodeId];
+        usable_bytes: SystemBytes;
+    }
+    pub struct LogicalVolumeResource {
+        group: StorageNodeId;
+        size_bytes: SystemBytes;
+    }
+    pub struct FilesystemResource {
+        source: StorageNodeId;
+        filesystem: FilesystemKind;
+    }
+    pub struct MountResource {
+        filesystem: StorageNodeId;
+        target: SystemPath;
+        read_only: Bool;
+    }
+    pub enum StorageResource {
+        Disk(DiskResource),
+        Partition(PartitionResource),
+        Raid(RaidResource),
+        Luks2(Luks2Resource),
+        VolumeGroup(VolumeGroupResource),
+        LogicalVolume(LogicalVolumeResource),
+        Filesystem(FilesystemResource),
+        Mount(MountResource)
+    }
+    pub struct StorageNode {
+        id: StorageNodeId;
+        device: StorageResource;
+    }
+    pub enum DataCompatibility {
+        Shared,
+        Versioned(SystemName)
+    }
+    pub struct PersistentVolume {
+        filesystem: StorageNodeId;
+        target: SystemPath;
+        compatibility: DataCompatibility;
+    }
+    pub struct SystemStorage {
+        nodes: [StorageNode];
+        esp: [StorageNodeId];
+        root_a: StorageNodeId;
+        root_b: StorageNodeId;
+        persistent: [PersistentVolume];
+    }
+    pub struct SystemUser {
+        name: SystemName;
+        uid: SystemUserId;
+        gid: SystemUserId;
+        home: SystemPath;
+        shell: SystemPath;
+        authorized_keys: [SystemText] = [];
+        password: Option<CredentialReference> = Option::None;
+    }
+    pub struct SystemIdentity {
+        hostname: SystemName;
+        users: [SystemUser];
+    }
+    // Initial platform: UEFI, systemd-boot, signed UKI, dm-verity and A/B roots.
+    // Credentials are private references, never key bytes in a plan or Store.
+    pub struct SystemBoot {
+        signing_credential: CredentialReference;
+        attempts: SystemCount;
+    }
+    pub struct SystemHealth {
+        timeout_seconds: SystemSeconds;
+        essential_services: [ServiceId];
+        require_network: Bool;
+    }
+    pub struct SystemDirectory {
+        path: SystemPath;
+        uid: SystemUserId;
+        gid: SystemUserId;
+        mode: SystemMode;
+    }
+    pub struct SystemExposure {
+        source: SystemFileSource;
+        destination: SystemPath;
+        uid: SystemUserId;
+        gid: SystemUserId;
+        mode: SystemMode;
+    }
+    pub struct SystemLink {
+        path: SystemPath;
+        target: SystemPath;
+        uid: SystemUserId;
+        gid: SystemUserId;
+    }
+    pub struct System {
+        platform: SystemPlatform;
+        kernel: Kernel;
+        userspace: [OutputRef<Recipe>];
+        identity: SystemIdentity;
+        directories: [SystemDirectory];
+        exposures: [SystemExposure];
+        links: [SystemLink];
+        boot: SystemBoot;
+        storage: SystemStorage;
+        services: Services;
+        health: SystemHealth;
+        budget: SystemBuildBudget;
+    }
+    pub struct HostMount {
+        filesystem_uuid: SystemText;
+        target: SystemPath;
+        filesystem: FilesystemKind;
+        read_only: Bool;
+    }
+    // Each list is an explicit ownership selection, never a distribution root.
+    pub struct HostConfiguration {
+        sysctls: [SysctlSetting] = [];
+        modules: [KernelModule] = [];
+        mounts: [HostMount] = [];
+        services: Services;
+        kernel: Option<Kernel> = Option::None;
+    }
+}

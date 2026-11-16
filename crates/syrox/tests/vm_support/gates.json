@@ -600,6 +600,30 @@
     "reason": "internal subprocess fixture; selected explicitly with --ignored by parent assertions: execution::native::terminal_custody::tests::frontend_death_between_raw_and_activation_restores_in_surviving_session"
   },
   {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "build::system::tests::resources::transfer::transport_child",
+    "category": "fixture",
+    "group": "build",
+    "reason": "subprocess fixture invoked only by batched_transfer_to_a_distinct_process_retains_inputs_through_parent_gc"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "build::system::tests::scratch::disposable_vm_system_scratch_uses_prepared_action_and_private_helper",
+    "category": "external",
+    "group": "build",
+    "reason": "requires the marked disposable QEMU guest and explicitly activated private root scratch helper"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
+    "name": "build::system::tests::scratch::disposable_vm_system_workspace_retains_prepared_inputs_through_gc_and_release",
+    "category": "external",
+    "group": "build",
+    "reason": "requires the marked disposable QEMU guest and an explicitly selected two-volume root helper"
+  },
+  {
     "package": "syrox",
     "target": "shell",
     "name": "interactive::anchor_process",
@@ -614,5 +638,45 @@
     "category": "fixture",
     "group": "shell",
     "reason": "internal subprocess fixture; selected explicitly with --ignored by parent assertions: interactive::stop_exit::root_exit_between_protocol_pause_and_frontend_sigstop_restores_terminal"
+  },
+  {
+    "package": "syrox-system",
+    "target": "lib",
+    "name": "disk::tests::util_linux_recognizes_both_logical_sector_sizes_and_recovers_the_backup_table",
+    "category": "external",
+    "group": "system",
+    "reason": "set SRX_SFDISK and SRX_SFDISK_SHA256; only reads disposable regular images"
+  },
+  {
+    "package": "syrox-system",
+    "target": "lib",
+    "name": "ext4_tool::tests::collector_child",
+    "category": "fixture",
+    "group": "system",
+    "reason": "subprocess fixture spawned only by the ext4 collector tests through collector_fixture"
+  },
+  {
+    "package": "syrox-system",
+    "target": "lib",
+    "name": "ext4_tool::tests::filter_permits_pinned_static_rust_startup",
+    "category": "external",
+    "group": "system",
+    "reason": "set SRX_TOOL_STARTUP_EXECUTABLE and SRX_TOOL_STARTUP_SHA256"
+  },
+  {
+    "package": "syrox-system",
+    "target": "lib",
+    "name": "qcow2::tests::qemu_checks_refcounts_and_decodes_byte_identical_raw_content",
+    "category": "external",
+    "group": "system",
+    "reason": "set SRX_QEMU_IMG and SRX_QEMU_IMG_SHA256; uses disposable regular images only"
+  },
+  {
+    "package": "syrox-system",
+    "target": "lib",
+    "name": "verity::tests::upstream_veritysetup_accepts_byte_identical_trees_and_rejects_corruption",
+    "category": "external",
+    "group": "system",
+    "reason": "set SRX_VERITYSETUP and SRX_VERITYSETUP_SHA256; formats and verifies disposable regular images only"
   }
 ]

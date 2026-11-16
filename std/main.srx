@@ -5,6 +5,10 @@ mod std {
     }
     pub use option::Option;
     pub use result::Result;
+    pub use system::{
+        System,
+        HostConfiguration
+    };
     // Pure deployment plans; activation and process supervision are separate consumers.
     pub use deployment::{
         Services,

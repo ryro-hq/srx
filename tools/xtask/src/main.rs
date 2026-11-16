@@ -130,6 +130,8 @@ fn suite(name: &str) -> Result {
                     "--test",
                     "os_profiles",
                     "--test",
+                    "system",
+                    "--test",
                     "usability",
                     "--test",
                     "format",

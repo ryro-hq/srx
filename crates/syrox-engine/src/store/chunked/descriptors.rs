@@ -107,7 +107,6 @@ pub struct ChunkedDescriptorReader {
 }
 
 impl ChunkedDescriptorReader {
-    #[allow(dead_code, reason = "read by System component preparation")]
     pub(crate) const fn manifest(&self) -> &ChunkedArtifactManifest {
         &self.manifest
     }

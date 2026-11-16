@@ -1,0 +1,46 @@
+fn component() -> std::Recipe { std::Recipe {
+    package = std::Package { id = "plan-fixture-component"; dependencies = []; };
+    imported = std::Option::Some(std::ImportedResult {
+        root = "fixture_component";
+        manifest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        entries = [std::ImportedOutput { output = "out"; key = "data"; }];
+    });
+} }
+let selected = std::recipe_ref(component);
+let selected_output = std::recipe_output(selected, "out");
+outputs {
+    system: std::System = std::System {
+        platform = std::system::SystemPlatform::LinuxX86_64;
+        kernel = std::system::Kernel {
+            image = std::system::SystemFileSource { output = selected_output; path = "boot/vmlinuz"; };
+            modules = selected_output;
+            headers = selected_output;
+            configuration = std::system::SystemFileSource { output = selected_output; path = "boot/config"; };
+            release = "6.18.57-srx-plan-fixture";
+            kconfig = [];
+            command_line = ["console=ttyS0"];
+            sysctls = [std::system::SysctlSetting { name = "vm.swappiness"; value = "10"; }];
+        };
+        userspace = [selected_output];
+        identity = std::system::SystemIdentity { hostname = "plan-fixture"; users = []; };
+        directories = [std::system::SystemDirectory { path = "/"; uid = 0; gid = 0; mode = 493; }];
+        exposures = [];
+        links = [];
+        boot = std::system::SystemBoot { signing_credential = "uki-signing"; attempts = 3; };
+        storage = std::system::SystemStorage {
+            nodes = [
+                std::system::StorageNode { id = "disk"; device = std::system::StorageResource::Disk(std::system::DiskResource { selector = std::system::DiskSelector { serial = std::Option::Some("srx-absent-plan-fixture-disk-934bf021"); }; }); },
+                std::system::StorageNode { id = "esp-part"; device = std::system::StorageResource::Partition(std::system::PartitionResource { disk = "disk"; start_bytes = 1048576; size_bytes = 536870912; partition_kind = std::system::PartitionKind::Esp; }); },
+                std::system::StorageNode { id = "a-part"; device = std::system::StorageResource::Partition(std::system::PartitionResource { disk = "disk"; start_bytes = 537919488; size_bytes = 1073741824; partition_kind = std::system::PartitionKind::LinuxData; }); },
+                std::system::StorageNode { id = "b-part"; device = std::system::StorageResource::Partition(std::system::PartitionResource { disk = "disk"; start_bytes = 1611661312; size_bytes = 1073741824; partition_kind = std::system::PartitionKind::LinuxData; }); },
+                std::system::StorageNode { id = "esp"; device = std::system::StorageResource::Filesystem(std::system::FilesystemResource { source = "esp-part"; filesystem = std::system::FilesystemKind::Fat32; }); },
+                std::system::StorageNode { id = "a"; device = std::system::StorageResource::Filesystem(std::system::FilesystemResource { source = "a-part"; filesystem = std::system::FilesystemKind::Ext4; }); },
+                std::system::StorageNode { id = "b"; device = std::system::StorageResource::Filesystem(std::system::FilesystemResource { source = "b-part"; filesystem = std::system::FilesystemKind::Ext4; }); },
+            ];
+            esp = ["esp"]; root_a = "a"; root_b = "b"; persistent = [];
+        };
+        services = std::Services { pkgs = []; services = []; };
+        health = std::system::SystemHealth { timeout_seconds = 120; essential_services = []; require_network = std::Bool::True; };
+        budget = std::system::SystemBuildBudget { memory_bytes = 1073741824; cpu_percent = 100; processes = 256; descriptors = 1024; scratch_bytes = 1073741824; files = 100000; output_bytes = 268435456; duration_seconds = 7200; };
+    };
+}

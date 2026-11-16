@@ -54,6 +54,10 @@ fn execute() -> Result<(), String> {
         let code = managed_build(&args.collect::<Vec<_>>()).map_err(|error| error.to_string())?;
         std::process::exit(code);
     }
+    #[cfg(target_arch = "x86_64")]
+    if mode == "__build-system-worker" {
+        return system_build_ir(&args.collect::<Vec<_>>()).map_err(|error| error.to_string());
+    }
     if mode == "__service" {
         let code = match service(&args.collect::<Vec<_>>()) {
             Ok(code) => code,
@@ -185,6 +189,19 @@ fn managed_build_ir(directory: &str, action: &str) -> Result<(), syrox_engine::b
     // SAFETY: dedicated subprocess, no threads or borrowed global locks. The
     // helper validates its private namespace before installing process policy.
     unsafe { syrox_engine::worker::run_managed_build_worker(directory, action) }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[allow(unsafe_code)]
+fn system_build_ir(args: &[std::ffi::OsString]) -> Result<(), syrox_engine::build::BuildError> {
+    // SAFETY: dedicated executable before threads; it exits on return/error.
+    // The entry validates its namespace and pinned payload record before policy.
+    unsafe {
+        syrox_engine::worker::run_system_build_payload(
+            args,
+            &syrox_engine::cancellation::Cancellation::default(),
+        )
+    }
 }
 
 #[allow(unsafe_code)]

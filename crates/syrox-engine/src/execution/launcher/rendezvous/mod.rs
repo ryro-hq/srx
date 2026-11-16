@@ -3,7 +3,7 @@ use super::transport::{PacketChannel, Peer, budget, socket_integer, wait};
 use crate::{cancellation::Cancellation, platform::linux::fd as linux_fd};
 use std::ffi::CString;
 use std::io;
-use std::mem::{MaybeUninit, size_of, size_of_val};
+use std::mem::{MaybeUninit, size_of_val};
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
@@ -310,26 +310,7 @@ impl PacketChannel {
         self.peer_credentials_profile(true)
     }
     fn peer_credentials_profile(&self, namespace_ancestor: bool) -> io::Result<Peer> {
-        let mut credentials = MaybeUninit::<libc::ucred>::uninit();
-        let mut length = libc::socklen_t::try_from(size_of::<libc::ucred>()).expect("ucred size");
-        // SAFETY: writable ucred storage and its exact size are supplied.
-        if unsafe {
-            libc::getsockopt(
-                self.as_fd().as_raw_fd(),
-                libc::SOL_SOCKET,
-                libc::SO_PEERCRED,
-                credentials.as_mut_ptr().cast(),
-                &raw mut length,
-            )
-        } < 0
-        {
-            return Err(io::Error::last_os_error());
-        }
-        if length as usize != size_of::<libc::ucred>() {
-            return Err(invalid("invalid peer credentials size"));
-        }
-        // SAFETY: getsockopt initialized all fields after exact length check.
-        let credentials = unsafe { credentials.assume_init() };
+        let credentials = linux_fd::peer_credentials(self.as_fd())?;
         // SAFETY: geteuid takes no arguments.
         let valid_pid = if namespace_ancestor {
             credentials.pid == 0

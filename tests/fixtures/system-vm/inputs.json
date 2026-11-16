@@ -1,0 +1,419 @@
+{
+  "version": 1,
+  "purpose": "Prebuilt disposable VM fixture for scratch primitives and read-only system plans; not SRX system components or a complete-system qualification",
+  "observed_date": "2026-10-23",
+  "arch_keyring_sha256": "f7af717a90821803e5c366032f3135c236c4100962716b3c1ed352f8b9330f51",
+  "packages": [
+    {
+      "name": "qemu-system-x86",
+      "url": "https://archive.archlinux.org/packages/q/qemu-system-x86/qemu-system-x86-11.1.2-1-x86_64.pkg.tar.zst",
+      "sha256": "4207178fd53c7cb134d2d11639b873fdd3f8cc5d06aec67816d842a549752a1e",
+      "signature_sha256": "8a4a913bd498361563314590868e4861315a2de2d9045a12bbcce1c3ef59ba28",
+      "signing_fingerprint": "62CC73F884E52957B2FDD8839B7A287D9A2EC608",
+      "primary_fingerprint": "991F6E3F0765CF6295888586139B09DA5BF0D338"
+    },
+    {
+      "name": "edk2-ovmf",
+      "url": "https://archive.archlinux.org/packages/e/edk2-ovmf/edk2-ovmf-202608-1-any.pkg.tar.zst",
+      "sha256": "bee34c6036ebd0e96562b7330d2d3ddf75e240cfc44a6d506a5ccb6390eafb91",
+      "signature_sha256": "13e0ba4cc7310b06b7cfbfa8fef8d8b6c7240aad383919d07b00eb6b892a6136",
+      "signing_fingerprint": "62CC73F884E52957B2FDD8839B7A287D9A2EC608",
+      "primary_fingerprint": "991F6E3F0765CF6295888586139B09DA5BF0D338"
+    },
+    {
+      "name": "libaio",
+      "url": "https://archive.archlinux.org/packages/l/libaio/libaio-0.3.113-5-x86_64.pkg.tar.zst",
+      "sha256": "e746fdedefa9987ad06e918af78976917aba780be8ac51d22dcb9ded324a84ab",
+      "signature_sha256": "a54945f3bf1d4d6b9012a9182a72349a3fc0e21ae3c8a2dd564c7f391d9b2cf2",
+      "signing_fingerprint": "62CC73F884E52957B2FDD8839B7A287D9A2EC608",
+      "primary_fingerprint": "991F6E3F0765CF6295888586139B09DA5BF0D338"
+    },
+    {
+      "name": "capstone",
+      "url": "https://archive.archlinux.org/packages/c/capstone/capstone-5.0.9-1-x86_64.pkg.tar.zst",
+      "sha256": "76fc16318206289010c1be7977c94d3ee0b48408d5fe3e558c05615a703aa1f5",
+      "signature_sha256": "b5f2a22fe433a6217a9625e052765e8614e31d95b8214b393e530134b8a57bac",
+      "signing_fingerprint": "E240B57E2C4630BA768E2F26FC1B547C8D8172C8",
+      "primary_fingerprint": "E240B57E2C4630BA768E2F26FC1B547C8D8172C8"
+    },
+    {
+      "name": "dtc",
+      "url": "https://archive.archlinux.org/packages/d/dtc/dtc-1:1.8.1-1-x86_64.pkg.tar.zst",
+      "sha256": "c377d325b42c4250102615e779cdeb67816a176cd0c55c018f7c81920057eb43",
+      "signature_sha256": "28680588ede6afedcffd0da50677d150ed48b4f2088b046edd7aeca4d96c55a6",
+      "signing_fingerprint": "E75CD4814A77AD943C7AB5A3E0959FEA8B550539",
+      "primary_fingerprint": "034D823DA2055BEE6A6BF0BB25EA6900D9EA5EBC"
+    },
+    {
+      "name": "ndctl",
+      "url": "https://archive.archlinux.org/packages/n/ndctl/ndctl-85-1-x86_64.pkg.tar.zst",
+      "sha256": "8473584f486f93fecefd62240ef1e83194e562c9ff899c1491036edae9e41443",
+      "signature_sha256": "4c8ddbbddfce94b736ca9d4f5cfb58a122fbba8cc660e272c5df12a2485e365a",
+      "signing_fingerprint": "B5971F2C5C10A9A08C60030F786C63F330D7CB92",
+      "primary_fingerprint": "B5971F2C5C10A9A08C60030F786C63F330D7CB92"
+    },
+    {
+      "name": "libcbor",
+      "url": "https://archive.archlinux.org/packages/l/libcbor/libcbor-0.14.0-1-x86_64.pkg.tar.zst",
+      "sha256": "c6178320776e798dbd9d558cd5891ab2462a10c96c3dbc2dd3624c86ee59cc7e",
+      "signature_sha256": "0cf95b6f8f1ee9f481d313059e082f2f6951fc2a359379e861cac5de1d349295",
+      "signing_fingerprint": "EB3D764FF5D87E0818A3E0E5F05E8C12131AEB5E",
+      "primary_fingerprint": "69F8E5E5E85F771020A0777C3D309011083BA25E"
+    },
+    {
+      "name": "libxdp",
+      "url": "https://archive.archlinux.org/packages/l/libxdp/libxdp-1.6.3-2-x86_64.pkg.tar.zst",
+      "sha256": "4146de33b9b12531064de40cb671537407c2267e4304159f407be92f2c8758a4",
+      "signature_sha256": "98d404cb00f421bfbf127396b8d93f4a5891080deab41c499de0f9d4b79515cd",
+      "signing_fingerprint": "F00B96D15228013FFC9C9D0393B11DAA4C197E3D",
+      "primary_fingerprint": "F00B96D15228013FFC9C9D0393B11DAA4C197E3D"
+    },
+    {
+      "name": "rdma-core",
+      "url": "https://archive.archlinux.org/packages/r/rdma-core/rdma-core-65.0-1-x86_64.pkg.tar.zst",
+      "sha256": "a7a0648650811fd753ded1003acd83871bc31a4eb998bc4d04cf050ed02a238b",
+      "signature_sha256": "03efb36bf748ce01b8083dafd68dd289f3b34a11ccff02868f9d6d64900671ab",
+      "signing_fingerprint": "109415E692007609CA7EBFE4001CF4810BE8D911",
+      "primary_fingerprint": "109415E692007609CA7EBFE4001CF4810BE8D911"
+    },
+    {
+      "name": "libslirp",
+      "url": "https://archive.archlinux.org/packages/l/libslirp/libslirp-4.9.5-1-x86_64.pkg.tar.zst",
+      "sha256": "d9584c21e1556ae02650ccbd769e838d7aec286b0b092e6b43aac10e3bade240",
+      "signature_sha256": "a6a8d3b6f2316b9de47f94890cf1b5e683ee4547693dfb59013c9686f2ed9499",
+      "signing_fingerprint": "05C7775A9E8B977407FE08E69D4C5AA15426DA0A",
+      "primary_fingerprint": "05C7775A9E8B977407FE08E69D4C5AA15426DA0A"
+    },
+    {
+      "name": "vde2",
+      "url": "https://archive.archlinux.org/packages/v/vde2/vde2-2.3.3-10-x86_64.pkg.tar.zst",
+      "sha256": "deb9c99fc2334c9410ccf7ac8af68ffb1846df9eb6c02f523c15403052ef1f37",
+      "signature_sha256": "f5f27bb560d082cff2fe48d758bae7027e476f8d11bbc67b1fc3e27234a45251",
+      "signing_fingerprint": "62CC73F884E52957B2FDD8839B7A287D9A2EC608",
+      "primary_fingerprint": "991F6E3F0765CF6295888586139B09DA5BF0D338"
+    },
+    {
+      "name": "qemu-common",
+      "url": "https://archive.archlinux.org/packages/q/qemu-common/qemu-common-11.1.2-1-x86_64.pkg.tar.zst",
+      "sha256": "bd78128c06b0686b360fee1d46af3bd4f7e19a346323191aed1fd6c78a296183",
+      "signature_sha256": "3ccf85654c4e01ad16cd39d5116c073438c178b7f2896a6694abf8fa6572b2fe",
+      "signing_fingerprint": "62CC73F884E52957B2FDD8839B7A287D9A2EC608",
+      "primary_fingerprint": "991F6E3F0765CF6295888586139B09DA5BF0D338"
+    },
+    {
+      "name": "qemu-system-x86-firmware",
+      "url": "https://archive.archlinux.org/packages/q/qemu-system-x86-firmware/qemu-system-x86-firmware-11.1.2-1-x86_64.pkg.tar.zst",
+      "sha256": "556b9a55f94da79b64972340396f7d631ddc3b0feed53d3a5773cb0aa5652ccf",
+      "signature_sha256": "69326cce7f7745323a184847a4975c6b8a037e0b91ce421d6d80302e3deb3151",
+      "signing_fingerprint": "62CC73F884E52957B2FDD8839B7A287D9A2EC608",
+      "primary_fingerprint": "991F6E3F0765CF6295888586139B09DA5BF0D338"
+    }
+  ],
+  "guest": {
+    "release": "44.20260928.3.1",
+    "url": "https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/44.20260928.3.1/x86_64/fedora-coreos-44.20260928.3.1-qemu.x86_64.qcow2.xz",
+    "sha256": "195dbca12e0dce3e613379215740aa791177d0511046e7e672b9b8f43263781b",
+    "uncompressed_sha256": "935e797efefe1380a8e325705504b56b1cb3fb34ac616b4c7591a9b99a096ba2",
+    "signature_sha256": "b3351cf49167a325c37f431a74fe2a7f838ea2013aa281218b91f285e94aaa9d",
+    "keyring_url": "https://fedoraproject.org/fedora.gpg",
+    "keyring_sha256": "3b8a3660cca4851a67f67f56819e37e2f6b37ac8e905cb571b25d2127d1b7618",
+    "signing_fingerprint": "36F612DCF27F7D1A48A835E4DBFCF71C6D9F90A6"
+  },
+  "qualified_cases": [
+    {
+      "name": "loop-primitives",
+      "cpus": 2,
+      "timeout_seconds": 600,
+      "probe_sha256": "9474762246dae7992ea0172920693f44a3c00ebb8c1341288f08696c5bdeecc5",
+      "ignition_sha256": "2bb8ed68ad1b2a254e4b88e0f1ac3d02c3e02726a092a43c5d968fe5ef52ba50",
+      "serial_sha256": "d5091fd6b4240c65afb3e932fa6aeec510f6953492169bf5845151301d179846"
+    },
+    {
+      "name": "detached-ext4-embedded-tools",
+      "cpus": 1,
+      "timeout_seconds": 900,
+      "probe_sha256": "fff72f41b36ec08272f85fa36453c8b210e4afc2d19c5143297fa757864d5b2e",
+      "ignition_sha256": "145637e24a690de12abbb2a063afb67c8ff3a52b7a07436e7cb4d418ca9a8ed4",
+      "serial_sha256": "7429747519b9aa435c661d313c2adaeb84ed7581e1cbeec6a427165dee9d94fb"
+    },
+    {
+      "name": "detached-ext4-readonly-tools-disk",
+      "cpus": 1,
+      "timeout_seconds": 900,
+      "probe_sha256": "fff72f41b36ec08272f85fa36453c8b210e4afc2d19c5143297fa757864d5b2e",
+      "payload_sha256": "a02d23129fd6a2ee2f076d92e4729fde2c88f0920206760208dfd59089153b53",
+      "ignition_sha256": "38c277e003fe9245aa1adf345f5370595eee004f62764c2aff6914f9db8b912b",
+      "serial_sha256": "5298b05de64d3badb804612efecb76622439910383323d09994db453444d6a05"
+    },
+    {
+      "name": "isolated-ext4-tools-and-detached-scratch",
+      "cpus": 1,
+      "timeout_seconds": 900,
+      "probe_sha256": "81f4923e5eea5e88654152abdedc0a7e8a97e490c85db5f919bab996942a65ba",
+      "assertions_sha256": "96be4e23b124e22112e0cbc963368ded50130419aaa174f5e3c0c55b7ca3bfba",
+      "payload_sha256": "59f2b51836abe0c4dac9d4db2a5894a9fa8a1037d5aca0b019e68d26494922ba",
+      "ignition_sha256": "625bd5c4008eb7ff763c927e8a164b8312e7af40f87ea02764e361b89371ef6e",
+      "serial_sha256": "7ae1a5f93beac148177becf97f39bc8d8facb33ca357a7b6db9172a9b49194d3"
+    },
+    {
+      "name": "private-scratch-helper-with-unprivileged-client",
+      "cpus": 1,
+      "timeout_seconds": 900,
+      "helper_sha256": "faa8e8fe5bfbe3433e39114d862c71f041c59b75bccfdf8635b3bdf8cc832038",
+      "probe_sha256": "15210c17c9765bfb2e419966f52b49a6d424da2e91959f2b0a3b34b654c4b545",
+      "payload_sha256": "e023fee83ddc58989e74c1372ba70bf17de2c7fd07bf5db6ece37ea9a16ba42a",
+      "ignition_sha256": "249cdc2f829ee3ff5e24ea1a2acdcc15be6d018fbd1cb816bde50291e6978b01",
+      "serial_sha256": "51265e451b33c60e6293fa38d726c56b0772682eebd9ee0fd0f789287d59d6a5"
+    },
+    {
+      "name": "private-scratch-helper-same-boot-reconciliation-and-retained-descriptors",
+      "cpus": 1,
+      "timeout_seconds": 900,
+      "helper_sha256": "cbad2c343cf836adb950423dc933ad798ae32283ca2d93992ee19568312df56f",
+      "probe_sha256": "780ff713fc265eb3604be0af92a4d220843c1e8a36e328e57cfabd4c44d471bf",
+      "payload_sha256": "ce6f789dcd7dfe7aee43b3f4b29f66bb6840e27898e3642644593ce18106fa8f",
+      "ignition_sha256": "249cdc2f829ee3ff5e24ea1a2acdcc15be6d018fbd1cb816bde50291e6978b01",
+      "serial_sha256": "902ee73cbf303677fd2ba69d1f30672f7ca47be7c8547e4aab4a7af5669561c4"
+    },
+    {
+      "name": "private-scratch-helper-and-non-root-namespace-attachment-prototype",
+      "cpus": 1,
+      "timeout_seconds": 900,
+      "helper_sha256": "cbad2c343cf836adb950423dc933ad798ae32283ca2d93992ee19568312df56f",
+      "probe_sha256": "1534044d038429078af81cedbb5f983ffe8cb59aa7994e3aa6ff1be93b099b0a",
+      "payload_sha256": "a32014372b27c68f123ab51882672f02ff2b85e3b25151c1ed06230d52742151",
+      "ignition_sha256": "249cdc2f829ee3ff5e24ea1a2acdcc15be6d018fbd1cb816bde50291e6978b01",
+      "serial_sha256": "f0e92099ebd3e23a5c1dc3a7ef932aeb6364d0d73ee32516f0f7bf36fcd2294e"
+    },
+    {
+      "name": "private-scratch-helper-and-shared-non-root-namespace-attachment",
+      "cpus": 1,
+      "timeout_seconds": 900,
+      "helper_sha256": "cbad2c343cf836adb950423dc933ad798ae32283ca2d93992ee19568312df56f",
+      "probe_sha256": "22515377f9bbb8fc725281b4a0693ff3d2caacad26edcc36a5477c698a011184",
+      "payload_sha256": "bce2699ddb348afed5f51e559cb1d2047db0d39b38f53d64c6df6c9aecef7d0b",
+      "ignition_sha256": "249cdc2f829ee3ff5e24ea1a2acdcc15be6d018fbd1cb816bde50291e6978b01",
+      "serial_sha256": "43fd2949bc1ac12a89a05d57076a990abace00c7c93ff887a68903ad2f7c5352"
+    },
+    {
+      "name": "private-scratch-helper-systemd-socket-activation-and-kernel-overhead-limits",
+      "cpus": 1,
+      "timeout_seconds": 900,
+      "helper_sha256": "cbad2c343cf836adb950423dc933ad798ae32283ca2d93992ee19568312df56f",
+      "probe_sha256": "705f8b8a6b22543cb2c990e9e092859250f141541b7104095ea5977795be55d2",
+      "payload_sha256": "7a1918fce3a81c69f6f991468c67644bfc210e1f072cff0c1485ccf76894c5ec",
+      "ignition_sha256": "c2e88a85b684f03802a6f7015e2a454200d0a881533f925c84ecb215a0f1db55",
+      "serial_sha256": "17741d5b8286c173cdf4c56b966c4c7e6e15fa176a3e15337b3f06bc34d5349b"
+    },
+    {
+      "name": "private-scratch-helper-typed-client-and-real-cli-reconciliation",
+      "cpus": 1,
+      "timeout_seconds": 900,
+      "cases_passed": 29,
+      "helper_sha256": "cbad2c343cf836adb950423dc933ad798ae32283ca2d93992ee19568312df56f",
+      "cli_sha256": "0181371c237851eed1855b744131320b1201b785fb023aefcc459ba2f41fdc57",
+      "probe_sha256": "cd3e19cac14851d2e4cddff5116bbf41b56a6c98366a3602523d181278a6c76a",
+      "payload_sha256": "fc3f1232b6401405825471eff32915080c3c1393f0c76344b1af11ec89a226bc",
+      "payload_bytes": 134217728,
+      "ignition_sha256": "c2e88a85b684f03802a6f7015e2a454200d0a881533f925c84ecb215a0f1db55",
+      "serial_sha256": "673d9eb0cf2af4587c95259eea3c499cd81a6ae38480754e8f4a688932d8be69"
+    },
+    {
+      "name": "system-plan-typed-client-and-virtio-disk-binding-v8",
+      "cpus": 1,
+      "timeout_seconds": 900,
+      "cases_passed": 32,
+      "helper_sha256": "cbad2c343cf836adb950423dc933ad798ae32283ca2d93992ee19568312df56f",
+      "cli_sha256": "219e77561642ae44a309e429cecd26f7c72c198bc65155e7dc147e72f2b05154",
+      "probe_sha256": "646d61045399b3f5f36880dcb426f1b582c8f41f4e9ed943fb390988619d81b9",
+      "payload_sha256": "9eeeda2a440cd67c99152336e82c5a3d130658ce54ee17513b7ab7a3a5b808a6",
+      "payload_bytes": 134217728,
+      "data_disk_sha256": "8479e43911dc45e89f934fe48d01297e16f51d17aa561d4d1c216b1ae0fcddca",
+      "data_disk_bytes": 4294967296,
+      "ignition_sha256": "c2e88a85b684f03802a6f7015e2a454200d0a881533f925c84ecb215a0f1db55",
+      "serial_sha256": "a6bab5d5ea29639814757988d09fcff2a18fcab1de585df26c1c9f62e930c6c2"
+    },
+    {
+      "name": "engine-system-component-private-scratch-v10",
+      "date": "2026-10-23",
+      "cpus": 1,
+      "memory_mib": 2048,
+      "timeout_seconds": 900,
+      "cases_passed": 33,
+      "probe_exit_code": 0,
+      "qemu_exit_code": 0,
+      "helper_sha256": "cbad2c343cf836adb950423dc933ad798ae32283ca2d93992ee19568312df56f",
+      "cli_sha256": "219e77561642ae44a309e429cecd26f7c72c198bc65155e7dc147e72f2b05154",
+      "engine_tests": {
+        "path": ".syrox/qualified-workers/system-scratch-tests-2026-10-23-v2",
+        "sha256": "e06da68940ea4146810ec09108e371d4af92d0e399c0742fa9783a99fe34322f",
+        "bytes": 90010704,
+        "static_gnu_development_test_binary": true
+      },
+      "probe_sha256": "ab9fe03588fb66b0a38202c89746a68a831bf8ce31d32fa14dda6bd8fbb6b72f",
+      "payload_sha256": "f2b4e1d072310ecf2e530c8cf76940de9fc9be3967256eff116b340e3bffb9fa",
+      "payload_bytes": 402653184,
+      "data_disk_sha256": "8479e43911dc45e89f934fe48d01297e16f51d17aa561d4d1c216b1ae0fcddca",
+      "data_disk_bytes": 4294967296,
+      "ignition_sha256": "c13d91f482185ffd71b6c50180c44c89bca7b884552d5ce27105f7ec6d8bd056",
+      "serial_sha256": "a389be6e767e6e3b591b687b689239351d56d77efef96cb9c0a60bbabaa91bc9",
+      "serial_log": ".syrox/work-logs/helper-probe-vm-v10.log",
+      "system_component_action": "e81ec8e2da0f996f25a006025ddd307b438a7af933debe40ec0c474b6c66fb93",
+      "engine_test": "build::system::tests::scratch::disposable_vm_system_scratch_uses_prepared_action_and_private_helper",
+      "source_pins": [
+        {
+          "path": "crates/syrox-engine/src/build/system.rs",
+          "sha256": "80e07ce2120c4616aec2c5f676ce24e58c9c918ace0e96ef875510cc535bb105"
+        },
+        {
+          "path": "crates/syrox-engine/src/build/system/limits/tests.rs",
+          "sha256": "93c79fbbaa304902dc4aeea5f9ed46df0d305ed41f315d72b741fce505beb7db"
+        },
+        {
+          "path": "crates/syrox-engine/src/build/system/limits.rs",
+          "sha256": "da85dbc005bb7ffa67a0c48a8aade9c00996ac27ebea9b0ace0c901cb3b6daa6"
+        },
+        {
+          "path": "crates/syrox-engine/src/build/system/records/tests.rs",
+          "sha256": "e24c414167e99bbf72862969b7777c2d9ad2d0bd15e14367a2e7d2fba1a801ba"
+        },
+        {
+          "path": "crates/syrox-engine/src/build/system/records.rs",
+          "sha256": "a23162855400d2e02d4c63ccab0f51d690ffaa5cde769e40266ab3ab21442a43"
+        },
+        {
+          "path": "crates/syrox-engine/src/build/system/scratch.rs",
+          "sha256": "b006b5b103075a381fbc7d5a56e4d29ff18324acd4635ff7eef1ed836712a1a4"
+        },
+        {
+          "path": "crates/syrox-engine/src/build/system/tests/scratch.rs",
+          "sha256": "4b660611bd91fc88447497c23a04a50652fe3c05c645b00b28deaf1ed42c52ef"
+        },
+        {
+          "path": "crates/syrox-engine/src/build/system/tests.rs",
+          "sha256": "4d024e104f585bc6307cce60c570f22e98725d04a76d760c5f066883b7061f17"
+        },
+        {
+          "path": "crates/syrox-system/examples/helper_probe.rs",
+          "sha256": "1e2547845334960fe4dd88478cf2b021cfc8f126daee6559eac8ae1a7ffe7d20"
+        },
+        {
+          "path": "crates/syrox-system/examples/helper_probe/activation.rs",
+          "sha256": "164f67c80d4659942a63df5f36852872cd0e3dea85645ad272e08ef1eae13ebf"
+        }
+      ],
+      "new_evidence": [
+        "locked System membership and exact action budget",
+        "real root-authenticated private ext4 scratch grant to UID/GID 1000",
+        "descriptor-only write/read and fsync",
+        "source custody survives actual Store GC while scratch is held",
+        "explicit helper release, healthy filesystem check, retained image and observed loop teardown",
+        "no local build attempt or receipt created"
+      ],
+      "limits_of_qualification": {
+        "system_recipe_executed": false,
+        "worker_fixture_only_checks_elf_format": true,
+        "full_runtime_budget_enforced": false,
+        "build_receipt_created": false,
+        "reset_recovery_qualified": false,
+        "own_kernel_or_system_boot_qualified": false,
+        "provisioning_or_adoption_qualified": false,
+        "physical_devices_or_host_boot_modified": false
+      },
+      "base_guest_and_readonly_payload_hashes_unchanged": true,
+      "distinct_cases": [
+        "activated-namespace",
+        "activated-over-budget",
+        "activated-replay",
+        "activated-wrong-peer",
+        "after-disconnect",
+        "after-reconcile",
+        "cli-inspect",
+        "cli-plan-host",
+        "cli-plan-system-bound",
+        "cli-plan-system-readonly",
+        "cli-reconcile",
+        "cli-terminal",
+        "cli-wrong-hash",
+        "disconnect",
+        "engine-system-component-scratch",
+        "inspect-after-retained",
+        "inspect-quiescent",
+        "inspect-refreshed",
+        "inspect-retained",
+        "namespace",
+        "over-budget",
+        "positive",
+        "recover-after-retained",
+        "recover-retained",
+        "recover-stale",
+        "recover-valid",
+        "recover-wrong-hash",
+        "replay",
+        "replay-reconciled",
+        "retain",
+        "typed-disconnect",
+        "unknown-field",
+        "wrong-peer"
+      ],
+      "complete_source_snapshot_attestation": false,
+      "source_pins_are_historical_for_the_frozen_qualified_build": true
+    }
+  ],
+  "unqualified_attempts": [
+    {
+      "name": "system-plan-v7-unresolved-virtio-binding",
+      "cpus": 1,
+      "timeout_seconds": 900,
+      "cases_passed_before_failure": 30,
+      "probe_exit_code": 101,
+      "qemu_exit_code": 0,
+      "helper_sha256": "cbad2c343cf836adb950423dc933ad798ae32283ca2d93992ee19568312df56f",
+      "cli_sha256": "fa45ccef9d22e7f60555a285fd96df9a3648fa645ee3030a3dbf180e27682c91",
+      "probe_sha256": "c54465337b4691ab4fc66e0aaa254edc9793bfc0964320451f14784063b2515d",
+      "payload_sha256": "575a6098613aa71488524d8ead5696a074aca31b4849eeffdbe489c2066b97d1",
+      "data_disk_sha256": "8479e43911dc45e89f934fe48d01297e16f51d17aa561d4d1c216b1ae0fcddca",
+      "ignition_sha256": "c2e88a85b684f03802a6f7015e2a454200d0a881533f925c84ecb215a0f1db55",
+      "serial_sha256": "42cf8dafb7722c06f5ff55e7f6c6c879ade3e6e2d34a47b1875b8b4a2bf76ab5",
+      "failure": "System disk binding was unresolved; v7 omitted the diagnostic reason. Inventory only read device/serial and missed the disk-level virtio serial attribute. Corrected observation requires a fresh qualification."
+    },
+    {
+      "name": "engine-system-component-scratch-v9",
+      "date": "2026-10-23",
+      "cpus": 1,
+      "timeout_seconds": 900,
+      "qualified": false,
+      "probe_exit_code": 101,
+      "qemu_exit_code": 0,
+      "helper_sha256": "cbad2c343cf836adb950423dc933ad798ae32283ca2d93992ee19568312df56f",
+      "engine_tests_sha256": "0fb1b66cfcfdb1213fb9b7a84b9c10bec500660b7d72eff939b5a4f86d6667d2",
+      "probe_sha256": "3f4fe3a04dcc79e84c9491227e1230b729a21d600f1fdec10cbece978c3e3211",
+      "payload_sha256": "2434b9a7a9cf90fcb4b8adcdd851403fe4b71a94eb4389e2d8bb01f236a00358",
+      "ignition_sha256": "c13d91f482185ffd71b6c50180c44c89bca7b884552d5ce27105f7ec6d8bd056",
+      "serial_log": ".syrox/work-logs/helper-probe-vm-v9.log",
+      "serial_sha256": "f0f876ae1ffedcddfccf5b076c14a85addca2021b1a1e0d9f1d4186cb991f2b3",
+      "cases_passed_before_failure": 29,
+      "failure": "Non-root engine test tried reading the root-owned mode-0600 disposable-VM marker. EACCES occurred before preparing a System component or contacting the helper. QEMU poweroff/exit zero does not qualify the failed test."
+    }
+  ],
+  "source_built_tools": {
+    "mke2fs_sha256": "59935ec5c57f7f3b2e5ef1119d7480275264a9f5adecb862b7bd2ae813fd83ec",
+    "e2fsck_sha256": "da1f6de6ac3a2efd7fc6d2581199ce7109a22dee7843ce923e4111a92666a95a",
+    "catalog_evidence": "docs/evidence/e2fsprogs-1.47.4-host-bootstrap-2026-10-21.md"
+  },
+  "runtime": {
+    "qemu_system_x86_64_sha256": "a2250f5e2b3b07c754473c0817df1cccf6c3c2443fc616dc474c4c311fa6ef1c",
+    "ovmf_code_sha256": "2febd26c0b4cf95a636a941afa37d64a552723443ed9ac72f763f6840da98cb4",
+    "ovmf_vars_template_sha256": "5d2ac383371b408398accee7ec27c8c09ea5b74a0de0ceea6513388b15be5d1e",
+    "acceleration": "tcg",
+    "machine": "q35",
+    "cpu": "max",
+    "memory_mib": 2048,
+    "cpus": 2,
+    "network": false,
+    "host_shares": false,
+    "host_block_devices": false,
+    "hermetic": false,
+    "native_libraries": "Explicitly extracted runtime files plus host loader/libraries; record native loader resolution separately"
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "date": "2026-10-23",
+  "scope": "native_unprivileged_system_output_codec_over_anonymous_pipe",
+  "command": ".syrox/qualified-workers/system-output-transport-2026-10-23-v1 --verify /home/fullzer4/Work/Ryro/syrox/.syrox/system-output-transport-probe-v1",
+  "exit": 0,
+  "development_toolchain": "rustc 1.98.1 (48a229cea 2026-09-01); host toolchain, not an SRX-qualified bootstrap",
+  "binary": {
+    "path": ".syrox/qualified-workers/system-output-transport-2026-10-23-v1",
+    "bytes": 7208728,
+    "sha256": "ef578b7603916058c0ac317b84d2c3b6470e5e67e3d65384b9b58e120dfa30c5",
+    "uses_development_host_dynamic_loader_and_libraries": true
+  },
+  "harness_source": {
+    "path": "crates/syrox-engine/examples/system_output_transport.rs",
+    "sha256": "4cd0694e0012a31aa9316cff2f51e05b6f8c392fcade096fc9ec276a1256a726",
+    "complete_source_snapshot_attestation": false
+  },
+  "payload": {
+    "bytes": 1073741841,
+    "sha256": "227a7c372892aeb9d0918cef814ab46986f6a6ac7c8260fd2050ba8ad101812f",
+    "generation": "new sparse regular file, SRX first at offset 0, SRX last at length minus 8, remaining bytes zero",
+    "package_bytes": 1073741878,
+    "package_sha256": "ddd8d89b4bda279b267c5623b5d5db6aa0d1d11b28cf3e38305a8f3b323b3b0c"
+  },
+  "result": {
+    "artifact_sha256": "f722826e92512af1c1681c76c45e1c93d01fe1789c6f0baa520fc0e6a9efc852",
+    "result_sha256": "e4aa8560f98791ec858a01040668886dccbef8f35568120cc403ab5863c70f18",
+    "chunks": 257,
+    "unique_result_references": 5,
+    "bundle_bytes": 8414048,
+    "bundle_sha256": "7f05bfcd6c0926d086632b579f56329180994defbe29879be0dbf400895ec399",
+    "imported_into_second_store": true,
+    "independent_whole_package_hash_matched": true
+  },
+  "observed_process_limits": {
+    "coordinator_and_worker_rlimit_as_soft_and_hard_bytes": 268435456,
+    "coordinator_and_worker_rlimit_nofile_soft_and_hard": 64,
+    "coordinator_vm_hwm": "VmHWM:\t    8996 kB",
+    "worker_vm_hwm": "VmHWM:\t    4588 kB",
+    "worker_exit": 0,
+    "elapsed_milliseconds": 17549,
+    "pipe_read_deadline_seconds": 120
+  },
+  "evidence": {
+    "report": ".syrox/system-output-transport-probe-v1/report.json",
+    "report_sha256": "00a48b6f55e3736decf5478a55a11edd0a591d585af155716aa786740d51ed23",
+    "worker_log_sha256": "8c40f0ace64bba244f53e7b16e584c6631f4643654b689b79154c61c3e8a3c4e",
+    "native_log": ".syrox/work-logs/system-output-transport-native-v1.log",
+    "native_log_sha256": "09e74ebbfbbb8cfbbcf11d03ba4fa53ca9791170f5ece2c6c490557d3d62829c"
+  },
+  "limits_of_qualification": {
+    "system_recipe_executed": false,
+    "build_receipt_created": false,
+    "worker_authentication_qualified": false,
+    "cgroup_or_all_eight_runtime_budget_dimensions_qualified": false,
+    "own_toolchain_qualified": false,
+    "kernel_or_boot_qualified": false,
+    "physical_devices_or_host_boot_modified": false,
+    "complete_system_qualified": false
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "date": "2026-11-02",
+  "qualified": false,
+  "execution": { "accelerator": "TCG", "cpus": 2, "memory_bytes": 2147483648, "firmware_disk_boot": true, "direct_kernel_boot": false, "network": false, "host_shares": false, "host_block_devices": false, "qemu_exit_code": 0, "normal_poweroff": true },
+  "probe_sha256": "1dabe9a1768ee301e3dd9e79644dc088a9af6a60572c7b4a988606586edec790",
+  "helper_sha256": "4d7def7357daf815339742f78deeb205ce1009a253e3cb026c08aec8815e7eb1",
+  "payload_sha256": "7536f5d0441333a856cdc0ddd803a26b9e7c4ba91e5995ddad9cdc97c1e31b61",
+  "previous_helper_and_workspace_cases_observed": 43,
+  "workspace_rpc_cases_passed": 0,
+  "failure": "test-only socket was placed beneath root-owned mode-0711 /var/tmp/srx-helper-probe; the production client's parent-directory validation requires read access and returned EACCES before connecting",
+  "consequence": "driver never accepted a workspace connection or spawned the new workspace helper session; no two-volume RPC qualification",
+  "serial_log": ".syrox/work-logs/helper-probe-vm-v13.log",
+  "serial_sha256": "08b97c64cc84dafbbfa4ed3351a096f6e7cd4fde7fc39a46cd33b315746fe85f",
+  "correction": "move test endpoints to root-owned /run, retaining root ownership, client group 1000 and exact socket mode 0660; leave production trust checks intact"
+}

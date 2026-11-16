@@ -1,5 +1,5 @@
 use super::commands::{
-    build, bundle, format, host, install_self, run, services, session, shell, store,
+    build, bundle, format, host, install_self, run, services, session, shell, store, system,
 };
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
@@ -47,6 +47,11 @@ pub(crate) enum Command {
     Host {
         #[command(subcommand)]
         command: HostCommand,
+    },
+    /// Inspect Linux resources and explicitly reconcile retained builder scratch.
+    System {
+        #[command(subcommand)]
+        command: system::Command,
     },
     /// Build a declared package with automatic source acquisition and retention.
     Build(build::Arguments),
@@ -107,7 +112,7 @@ pub(crate) enum ProjectCommand {
         path: Option<PathBuf>,
         #[arg(short = 'f', long)]
         file: Option<PathBuf>,
-        /// Select one Services or Shell output and its referenced packages.
+        /// Select a Services, Shell, System or `HostConfiguration` output and its recipes.
         #[arg(long)]
         output: Option<String>,
     },

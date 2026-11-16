@@ -1,6 +1,52 @@
 use super::*;
 
 #[test]
+fn bundled_std_completion_exposes_services_and_its_fields_without_the_removed_os_type() {
+    let temp = tempfile::tempdir().unwrap();
+    let text = "outputs { os: std::Services = std::Services { pkgs = []; services = []; }; }";
+    let path = temp.path().join("main.srx");
+    std::fs::write(&path, text).unwrap();
+    let document = uri(&path);
+    let mut client = Client::with_options(temp.path(), "utf-16", false, "bundled");
+    client.open(&document, text);
+    let response = client.request(
+        "textDocument/completion",
+        at(&document, text, "std::Services", "std::".len()),
+    );
+    let labels: Vec<_> = response["result"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["label"].as_str().unwrap())
+        .collect();
+    assert!(labels.contains(&"Services"), "{response}");
+    assert!(labels.contains(&"System"), "{response}");
+    assert!(
+        labels.contains(&"HostConfiguration"),
+        "{response}"
+    );
+    assert!(!labels.contains(&"Os"), "{response}");
+
+    let text = "outputs { os: Services = Services { }; }";
+    client.notify(
+        "textDocument/didChange",
+        json!({"textDocument":{"uri":document,"version":2},"contentChanges":[{"text":text}]}),
+    );
+    let response = client.request(
+        "textDocument/completion",
+        at(&document, text, "{ }", 2),
+    );
+    let labels: Vec<_> = response["result"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["label"].as_str().unwrap())
+        .collect();
+    assert_eq!(labels, ["pkgs", "services"], "{response}");
+    client.stop();
+}
+
+#[test]
 fn project_completion_uses_the_module_owner_and_updates_after_an_edit() {
     let temp = tempfile::tempdir().unwrap();
     std::fs::create_dir(temp.path().join("recipes")).unwrap();

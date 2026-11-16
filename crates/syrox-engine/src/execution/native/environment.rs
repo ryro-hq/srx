@@ -95,13 +95,8 @@ pub(super) fn mount(root: &Path, null: BorrowedFd<'_>, tty: Option<&File>) -> io
         Some(c"proc"),
         flags | libc::MS_RDONLY,
     )?;
+    mount_null(root, null)?;
     let devices = root.join("dev");
-    std::fs::create_dir(&devices)?;
-    bind_device(
-        &devices.join("null"),
-        Path::new("/dev/null"),
-        null,
-    )?;
     if let Some(tty) = tty {
         validate_controlling_tty(tty)?;
         bind_device(
@@ -121,6 +116,18 @@ pub(super) fn mount(root: &Path, null: BorrowedFd<'_>, tty: Option<&File>) -> io
         )?;
     }
     Ok(())
+}
+
+/// Minimal device environment for direct application runtimes. Bind only the
+/// validated null device; no host device directory is exposed.
+pub(super) fn mount_null(root: &Path, null: BorrowedFd<'_>) -> io::Result<()> {
+    let devices = root.join("dev");
+    std::fs::create_dir(&devices)?;
+    bind_device(
+        &devices.join("null"),
+        Path::new("/dev/null"),
+        null,
+    )
 }
 
 fn reopen_pinned_device(path: &Path, descriptor: BorrowedFd<'_>) -> io::Result<File> {

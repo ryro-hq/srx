@@ -158,15 +158,26 @@ fn cancelled_invalid_and_corrupt_sources_create_no_operations() {
 
 #[test]
 fn source_copy_rechecks_digest_and_bound_after_store_verification() {
+    use super::super::source::copy_source;
+    use std::io::Read as _;
     let cancel = Cancellation::default();
     let expected = ContentDigest::sha256(b"original");
+    let mut replaced = &b"replaced"[..];
+    let mut appended = &b"original appended"[..];
     assert!(matches!(
-        read_source(&mut &b"replaced"[..], expected, 8, &cancel),
+        copy_source(
+            |buffer| replaced.read(buffer),
+            |_| Ok(()),
+            expected,
+            8,
+            &cancel
+        ),
         Err(BuildError::InputChanged)
     ));
     assert!(matches!(
-        read_source(
-            &mut &b"original appended"[..],
+        copy_source(
+            |buffer| appended.read(buffer),
+            |_| Ok(()),
             expected,
             8,
             &cancel
@@ -617,6 +628,36 @@ fn cancelled_staging_does_not_create_an_operation() {
                     .to_string_lossy()
                     .starts_with("op-")
             })
+    );
+}
+
+#[test]
+fn changed_source_after_input_preparation_creates_no_staging_operation() {
+    let (temporary, plan, store, request) = fixture();
+    let cancellation = Cancellation::default();
+    let inputs =
+        prepare_managed_build_inputs(&plan, &request, &store, b"worker", &cancellation).unwrap();
+    let pin = ContentDigest::sha256(b"source bytes").to_string();
+    let path = temporary
+        .path()
+        .join("store/objects/sha256")
+        .join(&pin[..2])
+        .join(&pin);
+    fs::write(path, b"changed source with another size").unwrap();
+    assert!(matches!(
+        inputs.stage(&cancellation),
+        Err(BuildError::InputChanged)
+    ));
+    let operations = temporary.path().join("store/.syrox-store/builds");
+    assert!(
+        !operations.exists()
+            || fs::read_dir(operations)
+                .unwrap()
+                .all(|entry| !entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("op-"))
     );
 }
 

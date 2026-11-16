@@ -11,6 +11,8 @@ use super::{
 
 mod files;
 mod operations;
+mod system;
+pub(crate) use system::run as run_system;
 
 #[cfg(test)]
 mod tests;
@@ -216,13 +218,62 @@ impl Paths {
 pub(in crate::build) fn execute(
     program: &BuildProgram,
     paths: &Paths,
+    settle: impl FnMut() -> Result<(), BuildError>,
+) -> Result<(), BuildError> {
+    execute_with_limits(
+        program,
+        paths,
+        None,
+        &crate::cancellation::Cancellation::default(),
+        settle,
+    )
+}
+
+pub(in crate::build) fn execute_system_program(
+    action: &crate::build::system::SystemBuildAction,
+    paths: &Paths,
+    cancellation: &crate::cancellation::Cancellation,
+    settle: impl FnMut() -> Result<(), BuildError>,
+) -> Result<(), BuildError> {
+    execute_with_limits(
+        action.program(),
+        paths,
+        Some(action),
+        cancellation,
+        settle,
+    )
+}
+
+fn system_geometry(
+    layout: &crate::system::workspace::WorkspaceLayout,
+    destination: &BuildPath,
+) -> Result<crate::system::ext4_tool::Geometry, BuildError> {
+    match destination {
+        BuildPath::Work(_) => Ok(layout.scratch_geometry()),
+        BuildPath::Output {
+            ..
+        } => Ok(layout.output_geometry()),
+        _ => Err(BuildError::InvalidRequest),
+    }
+}
+
+fn execute_with_limits(
+    program: &BuildProgram,
+    paths: &Paths,
+    system: Option<&crate::build::system::SystemBuildAction>,
+    cancellation: &crate::cancellation::Cancellation,
     mut settle: impl FnMut() -> Result<(), BuildError>,
 ) -> Result<(), BuildError> {
+    cancellation.check()?;
     program.validate()?;
+    let layout = system
+        .map(crate::build::system::SystemBuildAction::workspace_layout)
+        .transpose()?;
     for output in &program.outputs {
         std::fs::create_dir_all(paths.output.join(output))?;
     }
     for step in &program.steps {
+        cancellation.check()?;
         match step {
             BuildStep::Run(process) => {
                 let mut command = command(program.profile, paths.path(&process.executable)?);
@@ -240,9 +291,15 @@ pub(in crate::build) fn execute(
                 text,
                 executable,
             } => {
+                let text = paths.text(text)?;
+                if let Some(layout) = &layout
+                    && text.len() as u64 > system_geometry(layout, path)?.image_bytes()
+                {
+                    return Err(BuildError::Output);
+                }
                 let path = paths.path(path)?;
                 std::fs::create_dir_all(path.parent().ok_or(BuildError::InvalidRequest)?)?;
-                std::fs::write(&path, paths.text(text)?)?;
+                std::fs::write(&path, text)?;
                 std::fs::set_permissions(
                     path,
                     std::fs::Permissions::from_mode(if *executable {
@@ -261,13 +318,35 @@ pub(in crate::build) fn execute(
                 source,
                 destination,
             } => {
-                files::transfer(
-                    &paths.path(source)?,
-                    &paths.path(destination)?,
-                    matches!(step, BuildStep::Move { .. }),
-                    program.resources,
-                    &mut || Ok(()),
-                )?;
+                let check = &mut || {
+                    if cancellation.is_cancelled() {
+                        Err(crate::cancellation::cancellation_io())
+                    } else {
+                        Ok(())
+                    }
+                };
+                if let Some(layout) = &layout {
+                    let geometry = system_geometry(layout, destination)?;
+                    files::transfer_bounded(
+                        &paths.path(source)?,
+                        &paths.path(destination)?,
+                        matches!(step, BuildStep::Move { .. }),
+                        files::TransferLimits {
+                            entries: usize::try_from(geometry.requested_inodes().min(1_000_000))
+                                .map_err(|_| BuildError::Output)?,
+                            bytes: geometry.image_bytes(),
+                        },
+                        check,
+                    )?;
+                } else {
+                    files::transfer(
+                        &paths.path(source)?,
+                        &paths.path(destination)?,
+                        matches!(step, BuildStep::Move { .. }),
+                        program.resources,
+                        check,
+                    )?;
+                }
             }
             BuildStep::ValidateStaticElf(path) => {
                 operations::validate_static_elf(&paths.path(path)?)?;
@@ -284,10 +363,43 @@ pub(in crate::build) fn execute(
                 )?;
             }
             BuildStep::Extract(destination) => {
+                let destination_kind = destination;
                 let destination = paths.path(destination)?;
                 let directory = crate::platform::linux::fd::tree::Directory::ensure(&destination)?;
                 let (parent, name) =
                     crate::platform::linux::fd::tree::Directory::parent(&paths.source)?;
+                if let Some(action) = system {
+                    use crate::acquire::archive::{
+                        ArchiveFormat, SystemArchiveLimits, SystemArchiveRole,
+                        extract_system_archive,
+                    };
+                    let role = match destination_kind {
+                        BuildPath::Work(_) => SystemArchiveRole::Scratch,
+                        BuildPath::Output {
+                            ..
+                        } => SystemArchiveRole::Output,
+                        _ => return Err(BuildError::InvalidRequest),
+                    };
+                    let format = match program.source_format {
+                        BuildSourceFormat::Gzip => ArchiveFormat::GzipTar,
+                        BuildSourceFormat::Xz => ArchiveFormat::XzTar,
+                        BuildSourceFormat::Raw => return Err(BuildError::InvalidRequest),
+                    };
+                    let limits = SystemArchiveLimits::for_role(
+                        action.budget(),
+                        action.source_limit(),
+                        format,
+                        role,
+                    )?;
+                    extract_system_archive(
+                        parent.read_file(&name)?,
+                        &limits,
+                        directory.as_fd(),
+                        cancellation,
+                    )?;
+                    settle()?;
+                    continue;
+                }
                 let (format, limits) = match program.source_format {
                     BuildSourceFormat::Gzip => (
                         crate::acquire::archive::ArchiveFormat::GzipTar,
@@ -312,6 +424,7 @@ pub(in crate::build) fn execute(
         // descendant. The supervisor applies cancellation and the total deadline.
         settle()?;
     }
+    cancellation.check()?;
     Ok(())
 }
 
@@ -353,13 +466,19 @@ fn settle_build_descendants() -> Result<(), BuildError> {
 }
 
 fn normalize_hardlinks(root: &Path) -> Result<(), BuildError> {
+    normalize_hardlinks_bounded(root, artifact::MAX_FILES, &mut 0)
+}
+fn normalize_hardlinks_bounded(
+    root: &Path,
+    maximum: usize,
+    visited: &mut usize,
+) -> Result<(), BuildError> {
     use std::os::unix::fs::MetadataExt as _;
     let mut pending = vec![root.to_path_buf()];
-    let mut visited = 0;
     while let Some(directory) = pending.pop() {
         for entry in std::fs::read_dir(directory)? {
-            visited += 1;
-            if visited > artifact::MAX_FILES {
+            *visited += 1;
+            if *visited > maximum {
                 return Err(BuildError::Output);
             }
             let path = entry?.path();
@@ -385,9 +504,65 @@ fn normalize_hardlinks(root: &Path) -> Result<(), BuildError> {
 }
 
 fn verify_install_layout(action: &str, outputs: &[String]) -> Result<(), BuildError> {
+    verify_install_layout_with_metadata(action, outputs, false)
+}
+
+fn verify_system_install_layout(action: &str, outputs: &[String]) -> Result<(), BuildError> {
+    verify_install_layout_with_metadata(action, outputs, true)
+}
+
+fn verify_install_layout_with_metadata(
+    action: &str,
+    outputs: &[String],
+    ext4_metadata: bool,
+) -> Result<(), BuildError> {
+    let overflow = if ext4_metadata {
+        let value = |path| -> Result<u32, BuildError> {
+            std::fs::read_to_string(path)?
+                .trim()
+                .parse()
+                .map_err(|_| BuildError::Output)
+        };
+        Some((
+            value("/proc/sys/kernel/overflowuid")?,
+            value("/proc/sys/kernel/overflowgid")?,
+        ))
+    } else {
+        None
+    };
     let mut path = PathBuf::from("/out");
     for name in ["syrox", "store", action] {
-        let mut entries = std::fs::read_dir(&path)?;
+        let mut entries = std::fs::read_dir(&path)?.filter_map(|entry| {
+            if ext4_metadata
+                && path == Path::new("/out")
+                && entry
+                    .as_ref()
+                    .is_ok_and(|e| e.file_name() == "lost+found")
+            {
+                use std::os::unix::fs::MetadataExt as _;
+                let validated = entry
+                    .and_then(|e| std::fs::symlink_metadata(e.path()))
+                    .and_then(|m| {
+                        if m.is_dir()
+                            && m.ino() == 11
+                            && m.mode() & 0o7777 == 0o700
+                            && overflow == Some((m.uid(), m.gid()))
+                        {
+                            Ok(())
+                        } else {
+                            Err(io::Error::other(
+                                "unexpected ext4 recovery directory",
+                            ))
+                        }
+                    });
+                match validated {
+                    Ok(()) => None,
+                    Err(e) => Some(Err(e)),
+                }
+            } else {
+                Some(entry)
+            }
+        });
         let entry = entries.next().ok_or(BuildError::Output)??;
         if entry.file_name() != name || entries.next().is_some() {
             return Err(BuildError::Output);

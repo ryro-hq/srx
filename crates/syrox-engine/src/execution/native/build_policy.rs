@@ -33,6 +33,56 @@ fn invalid() -> io::Error {
 }
 
 pub(crate) fn validate_environment() -> io::Result<()> {
+    validate_common_environment()?;
+    for path in ["/work", "/out", "/tmp"] {
+        check_mount(path, false, Some(0x0102_1994))?;
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_system_environment(
+    layout: &crate::system::workspace::WorkspaceLayout,
+    observation: &crate::system::workspace::WorkspaceObservation,
+) -> io::Result<()> {
+    validate_common_environment()?;
+    let roots = crate::system::workspace::ReceivedWorkspace::from_authorized_roots(
+        layout,
+        observation,
+        File::open("/work")?,
+        File::open("/out")?,
+    )?;
+    roots.revalidate()?;
+    check_mount("/tmp", false, Some(0xef53))?;
+    let temporary = std::fs::symlink_metadata("/tmp")?;
+    if !temporary.is_dir()
+        || temporary.dev() != observation.scratch.device
+        || temporary.ino() == observation.scratch.inode
+        || temporary.uid() != std::fs::metadata("/work")?.uid()
+        || temporary.gid() != std::fs::metadata("/work")?.gid()
+        || temporary.mode() & 0o7777 != 0o700
+    {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_system_input(path: &std::path::Path) -> io::Result<()> {
+    if !std::fs::symlink_metadata(path)?.is_dir() {
+        return Err(invalid());
+    }
+    check_mount(path.to_str().ok_or_else(invalid)?, true, None)
+}
+
+pub(crate) fn validate_system_record() -> io::Result<()> {
+    check_mount("/build-system-policy", true, None)?;
+    let metadata = std::fs::symlink_metadata("/build-system-policy")?;
+    if !metadata.is_file() || metadata.mode() & 0o7777 != 0o400 || metadata.len() > 8192 {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
+fn validate_common_environment() -> io::Result<()> {
     // SAFETY: identity queries have no memory arguments or side effects.
     let (pid, parent, uid, gid, effective_user, effective_group) = unsafe {
         (
@@ -85,9 +135,6 @@ pub(crate) fn validate_environment() -> io::Result<()> {
         "/build-program",
     ] {
         check_mount(path, true, None)?;
-    }
-    for path in ["/work", "/out", "/tmp"] {
-        check_mount(path, false, Some(0x0102_1994))?;
     }
     check_mount("/proc", true, Some(0x9fa0))?;
     check_mount("/", true, Some(0x0102_1994))?;

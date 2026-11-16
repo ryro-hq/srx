@@ -17,3 +17,4 @@ pub(crate) mod services;
 pub(crate) mod session;
 pub(crate) mod shell;
 pub(crate) mod store;
+pub(crate) mod system;

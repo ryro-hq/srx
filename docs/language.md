@@ -20,6 +20,12 @@ A `value` declares a nominal scalar type. Literals acquire their expected type;
 literal ranges and known values. Struct fields may have computed defaults.
 Anonymous records require an expected struct type.
 
+Decimal integer literals cover the complete signed 64-bit range, including
+`-9223372036854775808`. A negative literal has `-` immediately before its digits
+(`-17`); separated signs and arithmetic negation are not expressions. The same
+literals work in refinements and match patterns. Values outside `i64` produce a
+diagnostic at the complete literal.
+
 Module `let` bindings are immutable, private by default, independent of textual
 order and shared within one evaluation session. Use `pub let` to export a
 binding and `let name: Type = expression;` when an annotation helps inference.

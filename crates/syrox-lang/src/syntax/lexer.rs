@@ -242,7 +242,9 @@ fn lex_with_checkpoint(
                 }
                 keyword(&source.text()[start..at]).map_or(TokenKind::Ident, TokenKind::Keyword)
             }
-            byte if byte.is_ascii_digit() => {
+            byte if byte.is_ascii_digit()
+                || (byte == b'-' && bytes.get(at + 1).is_some_and(u8::is_ascii_digit)) =>
+            {
                 at += 1;
                 while bytes.get(at).is_some_and(u8::is_ascii_digit) {
                     checkpoint(at)?;

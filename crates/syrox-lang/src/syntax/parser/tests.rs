@@ -1,6 +1,30 @@
 use super::*;
 
 #[test]
+fn signed_decimal_literals_include_i64_minimum_and_reject_overflow_or_separated_signs() {
+    let source = Source::new(
+        "signed.srx",
+        "value I(int) where -9223372036854775808..=9223372036854775807; fn f(x: I) -> I { match x { -17 => -0, _ => -9223372036854775808 } }",
+    )
+    .unwrap();
+    analyze(&source).unwrap();
+    for literal in [
+        "-9223372036854775809",
+        "9223372036854775808",
+    ] {
+        let source = Source::new("overflow.srx", format!("let bad = {literal};")).unwrap();
+        assert!(analyze(&source).unwrap_err().iter().any(|error| {
+            error.message == "integer literal exceeds i64"
+                && source.text()[error.span.range()] == *literal
+        }));
+    }
+    for literal in ["- 17", "--17", "+17"] {
+        let source = Source::new("invalid.srx", format!("let bad = {literal};")).unwrap();
+        assert!(analyze(&source).is_err());
+    }
+}
+
+#[test]
 fn representative_v1_source_builds_a_complete_ast() {
     let source = Source::new(
         "main.srx",

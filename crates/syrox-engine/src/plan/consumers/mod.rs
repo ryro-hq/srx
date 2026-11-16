@@ -47,11 +47,11 @@ impl PlanPackageSelection {
     }
 }
 
-struct SelectionIndex<'a> {
-    references: &'a BTreeMap<&'a MemoId, PlanPackageId>,
-    builds: &'a [PlanBuild],
-    imports: &'a [super::PlanImportedResult],
-    commands: &'a [PlanCommand],
+pub(super) struct SelectionIndex<'a> {
+    pub(super) references: &'a BTreeMap<&'a MemoId, PlanPackageId>,
+    pub(super) builds: &'a [PlanBuild],
+    pub(super) imports: &'a [super::PlanImportedResult],
+    pub(super) commands: &'a [PlanCommand],
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -280,7 +280,7 @@ fn consumer_kind(component: &super::recipes::Component<'_>) -> Option<PlanConsum
     kind(component.ty())
 }
 
-fn consumer(
+pub(super) fn consumer(
     name: &str,
     identity: &CanonicalItemIdentity,
     kind: PlanConsumerKind,
@@ -1286,6 +1286,8 @@ mod tests {
         )
         .unwrap();
         let mut plan = super::super::Plan {
+            systems: Vec::new(),
+            hosts: Vec::new(),
             lock_digest: [0; 32],
             policy_identity: "test".into(),
             standard_library: None,

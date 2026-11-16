@@ -13,10 +13,12 @@ use crate::store::ContentDigest;
 
 mod artifacts;
 mod managed;
+mod system_build;
 pub use artifacts::{ArtifactConfiguration, ArtifactPolicy};
 pub(crate) mod secrets;
 pub use managed::ManagedBuildConfiguration;
 pub use secrets::ShellSecretSources;
+pub use system_build::SystemBuildConfiguration;
 
 const MAX_CONFIG_BYTES: usize = 64 * 1024;
 
@@ -43,6 +45,7 @@ pub struct UserConfiguration {
     catalog: Option<LocalCatalog>,
     host_toolchain: Option<PathBuf>,
     managed_build: Option<ManagedBuildConfiguration>,
+    system_build: Option<SystemBuildConfiguration>,
     shell_secrets: ShellSecretSources,
     allow_https: Vec<String>,
     https_redirect_origins: Vec<String>,
@@ -137,6 +140,9 @@ impl UserConfiguration {
         let managed_build = table(&mut build, "managed")?
             .map(ManagedBuildConfiguration::parse)
             .transpose()?;
+        let system_build = table(&mut build, "system")?
+            .map(SystemBuildConfiguration::parse)
+            .transpose()?;
         empty(&build)?;
         let mut shell = table(&mut root, "shell")?.unwrap_or_default();
         let shell_secrets = table(&mut shell, "secrets")?
@@ -199,6 +205,7 @@ impl UserConfiguration {
             catalog,
             host_toolchain,
             managed_build,
+            system_build,
             shell_secrets,
             allow_https,
             https_redirect_origins,
@@ -220,6 +227,9 @@ impl UserConfiguration {
     }
     pub const fn managed_build(&self) -> Option<&ManagedBuildConfiguration> {
         self.managed_build.as_ref()
+    }
+    pub const fn system_build(&self) -> Option<&SystemBuildConfiguration> {
+        self.system_build.as_ref()
     }
     pub const fn shell_secrets(&self) -> &ShellSecretSources {
         &self.shell_secrets

@@ -14,6 +14,43 @@ mod execution;
 use crate::build::managed::namespace::NamespaceLayout;
 use crate::cancellation::Cancellation;
 
+/// Read-only mount roles and their independently retained content evidence.
+/// Implementations must verify namespace-visible views after nonrecursive binds.
+pub(crate) trait NamespaceResources {
+    fn descriptor(&self, slot: usize) -> io::Result<BorrowedFd<'_>>;
+    fn verify_inputs(&self, cancellation: &Cancellation, deadline: Instant) -> io::Result<()>;
+    fn install_workspace(
+        &self,
+        root: &Path,
+        cancellation: &Cancellation,
+        deadline: Instant,
+    ) -> io::Result<bool>;
+    fn payload_arguments(&self, layout: &NamespaceLayout) -> Vec<String>;
+}
+
+impl NamespaceResources for crate::build::managed::ManagedBuildResources {
+    fn descriptor(&self, slot: usize) -> io::Result<BorrowedFd<'_>> {
+        self.descriptors()
+            .get(slot)
+            .map(|fd| fd.as_fd())
+            .ok_or_else(|| io::Error::other("invalid build mount slot"))
+    }
+    fn verify_inputs(&self, cancellation: &Cancellation, deadline: Instant) -> io::Result<()> {
+        self.verify_namespace_inputs(cancellation, deadline)
+            .map_err(io::Error::other)
+    }
+    fn install_workspace(&self, _: &Path, _: &Cancellation, _: Instant) -> io::Result<bool> {
+        Ok(false)
+    }
+    fn payload_arguments(&self, layout: &NamespaceLayout) -> Vec<String> {
+        vec![
+            "__build-managed-worker".into(),
+            layout.source_directory.clone(),
+            layout.action.to_string(),
+        ]
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct BuildCapture {
     pub artifacts: File,
@@ -175,7 +212,7 @@ fn read_exec_marker(executed: &mut impl Read) -> io::Result<bool> {
 /// Dedicated single-threaded worker only; init always terminates via `_exit`.
 pub(crate) unsafe fn prepare(
     layout: &NamespaceLayout,
-    resources: &crate::build::managed::ManagedBuildResources,
+    resources: &impl NamespaceResources,
     cancellation: &Cancellation,
     deadline: Instant,
 ) -> io::Result<PreparedNamespace> {
@@ -332,7 +369,7 @@ fn child_entry(
     channels: InitChannels,
     root: &Path,
     layout: &NamespaceLayout,
-    resources: &crate::build::managed::ManagedBuildResources,
+    resources: &impl NamespaceResources,
     null: BorrowedFd<'_>,
     budget: (&Cancellation, Instant),
 ) -> ! {
@@ -359,11 +396,16 @@ fn child_entry(
             execution::null_stdio(null)?;
             let signals = SignalFd::for_init(original)?;
             stage = diagnostics::Stage::Mounts;
-            install(root, layout, resources.descriptors(), null)?;
+            install(
+                root,
+                layout,
+                resources,
+                null,
+                cancellation,
+                deadline,
+            )?;
             stage = diagnostics::Stage::Inputs;
-            resources
-                .verify_namespace_inputs(cancellation, deadline)
-                .map_err(io::Error::other)?;
+            resources.verify_inputs(cancellation, deadline)?;
             stage = diagnostics::Stage::Verification;
             verify_mounts(layout)?;
             stage = diagnostics::Stage::Privileges;
@@ -387,7 +429,12 @@ fn child_entry(
                 life.write_all(b"m")?;
                 super::managed::wait_authorization(&mut life, &signals)?;
                 drop(life);
-                execution::execute(layout, &signals, executed, writers)
+                execution::execute(
+                    &resources.payload_arguments(layout),
+                    &signals,
+                    executed,
+                    writers,
+                )
             })();
             result.unwrap_or(1)
         }
@@ -410,8 +457,10 @@ fn child_entry(
 fn install(
     root: &Path,
     layout: &NamespaceLayout,
-    descriptors: &[OwnedFd],
+    resources: &impl NamespaceResources,
     null: BorrowedFd<'_>,
+    cancellation: &Cancellation,
+    deadline: Instant,
 ) -> io::Result<()> {
     super::mount(
         None,
@@ -420,14 +469,16 @@ fn install(
         libc::MS_REC | libc::MS_PRIVATE,
     )?;
     tmpfs(root, 16 * 1024 * 1024, 8192, true)?;
-    for (name, bytes) in [
-        ("work", layout.work_bytes),
-        ("out", layout.output_bytes),
-        ("tmp", 64 * 1024 * 1024),
-    ] {
-        let path = root.join(name);
-        std::fs::create_dir(&path)?;
-        tmpfs(&path, bytes, 65_536, false)?;
+    if !resources.install_workspace(root, cancellation, deadline)? {
+        for (name, bytes) in [
+            ("work", layout.work_bytes),
+            ("out", layout.output_bytes),
+            ("tmp", 64 * 1024 * 1024),
+        ] {
+            let path = root.join(name);
+            std::fs::create_dir(&path)?;
+            tmpfs(&path, bytes, 65_536, false)?;
+        }
     }
     for entry in &layout.mounts {
         let target = root.join(
@@ -444,7 +495,7 @@ fn install(
         }
         let source = format!(
             "/proc/self/fd/{}",
-            descriptors[entry.slot].as_raw_fd()
+            resources.descriptor(entry.slot)?.as_raw_fd()
         );
         // Inherited f_paths belong to the old mount namespace. Reopen and pin
         // the same inode locally; bind by that fd, never by a mutable pathname.
