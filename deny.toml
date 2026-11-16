@@ -8,7 +8,11 @@ yanked = "deny"
 # This informational maintenance advisory has no patched release. Track it
 # explicitly until the pinned SDK replaces its codec; security advisories remain
 # checked. https://rustsec.org/advisories/RUSTSEC-2025-0141.html
-ignore = [{ id = "RUSTSEC-2025-0141", reason = "Required by the pinned local VM test SDK; unmaintained codec is tracked in security/exceptions.json and is not a Syrox release dependency." }]
+ignore = [
+    { id = "RUSTSEC-2025-0141", reason = "Required by the pinned local VM test SDK; unmaintained codec is tracked in security/exceptions.json and is not a Syrox release dependency." },
+    { id = "RUSTSEC-2026-0440", reason = "astral-tokio-tar is reached only through the pinned microsandbox VM test SDK; tracked in security/exceptions.json and absent from release artifacts." },
+    { id = "RUSTSEC-2026-0459", reason = "libsqlite3-sys is reached only through the pinned microsandbox VM test SDK (sqlx); tracked in security/exceptions.json and absent from release artifacts." },
+]
 
 [bans]
 multiple-versions = "warn"

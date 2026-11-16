@@ -11,6 +11,24 @@
       "reason": "Microsandbox =0.7.3 development-only codec is unmaintained with no patched release; excluded from shipped CLI and worker. Replace the SDK before expiry."
     },
     {
+      "kind": "advisory",
+      "id": "RUSTSEC-2026-0440",
+      "package": "astral-tokio-tar",
+      "version": "=0.6.4",
+      "owner": "fullzer4",
+      "expires": "2027-01-20",
+      "reason": "Unmaintained tar crate used only by the pinned microsandbox =0.7.3 VM test SDK; no safe upgrade. Excluded from shipped CLI and worker. Replace the SDK before expiry."
+    },
+    {
+      "kind": "advisory",
+      "id": "RUSTSEC-2026-0459",
+      "package": "libsqlite3-sys",
+      "version": "=0.37.0",
+      "owner": "fullzer4",
+      "expires": "2027-01-20",
+      "reason": "Bundled SQLite CVE reached only through sqlx in the pinned microsandbox =0.7.3 VM test SDK; the fix needs libsqlite3-sys 0.39. Excluded from shipped CLI and worker. Replace the SDK before expiry."
+    },
+    {
       "kind": "license",
       "package": "option-ext",
       "version": "=0.2.0",
