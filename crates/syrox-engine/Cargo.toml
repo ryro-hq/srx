@@ -10,6 +10,7 @@ publish = false
 
 [dependencies]
 syrox-lang.workspace = true
+syrox-system.workspace = true
 thiserror.workspace = true
 sha2.workspace = true
 url = "=2.5.8"

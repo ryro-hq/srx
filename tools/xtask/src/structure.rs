@@ -1,4 +1,4 @@
-//! Checking where production modules live across the three crates.
+//! Checking where production modules live across the workspace crates.
 //!
 //! Crate entries must introduce the reading flow. Internal files may omit docs
 //! when their names and code already explain their role. Directories with `mod.rs`
@@ -192,7 +192,12 @@ fn production_child(directory: &Path) -> io::Result<bool> {
 
 fn check(root: &Path) -> io::Result<Vec<String>> {
     let mut files = Vec::new();
-    for name in ["syrox-lang", "syrox-engine", "syrox"] {
+    for name in [
+        "syrox-lang",
+        "syrox-engine",
+        "syrox-system",
+        "syrox",
+    ] {
         rust_files(&root.join("crates").join(name), &mut files)?;
     }
     files.sort();
@@ -200,6 +205,7 @@ fn check(root: &Path) -> io::Result<Vec<String>> {
     for entry in [
         "crates/syrox-lang/src/lib.rs",
         "crates/syrox-engine/src/lib.rs",
+        "crates/syrox-system/src/lib.rs",
         "crates/syrox/src/main.rs",
         "crates/syrox/src/worker.rs",
     ] {
@@ -227,7 +233,7 @@ fn check(root: &Path) -> io::Result<Vec<String>> {
         }
     }
     println!(
-        "Checked {} Rust files across three crates",
+        "Checked {} Rust files across four crates",
         files.len()
     );
     Ok(errors)
@@ -266,6 +272,7 @@ mod tests {
         for entry in [
             "crates/syrox-lang/src/lib.rs",
             "crates/syrox-engine/src/lib.rs",
+            "crates/syrox-system/src/lib.rs",
             "crates/syrox/src/main.rs",
             "crates/syrox/src/worker.rs",
         ] {

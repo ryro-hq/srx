@@ -17,7 +17,7 @@ pub(crate) mod tree;
 use std::ffi::{CString, OsStr, OsString};
 use std::fs::File;
 use std::io::{self, Read, Write};
-use std::mem::{self, MaybeUninit, size_of};
+use std::mem::{self, MaybeUninit};
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 #[cfg(test)]
@@ -26,13 +26,15 @@ use std::path::Path;
 use std::ptr::NonNull;
 
 mod buffer;
-mod path_handle;
 mod process;
-pub(crate) use path_handle::open_path;
 pub(crate) use process::{
     PidfdNamespace, descriptor_status_flags, effective_gid, effective_uid, kill_pidfd,
     namespace_parent, open_proc_executable, pidfd_exited, pidfd_namespace, pidfd_open,
     proc_self_pid, real_gid, real_uid, require_unique_pidfd, validate_pidfd, wait_pidfd,
+};
+pub(crate) use syrox_system::descriptor::{
+    FlockMode, flock, open_path, receive_fd, require_readonly, send_fd, seqpacket_pair,
+    status_flags,
 };
 mod group_pidfd;
 mod launch;
@@ -40,10 +42,8 @@ pub(crate) use group_pidfd::PinnedProcessGroup;
 #[cfg(test)]
 pub(crate) mod retention_fork_tests;
 pub(crate) mod terminal;
-mod transport;
 pub(crate) use buffer::{ReadBuffer, TailBuffer, read_exact_at};
 pub(crate) use launch::{PreparedLaunch, Spawned, run_build_command};
-pub(crate) use transport::{receive_fd, send_fd, seqpacket_pair};
 
 /// Inherit one live descriptor only in this command's forked child. The parent
 /// retains CLOEXEC so unrelated concurrent spawns cannot extend its lifetime.
@@ -138,33 +138,6 @@ pub(crate) fn reap_build_descendant() -> io::Result<Option<std::process::ExitSta
             return Err(error);
         }
     }
-}
-
-/// Read the shared open-file-description status flags without changing them.
-pub(crate) fn status_flags(fd: BorrowedFd<'_>) -> io::Result<i32> {
-    // SAFETY: F_GETFL only queries the live borrowed descriptor.
-    let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
-    if flags < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(flags)
-    }
-}
-
-/// Require an actual read-only descriptor, excluding path-only handles.
-pub(crate) fn require_readonly(fd: BorrowedFd<'_>) -> io::Result<()> {
-    // SAFETY: fcntl reads descriptor flags; the borrowed descriptor remains live.
-    let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
-    if flags < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    if flags & libc::O_ACCMODE != libc::O_RDONLY || flags & libc::O_PATH != 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "descriptor is not read-only",
-        ));
-    }
-    Ok(())
 }
 
 pub(crate) fn set_nonblocking(fd: BorrowedFd<'_>) -> io::Result<()> {
@@ -330,18 +303,18 @@ pub(crate) enum OpenError {
 }
 
 pub(crate) fn open_top(path: &Path) -> Result<OpenedPath, OpenError> {
-    open_at2(libc::AT_FDCWD, path, false, TOP_LEVEL_RESOLUTION)
+    open_at2(None, path, false, TOP_LEVEL_RESOLUTION)
 }
 
 pub(crate) fn open_top_directory(path: &Path) -> Result<OpenedPath, OpenError> {
-    open_at2(libc::AT_FDCWD, path, true, TOP_LEVEL_RESOLUTION)
+    open_at2(None, path, true, TOP_LEVEL_RESOLUTION)
 }
 
 /// Open the parent of an explicitly authorized project root. Unlike a path
 /// basename this also works for roots spelled `.` or `..`.
 pub(crate) fn open_project_parent(directory: BorrowedFd<'_>) -> Result<OpenedPath, OpenError> {
     open_at2(
-        directory.as_raw_fd(),
+        Some(directory),
         Path::new(".."),
         true,
         TOP_LEVEL_RESOLUTION,
@@ -354,7 +327,7 @@ pub(crate) fn open_beneath(
     directory_only: bool,
 ) -> Result<OpenedPath, OpenError> {
     open_at2(
-        directory.as_raw_fd(),
+        Some(directory),
         path,
         directory_only,
         BENEATH_RESOLUTION,
@@ -368,7 +341,7 @@ pub(crate) fn open_beneath_no_mounts(
     directory_only: bool,
 ) -> Result<OpenedPath, OpenError> {
     open_at2(
-        directory.as_raw_fd(),
+        Some(directory),
         path,
         directory_only,
         BENEATH_RESOLUTION | libc::RESOLVE_NO_XDEV,
@@ -1046,56 +1019,16 @@ pub(crate) enum LockIoError {
 }
 
 fn open_at2(
-    directory: libc::c_int,
+    directory: Option<BorrowedFd<'_>>,
     path: &Path,
     directory_only: bool,
     resolve: u64,
 ) -> Result<OpenedPath, OpenError> {
-    let path = CString::new(path.as_os_str().as_bytes()).map_err(|_| {
-        OpenError::Other(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "path contains a NUL byte",
-        ))
-    })?;
-    let mut flags = libc::O_RDONLY | libc::O_NONBLOCK | libc::O_CLOEXEC;
-    if directory_only {
-        flags |= libc::O_DIRECTORY;
-    }
-    // SAFETY: all-zero is a valid initial `open_how`; every currently defined field is then set.
-    let mut how: libc::open_how = unsafe { mem::zeroed() };
-    how.flags = u64::try_from(flags).expect("Linux open flags are nonnegative");
-    how.mode = 0;
-    how.resolve = resolve;
-    let raw_fd = loop {
-        // SAFETY: the syscall number and `open_how` ABI come from libc, and both pointers remain
-        // valid for the duration of the call.
-        let result = unsafe {
-            libc::syscall(
-                libc::SYS_openat2,
-                directory,
-                path.as_ptr(),
-                &raw const how,
-                size_of::<libc::open_how>(),
-            )
-        };
-        if result >= 0 {
-            break libc::c_int::try_from(result).map_err(|_| {
-                OpenError::Other(io::Error::other(
-                    "openat2 returned a descriptor outside the supported range",
-                ))
-            })?;
-        }
-        let source = io::Error::last_os_error();
-        if source.raw_os_error() == Some(libc::EINTR) {
-            continue;
-        }
-        return Err(classify_open_error(source));
-    };
-    // SAFETY: a nonnegative successful `openat2` result is a new descriptor owned by this call.
-    let fd = unsafe { OwnedFd::from_raw_fd(raw_fd) };
+    let fd = syrox_system::descriptor::open_resolved(directory, path, directory_only, resolve)
+        .map_err(classify_open_error)?;
     let metadata = metadata(fd.as_fd()).map_err(OpenError::Other)?;
     Ok(OpenedPath {
-        fd,
+        fd: fd.into(),
         metadata,
     })
 }
@@ -1295,39 +1228,6 @@ pub(crate) fn open_existing_regular(
         ));
     }
     Ok(opened)
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum FlockMode {
-    Unlock,
-    Shared,
-    Exclusive,
-    ExclusiveNonblocking,
-}
-
-pub(crate) fn flock(file: BorrowedFd<'_>, mode: FlockMode) -> io::Result<bool> {
-    let operation = match mode {
-        FlockMode::Unlock => libc::LOCK_UN,
-        FlockMode::Shared => libc::LOCK_SH | libc::LOCK_NB,
-        FlockMode::Exclusive => libc::LOCK_EX,
-        FlockMode::ExclusiveNonblocking => libc::LOCK_EX | libc::LOCK_NB,
-    };
-    loop {
-        // SAFETY: `file` is live and `operation` is one of flock's documented values.
-        if unsafe { libc::flock(file.as_raw_fd(), operation) } == 0 {
-            return Ok(true);
-        }
-        let source = io::Error::last_os_error();
-        if source.raw_os_error() == Some(libc::EINTR) {
-            continue;
-        }
-        if source.raw_os_error() == Some(libc::EWOULDBLOCK)
-            || source.raw_os_error() == Some(libc::EAGAIN)
-        {
-            return Ok(false);
-        }
-        return Err(source);
-    }
 }
 
 pub(crate) fn unlink_opened(

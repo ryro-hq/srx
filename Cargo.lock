@@ -4620,6 +4620,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "syrox-lang",
+ "syrox-system",
  "tempfile",
  "thiserror",
  "tokio",
@@ -4638,6 +4639,20 @@ dependencies = [
  "thiserror",
  "toml_edit",
  "yaml-edit",
+]
+
+[[package]]
+name = "syrox-system"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "flate2",
+ "libc 1.0.0-alpha.4",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]

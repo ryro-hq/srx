@@ -1,7 +1,55 @@
+//! Descriptor transfer with fixed framing, bounded ancillary storage and
+//! deterministic ownership on malformed/truncated messages. These operations
+//! authenticate neither a peer nor the resource transferred by that peer.
+
 use std::io;
 use std::os::fd::{AsRawFd as _, BorrowedFd, FromRawFd as _, OwnedFd};
 
-pub(crate) fn seqpacket_pair() -> io::Result<(OwnedFd, OwnedFd)> {
+/// Credentials observed by the kernel at connection/socket-pair creation.
+/// A zero PID can identify a peer outside the observer's PID namespace. These
+/// values require an independent authorization policy; possession is not approval.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PeerCredentials {
+    pub pid: i32,
+    pub uid: u32,
+    pub gid: u32,
+}
+
+/// Read kernel peer credentials without applying a caller-specific UID policy.
+pub fn peer_credentials(socket: BorrowedFd<'_>) -> io::Result<PeerCredentials> {
+    let mut credentials = std::mem::MaybeUninit::<libc::ucred>::uninit();
+    let mut length = libc::socklen_t::try_from(size_of::<libc::ucred>()).expect("ucred size");
+    // SAFETY: writable ucred storage and its exact size are supplied. The live
+    // borrowed descriptor selects the socket; no caller credentials are accepted.
+    if unsafe {
+        libc::getsockopt(
+            socket.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            credentials.as_mut_ptr().cast(),
+            &raw mut length,
+        )
+    } < 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    if length as usize != size_of::<libc::ucred>() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "invalid peer credentials size",
+        ));
+    }
+    // SAFETY: getsockopt initialized the exact ucred layout, checked above.
+    let credentials = unsafe { credentials.assume_init() };
+    Ok(PeerCredentials {
+        pid: credentials.pid,
+        uid: credentials.uid,
+        gid: credentials.gid,
+    })
+}
+
+/// Create a private close-on-exec Unix sequence-packet pair.
+pub fn seqpacket_pair() -> io::Result<(OwnedFd, OwnedFd)> {
     let mut fds = [-1; 2];
     // SAFETY: fds is writable and socketpair initializes both slots on success.
     if unsafe {
@@ -24,7 +72,8 @@ pub(crate) fn seqpacket_pair() -> io::Result<(OwnedFd, OwnedFd)> {
     })
 }
 
-pub(crate) fn send_fd(socket: BorrowedFd<'_>, descriptor: BorrowedFd<'_>) -> io::Result<()> {
+/// Transfer a reference while the caller retains ownership of its descriptor.
+pub fn send_fd(socket: BorrowedFd<'_>, descriptor: BorrowedFd<'_>) -> io::Result<()> {
     let mut byte = b'n';
     let mut iov = libc::iovec {
         iov_base: (&raw mut byte).cast(),
@@ -71,7 +120,9 @@ pub(crate) fn send_fd(socket: BorrowedFd<'_>, descriptor: BorrowedFd<'_>) -> io:
     }
 }
 
-pub(crate) fn receive_fd(socket: BorrowedFd<'_>) -> io::Result<OwnedFd> {
+/// Receive exactly one close-on-exec descriptor without blocking. Every
+/// installed descriptor is closed if the message is malformed or truncated.
+pub fn receive_fd(socket: BorrowedFd<'_>) -> io::Result<OwnedFd> {
     let mut byte = 0_u8;
     let mut iov = libc::iovec {
         iov_base: (&raw mut byte).cast(),
@@ -140,13 +191,8 @@ mod tests {
         let file = tempfile::tempfile().unwrap();
         send_fd(sender.as_fd(), file.as_fd()).unwrap();
         drop((file, sender));
-        let descriptor = receive_fd(receiver.as_fd()).unwrap();
-        assert_eq!(
-            super::super::metadata(descriptor.as_fd())
-                .unwrap()
-                .size(),
-            0
-        );
+        let descriptor = std::fs::File::from(receive_fd(receiver.as_fd()).unwrap());
+        assert_eq!(descriptor.metadata().unwrap().len(), 0);
         // SAFETY: query the live descriptor returned by recvmsg.
         assert_ne!(
             unsafe { libc::fcntl(descriptor.as_raw_fd(), libc::F_GETFD) } & libc::FD_CLOEXEC,
@@ -215,5 +261,23 @@ mod tests {
                 "received descriptor leaked for {count} rights"
             );
         }
+    }
+
+    #[test]
+    fn kernel_peer_credentials_are_observed_and_regular_files_are_refused() {
+        use std::os::fd::AsFd as _;
+        let (first, second) = seqpacket_pair().unwrap();
+        for socket in [&first, &second] {
+            let peer = peer_credentials(socket.as_fd()).unwrap();
+            assert_eq!(
+                u32::try_from(peer.pid).unwrap(),
+                std::process::id()
+            );
+            // SAFETY: these queries have no arguments or side effects.
+            assert_eq!((peer.uid, peer.gid), unsafe {
+                (libc::geteuid(), libc::getegid())
+            });
+        }
+        assert!(peer_credentials(tempfile::tempfile().unwrap().as_fd()).is_err());
     }
 }

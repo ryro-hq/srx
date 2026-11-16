@@ -393,7 +393,7 @@ fn invalid() -> io::Error {
 #[cfg(test)]
 #[path = "tests/persisted_namespace/mod.rs"]
 pub(crate) mod tests;
-/// The authenticated Os launcher before it creates its one namespace child.
+/// The authenticated Services launcher before it creates its one namespace child.
 /// A launcher record is deliberately not interchangeable with namespace evidence.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -440,7 +440,7 @@ impl LauncherExitProof {
     }
 }
 impl CapturedLauncher {
-    /// Called only after the Os entry authenticated itself as manager `MainPID`,
+    /// Called only after the Services entry authenticated itself as manager `MainPID`,
     /// and before `prepare_managed_runtime` creates its sole namespace child.
     pub(crate) fn capture_self(cancel: &Cancellation, deadline: Instant) -> io::Result<Self> {
         let descriptor = pidfd_open(std::process::id())?;

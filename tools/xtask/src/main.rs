@@ -102,6 +102,10 @@ fn suite(name: &str) -> Result {
             run("cargo", &["test", "--locked", "-p", "syrox-lang"])?;
             run(
                 "cargo",
+                &["test", "--locked", "-p", "syrox-system"],
+            )?;
+            run(
+                "cargo",
                 &[
                     "test", "--locked", "-p", "srx-fuzz", "--lib",
                 ],
