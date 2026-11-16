@@ -1100,14 +1100,19 @@ fn files(
     let input = view
         .open_artifact(cancellation)
         .map_err(materialization_error)?;
-    let mut indexed =
-        artifact::IndexedArtifact::open_checked(input, entry, cancellation).map_err(|_| {
-            if cancellation.is_cancelled() {
-                RuntimeError::Cancelled
-            } else {
-                invalid("invalid runtime artifact")
-            }
-        })?;
+    let mut indexed = artifact::IndexedArtifact::open_with_limits(
+        input,
+        entry,
+        view.artifact_limits(),
+        cancellation,
+    )
+    .map_err(|_| {
+        if cancellation.is_cancelled() {
+            RuntimeError::Cancelled
+        } else {
+            invalid("invalid runtime artifact")
+        }
+    })?;
     let mut files = Vec::with_capacity(indexed.files().len());
     let (indexed_files, reader) = indexed.parts();
     for file in indexed_files.iter() {
@@ -1120,17 +1125,12 @@ fn files(
         let elf = if inspect {
             let size =
                 usize::try_from(file.size).map_err(|_| invalid("ELF exceeds address space"))?;
-            let magic = artifact::IndexedArtifact::<crate::store::VerifiedReader>::range_from(
-                reader,
-                &file,
-                0,
-                size.min(4),
-                cancellation,
-            )
-            .map_err(runtime_read_error)?;
+            let magic =
+                artifact::IndexedArtifact::range_from(reader, &file, 0, size.min(4), cancellation)
+                    .map_err(runtime_read_error)?;
             if magic == b"\x7fELF" {
                 Some(inspect_ranges(size, |start, length| {
-                    artifact::IndexedArtifact::<crate::store::VerifiedReader>::range_from(
+                    artifact::IndexedArtifact::range_from(
                         reader,
                         &file,
                         start,

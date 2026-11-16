@@ -745,6 +745,10 @@ fn host_static_runtime_mounts_only_the_verified_output_and_preserves_cwd() {
         #include <string.h>
         #include <limits.h>
         #include <errno.h>
+        #include <fcntl.h>
+        #include <sys/stat.h>
+        #include <sys/sysmacros.h>
+        #include <dirent.h>
         #include <linux/capability.h>
         #include <sys/prctl.h>
         #include <sys/syscall.h>
@@ -755,6 +759,25 @@ fn host_static_runtime_mounts_only_the_verified_output_and_preserves_cwd() {
             if (access("input", R_OK) != 0) return 11;
             if (access("/usr", F_OK) == 0) return 12;
             if (access(argv[3], F_OK) == 0) return 14;
+            int null = open("/dev/null", O_RDWR);
+            if (null < 0) return 21;
+            struct stat device;
+            if (fstat(null, &device) || !S_ISCHR(device.st_mode)
+                || major(device.st_rdev) != 1 || minor(device.st_rdev) != 3) return 22;
+            char buffer[16];
+            if (read(null, buffer, sizeof(buffer)) != 0
+                || write(null, "discarded", 9) != 9) return 23;
+            close(null);
+            DIR *devices = opendir("/dev");
+            if (!devices) return 24;
+            struct dirent *entry;
+            int null_count = 0;
+            while ((entry = readdir(devices))) {
+                if (!strcmp(entry->d_name, "null")) ++null_count;
+                else if (strcmp(entry->d_name, ".") && strcmp(entry->d_name, "..")) return 25;
+            }
+            closedir(devices);
+            if (null_count != 1) return 26;
             struct __user_cap_header_struct header = { _LINUX_CAPABILITY_VERSION_3, 0 };
             struct __user_cap_data_struct caps[2] = {0};
             if (syscall(SYS_capget, &header, caps)) return 15;

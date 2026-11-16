@@ -123,6 +123,8 @@ pub(crate) enum ProjectCommand {
         #[arg(long)]
         allow_https: String,
     },
+    /// Import local bytes against a locked source pin, without network access.
+    ImportSource(super::commands::project::ImportSourceArguments),
     /// Inspect a verified source archive without extracting it.
     InspectSource {
         path: PathBuf,

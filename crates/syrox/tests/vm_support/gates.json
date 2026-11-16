@@ -66,6 +66,14 @@
   {
     "package": "syrox-engine",
     "target": "lib",
+    "name": "acquire::archive::system::tests::system_archive_large_child",
+    "category": "fixture",
+    "group": "store",
+    "reason": "subprocess fixture invoked only by expanded_source_exceeding_one_gib_passes_in_a_memory_bounded_child"
+  },
+  {
+    "package": "syrox-engine",
+    "target": "lib",
     "name": "execution::launcher::coordinator::tests::coordinator_death_closes_owner_and_recovery_does_not_restart_it",
     "category": "gate",
     "group": "launcher",

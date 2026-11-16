@@ -10,7 +10,16 @@
 
 pub(crate) mod artifact;
 pub(crate) mod materialize;
+mod staging;
+pub use staging::{PreparedSystemOutput, ingest_system_output, stage_system_output};
+mod producer;
+pub use producer::SystemOutputStream;
+mod worker_output;
+pub use worker_output::{receive_system_outputs, write_system_outputs};
+mod transport;
 use std::collections::{BTreeMap, BTreeSet};
+pub(crate) use transport::ArtifactReader;
+pub use transport::ChunkedOutput;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -21,7 +30,10 @@ use crate::{
     store::OperationLease, store::RootName, store::Store, store::StoreError,
 };
 
-pub const MAX_RESULT_MANIFEST_BYTES: u64 = 1024 * 1024;
+/// Largest admitted manifest; legacy v2 remains capped at 1 MiB.
+pub const MAX_RESULT_MANIFEST_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_LEGACY_MANIFEST_BYTES: u64 = 1024 * 1024;
+const SYSTEM_HEADER: &[u8] = b"syrox-result-v3\n";
 pub const MAX_RESULT_OUTPUTS: usize = 128;
 pub const MAX_RESULT_ARTIFACT_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_COMMANDS: usize = 128;
@@ -37,6 +49,9 @@ pub struct ResultOutput {
     #[serde(with = "digest_text")]
     pub artifact: ContentDigest,
     pub files: usize,
+    /// Absent in legacy outputs; `artifact` pins this embedded manifest when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chunked: Option<ChunkedOutput>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,6 +69,15 @@ pub struct ResultCommand {
 pub struct ResultManifest {
     outputs: BTreeMap<String, ResultOutput>,
     commands: BTreeMap<String, ResultCommand>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    system: Option<SystemResultLimits>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SystemResultLimits {
+    bytes: u64,
+    files: u64,
 }
 
 #[derive(Debug, Error)]
@@ -129,14 +153,76 @@ impl ResultManifest {
                             output: view.identity().output.clone(),
                             artifact: view.artifact(),
                             files: view.files(),
+                            chunked: view.chunked().cloned(),
                         },
                     )
                 })
                 .collect(),
             commands,
+            system: None,
         };
         manifest.validate()?;
         Ok(manifest)
+    }
+
+    /// Construct an explicitly budgeted system result. This is pure metadata;
+    /// admission still checks every chunk, artifact record and runtime closure.
+    pub fn for_system(
+        outputs: BTreeMap<String, ResultOutput>,
+        commands: BTreeMap<String, ResultCommand>,
+        budget: &crate::system::budget::AdmittedBudget,
+    ) -> Result<Self, ResultError> {
+        let manifest = Self {
+            outputs,
+            commands,
+            system: Some(SystemResultLimits {
+                bytes: budget.request().output_bytes,
+                files: budget.request().files,
+            }),
+        };
+        manifest.validate()?;
+        Ok(manifest)
+    }
+
+    pub(crate) fn check_system_budget(
+        &self,
+        budget: &crate::system::budget::AdmittedBudget,
+    ) -> Result<(), ResultError> {
+        self.validate()?;
+        let limits = self
+            .system
+            .ok_or_else(|| invalid("expected system result version 3"))?;
+        if limits.bytes > budget.request().output_bytes || limits.files > budget.request().files {
+            return Err(invalid(
+                "system result exceeds administrator-admitted budget",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn is_system(&self) -> bool {
+        self.system.is_some()
+    }
+
+    fn limits(&self, output: &ResultOutput) -> artifact::ArtifactLimits {
+        if output.chunked.is_some() {
+            let system = self.system.expect("validated system descriptor");
+            artifact::ArtifactLimits {
+                bytes: system.bytes,
+                expanded_bytes: system.bytes,
+                files: usize::try_from(system.files).expect("bounded system files"),
+            }
+        } else {
+            artifact::ArtifactLimits::LEGACY
+        }
+    }
+
+    fn manifest_limit(&self) -> u64 {
+        if self.is_system() {
+            MAX_RESULT_MANIFEST_BYTES
+        } else {
+            MAX_LEGACY_MANIFEST_BYTES
+        }
     }
 
     pub fn outputs(&self) -> &BTreeMap<String, ResultOutput> {
@@ -148,10 +234,15 @@ impl ResultManifest {
 
     pub fn encode(&self) -> Result<Vec<u8>, ResultError> {
         self.validate()?;
-        let mut bytes = HEADER.to_vec();
+        let mut bytes = if self.is_system() {
+            SYSTEM_HEADER
+        } else {
+            HEADER
+        }
+        .to_vec();
         serde_json::to_writer(&mut bytes, self).map_err(|error| invalid(error.to_string()))?;
         bytes.push(b'\n');
-        if bytes.len() as u64 > MAX_RESULT_MANIFEST_BYTES {
+        if bytes.len() as u64 > self.manifest_limit() {
             return Err(invalid("manifest byte limit exceeded"));
         }
         Ok(bytes)
@@ -161,8 +252,12 @@ impl ResultManifest {
         if bytes.len() as u64 > MAX_RESULT_MANIFEST_BYTES {
             return Err(invalid("manifest byte limit exceeded"));
         }
+        if bytes.starts_with(HEADER) && bytes.len() as u64 > MAX_LEGACY_MANIFEST_BYTES {
+            return Err(invalid("manifest byte limit exceeded"));
+        }
         let json = bytes
             .strip_prefix(HEADER)
+            .or_else(|| bytes.strip_prefix(SYSTEM_HEADER))
             .ok_or_else(|| invalid("unsupported manifest version"))?;
         let manifest: Self =
             serde_json::from_slice(json).map_err(|error| invalid(error.to_string()))?;
@@ -179,11 +274,17 @@ impl ResultManifest {
     /// Complete portable CAS closure, including this manifest itself.
     pub fn references(&self) -> Result<Vec<ContentDigest>, ResultError> {
         let mut references = BTreeSet::from([self.digest()?]);
-        references.extend(
-            self.outputs
-                .values()
-                .map(|output| output.artifact),
-        );
+        for output in self.outputs.values() {
+            references.insert(output.artifact);
+            if let Some(chunked) = &output.chunked {
+                references.extend(chunked.references(output.artifact)?);
+            }
+        }
+        if references.len() as u64 > crate::store::MAX_ROOT_REFERENCES {
+            return Err(invalid(
+                "result object closure exceeds root reference limit",
+            ));
+        }
         Ok(references.into_iter().collect())
     }
 
@@ -194,9 +295,25 @@ impl ResultManifest {
         {
             return Err(invalid("output or command count exceeds bounds"));
         }
+        if let Some(system) = self.system
+            && (system.bytes == 0
+                || system.bytes > crate::store::chunked::MAX_ARTIFACT_BYTES
+                || system.files == 0
+                || system.files > 1_000_000)
+        {
+            return Err(invalid("invalid system result budget"));
+        }
         let mut logical = BTreeMap::new();
         for (key, output) in &self.outputs {
-            if !valid_name(key) || !valid_name(&output.output) || output.files > artifact::MAX_FILES
+            if output.chunked.is_some() && self.system.is_none() {
+                return Err(invalid(
+                    "chunked outputs require a version 3 system result",
+                ));
+            }
+            if !valid_name(key)
+                || !valid_name(&output.output)
+                || output.files == 0
+                || output.files > self.limits(output).files
             {
                 return Err(invalid("invalid output metadata"));
             }
@@ -205,6 +322,45 @@ impl ResultManifest {
             {
                 return Err(invalid("conflicting logical output identities"));
             }
+        }
+        // Validate embedded manifests before any Store or output-view effect.
+        let mut closure = BTreeSet::new();
+        let mut declared = BTreeSet::new();
+        let mut declared_bytes = 0_u64;
+        let mut declared_files = 0_u64;
+        for output in self.outputs.values() {
+            if let Some(system) = self.system
+                && declared.insert(output.artifact)
+            {
+                declared_files = declared_files
+                    .checked_add(output.files as u64)
+                    .filter(|count| *count <= system.files)
+                    .ok_or_else(|| invalid("aggregate declared artifact file limit exceeded"))?;
+                if let Some(chunked) = &output.chunked {
+                    declared_bytes = declared_bytes
+                        .checked_add(chunked.decoded()?.size())
+                        .filter(|bytes| *bytes <= system.bytes)
+                        .ok_or_else(|| {
+                            invalid("aggregate declared artifact byte limit exceeded")
+                        })?;
+                }
+            }
+            if let Some(chunked) = &output.chunked {
+                closure.extend(chunked.references(output.artifact)?);
+                if chunked.decoded()?.size() > self.limits(output).bytes {
+                    return Err(invalid(
+                        "system artifact exceeds declared result budget",
+                    ));
+                }
+            } else {
+                closure.insert(output.artifact);
+            }
+        }
+        // Reserve one reference for the result manifest itself.
+        if closure.len() as u64 >= crate::store::MAX_ROOT_REFERENCES {
+            return Err(invalid(
+                "result object closure exceeds root reference limit",
+            ));
         }
         let mut roles = 0;
         for (name, command) in &self.commands {
@@ -354,6 +510,47 @@ pub fn admit_result(
     expected_digest: ContentDigest,
     cancellation: &Cancellation,
 ) -> Result<AdmittedResult, ResultError> {
+    if manifest.is_system() {
+        return Err(invalid(
+            "system results require explicit budgeted admission",
+        ));
+    }
+    admit_checked(
+        store,
+        root,
+        manifest,
+        expected_digest,
+        cancellation,
+    )
+}
+
+/// Admit a v3 result only within the administrator-admitted output/inode budget.
+/// This authorizes consumption of pinned bytes, not execution or installation.
+pub fn admit_system_result(
+    store: &Store,
+    root: &RootName,
+    manifest: &ResultManifest,
+    expected_digest: ContentDigest,
+    budget: &crate::system::budget::AdmittedBudget,
+    cancellation: &Cancellation,
+) -> Result<AdmittedResult, ResultError> {
+    manifest.check_system_budget(budget)?;
+    admit_checked(
+        store,
+        root,
+        manifest,
+        expected_digest,
+        cancellation,
+    )
+}
+
+fn admit_checked(
+    store: &Store,
+    root: &RootName,
+    manifest: &ResultManifest,
+    expected_digest: ContentDigest,
+    cancellation: &Cancellation,
+) -> Result<AdmittedResult, ResultError> {
     check(cancellation)?;
     let bytes = manifest.encode()?;
     let digest = ContentDigest::sha256(&bytes);
@@ -411,7 +608,9 @@ fn authorized(
         identity: identity(output, digest),
         references: manifest.references()?,
         files: output.files,
-        maximum_bytes: artifact::MAX_OUTPUT_BYTES,
+        maximum_bytes: manifest.limits(output).bytes,
+        limits: manifest.limits(output),
+        chunked: output.chunked.clone(),
     })
 }
 
@@ -419,18 +618,31 @@ fn authorized(
 struct ArtifactBudget {
     seen: BTreeSet<ContentDigest>,
     bytes: u64,
+    files: u64,
 }
 
 impl ArtifactBudget {
-    fn charge(&mut self, digest: ContentDigest, bytes: u64) -> Result<(), ResultError> {
+    fn charge(
+        &mut self,
+        digest: ContentDigest,
+        bytes: u64,
+        files: usize,
+        limits: Option<SystemResultLimits>,
+    ) -> Result<(), ResultError> {
         if self.seen.contains(&digest) {
             return Ok(());
         }
+        let maximum = limits.map_or(MAX_RESULT_ARTIFACT_BYTES, |limits| limits.bytes);
         let total = self
             .bytes
             .checked_add(bytes)
-            .filter(|total| *total <= MAX_RESULT_ARTIFACT_BYTES)
+            .filter(|total| *total <= maximum)
             .ok_or_else(|| invalid("aggregate artifact byte limit exceeded"))?;
+        self.files = self
+            .files
+            .checked_add(files as u64)
+            .filter(|total| limits.is_none_or(|limits| *total <= limits.files))
+            .ok_or_else(|| invalid("aggregate artifact file limit exceeded"))?;
         self.seen.insert(digest);
         self.bytes = total;
         Ok(())
@@ -447,26 +659,37 @@ fn verify(
     let mut budget = ArtifactBudget::default();
     for output in manifest.outputs.values() {
         check(cancellation)?;
-        let input = lease
-            .open_verified_checked(
-                output.artifact,
-                artifact::MAX_OUTPUT_BYTES,
-                || {
-                    cancellation
-                        .check()
-                        .map_err(|_| crate::cancellation::cancellation_io())
-                },
-            )?
-            .ok_or_else(|| invalid("output artifact is absent"))?;
-        budget.charge(output.artifact, input.size())?;
-        let indexed =
-            artifact::IndexedArtifact::open_checked(input, "", cancellation).map_err(|error| {
+        let limits = manifest.limits(output);
+        let input = ArtifactReader::open(
+            lease,
+            output.artifact,
+            output.chunked.as_ref(),
+            limits,
+            cancellation,
+        )?;
+        let encoded_bytes = input.size();
+        let indexed = artifact::IndexedArtifact::open_with_limits(input, "", limits, cancellation)
+            .map_err(|error| {
                 if cancellation.is_cancelled() {
                     ResultError::Cancelled
                 } else {
                     invalid(error.to_string())
                 }
             })?;
+        let bytes = if manifest.is_system() {
+            encoded_bytes.max(indexed.files().expanded_bytes())
+        } else {
+            encoded_bytes
+        };
+        let files = if let Some(system) = manifest.system {
+            indexed
+                .files()
+                .view_entries(usize::try_from(system.files).expect("bounded files"))
+                .map_err(|error| invalid(error.to_string()))?
+        } else {
+            output.files
+        };
+        budget.charge(output.artifact, bytes, files, manifest.system)?;
         if indexed.files().len() != output.files {
             return Err(invalid(
                 "artifact file count disagrees with manifest",
@@ -571,6 +794,9 @@ pub(crate) fn verify_build_input_manifest(
         return Err(fail());
     }
     let manifest = ResultManifest::parse(&bytes).map_err(|_| fail())?;
+    if manifest.is_system() {
+        return Err(fail());
+    }
     let mut budget = ArtifactBudget::default();
     for output in manifest.outputs.values() {
         cancellation.check_cancelled()?;
@@ -593,7 +819,12 @@ pub(crate) fn verify_build_input_manifest(
             })?
             .ok_or_else(fail)?;
         budget
-            .charge(output.artifact, artifact.size())
+            .charge(
+                output.artifact,
+                artifact.size(),
+                output.files,
+                None,
+            )
             .map_err(|_| fail())?;
         if artifact::IndexedArtifact::open_checked(artifact, "", cancellation)?
             .files()

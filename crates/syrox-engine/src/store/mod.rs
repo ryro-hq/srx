@@ -57,6 +57,7 @@ const OBJECT_TEMP_PREFIX: &str = ".syrox-store.tmp.";
 #[cfg(target_os = "linux")]
 const ROOT_TEMP_PREFIX: &str = ".syrox-root.tmp.";
 
+pub mod chunked;
 mod identity;
 mod maintenance;
 mod objects;

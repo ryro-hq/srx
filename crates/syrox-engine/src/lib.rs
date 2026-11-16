@@ -55,6 +55,7 @@ mod catalog_tests;
 pub mod config;
 pub mod deployment;
 pub mod execution;
+pub mod image;
 pub mod plan;
 pub mod platform;
 pub mod project;
@@ -63,6 +64,9 @@ pub mod result;
 pub mod runtime;
 pub mod store;
 pub mod systemd;
+/// System observation and contracts shared with the privileged system boundary.
+/// This library does not depend on the language evaluator or build executor.
+pub use syrox_system as system;
 pub mod worker;
 
 #[cfg(test)]

@@ -1,7 +1,6 @@
 use crate::cancellation::OperationControl;
 #[cfg(test)]
 use std::collections::BTreeMap;
-#[cfg(test)]
 use std::collections::BTreeSet;
 use std::fs;
 use std::io::Read as _;
@@ -37,6 +36,23 @@ pub(crate) fn relative_path(path: &str) -> bool {
 pub(crate) const HEADER: &[u8] = b"syrox-artifact\n";
 pub(crate) const MAX_FILES: usize = 16_384;
 
+/// Payload and expanded alias bytes have independent bounds. Only the system
+/// result path selects larger limits; ordinary callers retain the legacy policy.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ArtifactLimits {
+    pub bytes: u64,
+    pub expanded_bytes: u64,
+    pub files: usize,
+}
+
+impl ArtifactLimits {
+    pub const LEGACY: Self = Self {
+        bytes: MAX_OUTPUT_BYTES,
+        expanded_bytes: MAX_OUTPUT_BYTES,
+        files: MAX_FILES,
+    };
+}
+
 /// A borrowed, fully validated record for fixture assertions.
 #[derive(Clone, Copy, Debug)]
 #[cfg(test)]
@@ -60,13 +76,18 @@ pub(crate) struct PreparedArtifact {
     opened: crate::platform::linux::fd::OpenedPath,
     files: Vec<(std::path::PathBuf, Option<String>, fs::Metadata)>,
     size: u64,
+    limits: ArtifactLimits,
 }
 
 impl PreparedArtifact {
     pub(crate) fn new(root: &Path) -> Result<Self, ArtifactError> {
+        Self::with_limits(root, ArtifactLimits::LEGACY)
+    }
+
+    pub(crate) fn with_limits(root: &Path, limits: ArtifactLimits) -> Result<Self, ArtifactError> {
         let opened = crate::platform::linux::fd::open_top_directory(root)
             .map_err(|_| ArtifactError::Output)?;
-        let mut files = enumerate(root)?;
+        let mut files = enumerate(root, limits.files)?;
         // Empty directories have no records in this format. Refuse before
         // emitting a frame that the admission validator would always reject.
         if files.is_empty() {
@@ -85,13 +106,14 @@ impl PreparedArtifact {
             size = size
                 .checked_add(11 + path_length)
                 .and_then(|size| size.checked_add(payload))
-                .filter(|size| *size <= MAX_OUTPUT_BYTES)
+                .filter(|size| *size <= limits.bytes)
                 .ok_or(ArtifactError::Output)?;
         }
         Ok(Self {
             opened,
             files,
             size,
+            limits,
         })
     }
 
@@ -103,6 +125,7 @@ impl PreparedArtifact {
         let mut output = BoundedWriter {
             inner: output,
             written: 0,
+            maximum: self.limits.bytes,
         };
         output.append(HEADER)?;
         output.append(
@@ -178,6 +201,7 @@ impl PreparedArtifact {
 
 fn enumerate(
     root: &Path,
+    maximum_files: usize,
 ) -> Result<Vec<(std::path::PathBuf, Option<String>, fs::Metadata)>, ArtifactError> {
     let mut files = Vec::new();
     let mut pending = vec![root.to_path_buf()];
@@ -185,7 +209,7 @@ fn enumerate(
     while let Some(directory) = pending.pop() {
         for entry in fs::read_dir(directory)? {
             visited += 1;
-            if visited > MAX_FILES {
+            if visited > maximum_files {
                 return Err(ArtifactError::Output);
             }
             let entry = entry?;
@@ -237,6 +261,7 @@ fn enumerate(
 struct BoundedWriter<'a, W> {
     inner: &'a mut W,
     written: u64,
+    maximum: u64,
 }
 
 impl<W: std::io::Write> BoundedWriter<'_, W> {
@@ -244,7 +269,7 @@ impl<W: std::io::Write> BoundedWriter<'_, W> {
         if self
             .written
             .checked_add(bytes)
-            .is_none_or(|sum| sum > MAX_OUTPUT_BYTES)
+            .is_none_or(|sum| sum > self.maximum)
         {
             return Err(ArtifactError::Output);
         }
@@ -261,7 +286,7 @@ impl<W: std::io::Write> BoundedWriter<'_, W> {
 
 impl<W: std::io::Write> std::io::Write for BoundedWriter<'_, W> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        let available = usize::try_from(MAX_OUTPUT_BYTES - self.written)
+        let available = usize::try_from(self.maximum - self.written)
             .unwrap_or(usize::MAX)
             .min(bytes.len());
         if available == 0 {
@@ -385,8 +410,21 @@ impl<R: std::io::Read> std::io::Read for Positioned<R> {
 }
 
 fn scan(input: impl std::io::Read, expected_entry: &str) -> Result<ArtifactIndex, ArtifactError> {
+    scan_with_limits(input, expected_entry, ArtifactLimits::LEGACY)
+}
+
+pub(crate) fn scan_with_limits(
+    input: impl std::io::Read,
+    expected_entry: &str,
+    limits: ArtifactLimits,
+) -> Result<ArtifactIndex, ArtifactError> {
     let mut input = Positioned {
-        input: input.take(MAX_OUTPUT_BYTES + 1),
+        input: input.take(
+            limits
+                .bytes
+                .checked_add(1)
+                .ok_or(ArtifactError::Output)?,
+        ),
         position: 0,
     };
     let mut header = [0_u8; HEADER.len()];
@@ -397,12 +435,13 @@ fn scan(input: impl std::io::Read, expected_entry: &str) -> Result<ArtifactIndex
         return Err(ArtifactError::Output);
     }
     let count = u32::from_le_bytes(read_fixed::<4>(&mut input)?) as usize;
-    if count == 0 || count > MAX_FILES {
+    if count == 0 || count > limits.files {
         return Err(ArtifactError::Output);
     }
     let mut files = ArtifactIndex {
         paths: String::new(),
         records: Vec::with_capacity(count),
+        expanded_bytes: 0,
     };
     let mut aliases = Vec::new();
     let mut path_buffer = [0_u8; 255];
@@ -437,7 +476,7 @@ fn scan(input: impl std::io::Read, expected_entry: &str) -> Result<ArtifactIndex
             return Err(ArtifactError::Output);
         }
         let size = u64::from_le_bytes(read_fixed::<8>(&mut input)?);
-        if size > MAX_OUTPUT_BYTES || size > input.input.limit() {
+        if size > limits.bytes || size > input.input.limit() {
             return Err(ArtifactError::Output);
         }
         let offset = input.position;
@@ -478,7 +517,7 @@ fn scan(input: impl std::io::Read, expected_entry: &str) -> Result<ArtifactIndex
         });
     }
     let mut trailing = [0];
-    if input.read(&mut trailing)? != 0 {
+    if input.read(&mut trailing)? != 0 || input.position > limits.bytes {
         return Err(ArtifactError::Output);
     }
     let mut expanded = 0_u64;
@@ -502,13 +541,14 @@ fn scan(input: impl std::io::Read, expected_entry: &str) -> Result<ArtifactIndex
     for file in files.iter() {
         expanded = expanded
             .checked_add(file.size)
-            .filter(|total| *total <= MAX_OUTPUT_BYTES)
+            .filter(|total| *total <= limits.expanded_bytes)
             .ok_or(ArtifactError::Output)?;
         entry |= file.path == expected_entry && file.executable && file.size != 0;
     }
     if !expected_entry.is_empty() && !entry {
         return Err(ArtifactError::Output);
     }
+    files.expanded_bytes = expanded;
     Ok(files)
 }
 
@@ -547,8 +587,31 @@ struct FileRecord {
 pub(crate) struct ArtifactIndex {
     paths: String,
     records: Vec<FileRecord>,
+    expanded_bytes: u64,
 }
 impl ArtifactIndex {
+    pub(crate) const fn expanded_bytes(&self) -> u64 {
+        self.expanded_bytes
+    }
+
+    pub(crate) fn view_entries(&self, maximum: usize) -> Result<usize, ArtifactError> {
+        let mut names = BTreeSet::new();
+        for file in self.iter() {
+            let mut path = file.path;
+            loop {
+                names.insert(path);
+                if names.len() > maximum {
+                    return Err(ArtifactError::Output);
+                }
+                let Some((parent, _)) = path.rsplit_once('/') else {
+                    break;
+                };
+                path = parent;
+            }
+        }
+        Ok(names.len())
+    }
+
     pub(crate) fn len(&self) -> usize {
         self.records.len()
     }
@@ -602,15 +665,24 @@ impl<R: std::io::Read + std::io::Seek> IndexedArtifact<R> {
     }
 
     pub fn open_checked(
+        input: R,
+        entry: &str,
+        cancellation: &(impl OperationControl + ?Sized),
+    ) -> Result<Self, ArtifactError> {
+        Self::open_with_limits(input, entry, ArtifactLimits::LEGACY, cancellation)
+    }
+
+    pub(crate) fn open_with_limits(
         mut input: R,
         entry: &str,
+        limits: ArtifactLimits,
         cancellation: &(impl OperationControl + ?Sized),
     ) -> Result<Self, ArtifactError> {
         if cancellation.is_cancelled() {
             return Err(ArtifactError::Cancelled);
         }
         input.rewind()?;
-        let result = scan(
+        let result = scan_with_limits(
             std::io::BufReader::with_capacity(
                 64 * 1024,
                 CancellableRead {
@@ -619,6 +691,7 @@ impl<R: std::io::Read + std::io::Seek> IndexedArtifact<R> {
                 },
             ),
             entry,
+            limits,
         );
         if cancellation.is_cancelled() {
             return Err(ArtifactError::Cancelled);
@@ -647,9 +720,9 @@ impl<R: std::io::Read + std::io::Seek> IndexedArtifact<R> {
     }
 }
 
-impl IndexedArtifact<crate::store::VerifiedReader> {
+impl IndexedArtifact<super::ArtifactReader> {
     pub fn range_from(
-        input: &crate::store::VerifiedReader,
+        input: &mut super::ArtifactReader,
         file: &IndexedFile<'_>,
         start: usize,
         length: usize,
@@ -664,13 +737,7 @@ impl IndexedArtifact<crate::store::VerifiedReader> {
             .offset
             .checked_add(start as u64)
             .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
-        input.read_range_checked(absolute, length, || {
-            if cancellation.is_cancelled() {
-                Err(crate::cancellation::cancellation_io())
-            } else {
-                Ok(())
-            }
-        })
+        input.read_range_checked(absolute, length, cancellation)
     }
 }
 

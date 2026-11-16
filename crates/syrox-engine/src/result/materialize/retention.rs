@@ -1,5 +1,6 @@
 use super::{IndexedArtifact, MaterializationError, MaterializedArtifact, check, invalid, problem};
 use crate::{cancellation::Cancellation, store::ContentDigest, store::RootName};
+use std::io::Read as _;
 
 /// Evidence used to authorize a retained output. Imported results never fabricate
 /// build receipts or claim that their source and toolchain are present.
@@ -36,16 +37,26 @@ impl MaterializedArtifact {
     pub(crate) fn open_artifact(
         &self,
         cancellation: &Cancellation,
-    ) -> Result<crate::store::VerifiedReader, MaterializationError> {
+    ) -> Result<crate::result::ArtifactReader, MaterializationError> {
         check(cancellation)?;
-        self.lease
-            .open_verified_checked(
-                self.artifact(),
-                crate::result::artifact::MAX_OUTPUT_BYTES,
-                || super::cancellation_io(cancellation),
-            )
-            .map_err(|error| super::cancellation_store_error(error, cancellation))?
-            .ok_or(MaterializationError::MissingResult)
+        if self.chunked.is_none() {
+            return self
+                .lease
+                .open_verified_checked(self.artifact(), self.limits.bytes, || {
+                    super::cancellation_io(cancellation)
+                })
+                .map_err(|error| super::cancellation_store_error(error, cancellation))?
+                .map(crate::result::ArtifactReader::Blob)
+                .ok_or(MaterializationError::MissingResult);
+        }
+        crate::result::ArtifactReader::open(
+            &self.lease.operation()?,
+            self.artifact(),
+            self.chunked.as_ref(),
+            self.limits,
+            cancellation,
+        )
+        .map_err(|error| super::artifact_open_error(error, cancellation))
     }
 
     pub const fn identity(&self) -> &OutputIdentity {
@@ -98,23 +109,15 @@ impl MaterializedArtifact {
         {
             return Err(invalid("invalid output file path or byte limit"));
         }
-        let input = self
-            .lease
-            .open_verified_checked(
-                self.artifact(),
-                crate::result::artifact::MAX_OUTPUT_BYTES,
-                || super::cancellation_io(cancellation),
-            )
-            .map_err(|error| super::cancellation_store_error(error, cancellation))?
-            .ok_or(MaterializationError::MissingResult)?;
-        let mut indexed =
-            IndexedArtifact::open_checked(input, "", cancellation).map_err(|error| {
-                if cancellation.is_cancelled() {
-                    MaterializationError::Cancelled
-                } else {
-                    problem(error)
-                }
-            })?;
+        let input = self.open_artifact(cancellation)?;
+        let mut indexed = IndexedArtifact::open_with_limits(input, "", self.limits, cancellation)
+            .map_err(|error| {
+            if cancellation.is_cancelled() {
+                MaterializationError::Cancelled
+            } else {
+                problem(error)
+            }
+        })?;
         let (files, reader) = indexed.parts();
         let file = files
             .iter()
@@ -124,12 +127,13 @@ impl MaterializedArtifact {
             return Err(invalid("output file exceeds the byte limit"));
         }
         let length = usize::try_from(file.size).map_err(problem)?;
-        IndexedArtifact::range_from(reader, &file, 0, length, cancellation).map_err(|error| {
-            if cancellation.is_cancelled() {
-                MaterializationError::Cancelled
-            } else {
-                error.into()
-            }
-        })
+        let mut bytes = vec![0; length];
+        let mut source = IndexedArtifact::reader_from(reader, &file)?;
+        for chunk in bytes.chunks_mut(64 * 1024) {
+            check(cancellation)?;
+            source.read_exact(chunk)?;
+        }
+        check(cancellation)?;
+        Ok(bytes)
     }
 }

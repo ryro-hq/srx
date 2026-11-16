@@ -28,6 +28,7 @@ use crate::{
 };
 
 const MAX_VIEW_ENTRIES: usize = 65_536;
+const MAX_SYSTEM_VIEW_ENTRIES: usize = 1_000_000;
 const MAX_VIEWS: usize = 1024;
 
 mod retention;
@@ -91,9 +92,18 @@ pub struct MaterializedArtifact {
     references: Arc<[ContentDigest]>,
     files: usize,
     reused: bool,
+    chunked: Option<super::ChunkedOutput>,
+    limits: artifact::ArtifactLimits,
 }
 
 impl MaterializedArtifact {
+    pub(crate) fn chunked(&self) -> Option<&super::ChunkedOutput> {
+        self.chunked.as_ref()
+    }
+    pub(crate) const fn artifact_limits(&self) -> artifact::ArtifactLimits {
+        self.limits
+    }
+
     pub(crate) fn retained_references(&self) -> &[ContentDigest] {
         &self.references
     }
@@ -124,9 +134,10 @@ impl MaterializedArtifact {
         if published.metadata().identity() != self.directory.metadata().identity() {
             return Err(invalid("held view publication changed"));
         }
-        let mut indexed = IndexedArtifact::open_checked(
+        let mut indexed = IndexedArtifact::open_with_limits(
             self.open_artifact(cancellation)?,
             "",
+            self.limits,
             cancellation,
         )
         .map_err(|error| {
@@ -139,7 +150,14 @@ impl MaterializedArtifact {
         if indexed.files().len() != self.files {
             return Err(invalid("held view file count changed"));
         }
-        let expected = expected_names(indexed.files())?;
+        let expected = expected_names(
+            indexed.files(),
+            if self.chunked.is_some() {
+                self.limits.files
+            } else {
+                MAX_VIEW_ENTRIES
+            },
+        )?;
         verify_tree(
             &self.directory,
             &mut indexed,
@@ -164,6 +182,8 @@ impl MaterializedArtifact {
             references: Arc::clone(&self.references),
             files: self.files,
             reused: self.reused,
+            chunked: self.chunked.clone(),
+            limits: self.limits,
         }
     }
     pub const fn action(&self) -> ContentDigest {
@@ -199,6 +219,8 @@ pub(crate) struct AuthorizedOutput {
     pub references: Vec<ContentDigest>,
     pub files: usize,
     pub maximum_bytes: u64,
+    pub limits: artifact::ArtifactLimits,
+    pub chunked: Option<super::ChunkedOutput>,
 }
 
 // Consume the operation barrier: returned views retain only granular interests.
@@ -209,27 +231,39 @@ pub(crate) fn materialize_verified(
     cancellation: &(impl OperationControl + ?Sized),
 ) -> Result<MaterializedArtifact, MaterializationError> {
     check(cancellation)?;
-    let input = lease
-        .open_verified_checked(
-            output.identity.artifact,
-            output.maximum_bytes,
-            || cancellation_io(cancellation),
-        )
-        .map_err(|error| cancellation_store_error(error, cancellation))?
-        .ok_or(MaterializationError::MissingResult)?;
-    let mut indexed = IndexedArtifact::open_checked(input, "", cancellation).map_err(|error| {
-        if cancellation.is_cancelled() {
-            MaterializationError::Cancelled
-        } else {
-            problem(error)
-        }
-    })?;
+    let limits = artifact::ArtifactLimits {
+        bytes: output.limits.bytes.min(output.maximum_bytes),
+        ..output.limits
+    };
+    let input = super::ArtifactReader::open(
+        &lease,
+        output.identity.artifact,
+        output.chunked.as_ref(),
+        limits,
+        cancellation,
+    )
+    .map_err(|error| artifact_open_error(error, cancellation))?;
+    let mut indexed =
+        IndexedArtifact::open_with_limits(input, "", limits, cancellation).map_err(|error| {
+            if cancellation.is_cancelled() {
+                MaterializationError::Cancelled
+            } else {
+                problem(error)
+            }
+        })?;
     if indexed.files().len() != output.files {
         return Err(invalid(
             "artifact file count disagrees with authorization",
         ));
     }
-    let expected = expected_names(indexed.files())?;
+    let expected = expected_names(
+        indexed.files(),
+        if output.chunked.is_some() {
+            limits.files
+        } else {
+            MAX_VIEW_ENTRIES
+        },
+    )?;
     let identity = output.identity;
     let references: Arc<[ContentDigest]> = Arc::from(output.references);
     let parent = lease.view_directory()?;
@@ -246,6 +280,8 @@ pub(crate) fn materialize_verified(
             references,
             files: indexed.files().len(),
             reused: true,
+            chunked: output.chunked,
+            limits,
         });
     }
     if entries(&parent, MAX_VIEWS)?.len() >= MAX_VIEWS {
@@ -292,7 +328,23 @@ pub(crate) fn materialize_verified(
         references,
         files: indexed.files().len(),
         reused: false,
+        chunked: output.chunked,
+        limits,
     })
+}
+
+fn artifact_open_error(
+    error: super::ResultError,
+    cancellation: &(impl OperationControl + ?Sized),
+) -> MaterializationError {
+    if cancellation.is_cancelled() {
+        return MaterializationError::Cancelled;
+    }
+    match error {
+        super::ResultError::Cancelled => MaterializationError::Cancelled,
+        super::ResultError::Store(error) => MaterializationError::Store(error),
+        other => problem(other),
+    }
 }
 
 /// Remove abandoned private init-* trees only after acquiring the namespace lock.
@@ -368,6 +420,7 @@ pub fn clear_materializations(
 
 fn expected_names(
     files: &artifact::ArtifactIndex,
+    maximum: usize,
 ) -> Result<BTreeSet<String>, MaterializationError> {
     let mut names = BTreeSet::new();
     for file in files.iter() {
@@ -377,16 +430,16 @@ fn expected_names(
             names.insert(parent.to_owned());
             part = parent;
         }
-        if names.len() > MAX_VIEW_ENTRIES {
+        if names.len() > maximum {
             return Err(invalid("materialization entry limit reached"));
         }
     }
     Ok(names)
 }
 
-fn write_tree(
+fn write_tree<R: std::io::Read + std::io::Seek>(
     root: &OpenedPath,
-    indexed: &mut IndexedArtifact<crate::store::VerifiedReader>,
+    indexed: &mut IndexedArtifact<R>,
     cancellation: &(impl OperationControl + ?Sized),
 ) -> Result<(), MaterializationError> {
     let (files, input) = indexed.parts();
@@ -403,7 +456,7 @@ fn write_tree(
                 }
                 let mut output = opened.into_file();
                 let copied = copy_with_cancellation(
-                    IndexedArtifact::<crate::store::VerifiedReader>::reader_from(input, &file)?,
+                    IndexedArtifact::<R>::reader_from(input, &file)?,
                     &mut output,
                     cancellation,
                 )?;
@@ -437,8 +490,19 @@ pub(crate) fn verify_descriptor_view<R: std::io::Read + std::io::Seek>(
     indexed: &mut IndexedArtifact<R>,
     cancellation: &(impl OperationControl + ?Sized),
 ) -> Result<(), MaterializationError> {
+    verify_descriptor_view_with_limit(directory, indexed, MAX_VIEW_ENTRIES, cancellation)
+}
+
+/// System resources select their independently authenticated producer entry cap.
+/// The ordinary descriptor verifier keeps its existing 65,536-entry envelope.
+pub(crate) fn verify_descriptor_view_with_limit<R: std::io::Read + std::io::Seek>(
+    directory: std::os::fd::BorrowedFd<'_>,
+    indexed: &mut IndexedArtifact<R>,
+    maximum_entries: usize,
+    cancellation: &(impl OperationControl + ?Sized),
+) -> Result<(), MaterializationError> {
     let opened = fd::open_beneath(directory, Path::new("."), true).map_err(problem)?;
-    let expected = expected_names(indexed.files())?;
+    let expected = expected_names(indexed.files(), maximum_entries)?;
     verify_tree(&opened, indexed, &expected, cancellation)
 }
 
@@ -468,7 +532,7 @@ fn verify_tree<R: std::io::Read + std::io::Seek>(
         {
             return Err(invalid("view directory mode or owner changed"));
         }
-        for name in entries(&directory, MAX_VIEW_ENTRIES)? {
+        for name in entries(&directory, expected.len().saturating_add(1))? {
             let path = if prefix.is_empty() {
                 name.clone()
             } else {
@@ -564,9 +628,9 @@ fn remove_tree(
                 path.clone(),
                 true,
             ));
-            for entry in entries(&directory, MAX_VIEW_ENTRIES)? {
+            for entry in entries(&directory, MAX_SYSTEM_VIEW_ENTRIES)? {
                 visited += 1;
-                if visited > MAX_VIEW_ENTRIES {
+                if visited > MAX_SYSTEM_VIEW_ENTRIES {
                     return Err(invalid("oversized view staging tree"));
                 }
                 let opened =
@@ -975,6 +1039,8 @@ fn materialize_authorized(
             references: receipt.references(),
             files: output.files,
             maximum_bytes: artifact_limit,
+            limits: artifact::ArtifactLimits::LEGACY,
+            chunked: None,
         },
         cancellation,
     )

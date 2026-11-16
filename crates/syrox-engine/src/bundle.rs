@@ -11,7 +11,9 @@ use crate::{
 
 const HEADER: &[u8] = b"syrox-runtime-bundle-v1\n";
 pub const MAX_BUNDLE_BYTES: u64 = 1024 * 1024 * 1024;
-const MAX_MANIFEST_BYTES: u64 = crate::result::MAX_RESULT_MANIFEST_BYTES;
+const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
+mod system;
+pub use system::{export_system_bundle, import_system_bundle};
 
 #[derive(Debug, Error)]
 pub enum BundleError {
@@ -75,6 +77,11 @@ pub fn export_bundle(
     check(cancellation)?;
     let lease = store.operation()?;
     let admitted = AdmittedResult::open(store, root, manifest_digest, cancellation)?;
+    if admitted.manifest().is_system() {
+        return Err(BundleError::Invalid(
+            "system results require budgeted bundle version 2",
+        ));
+    }
     let manifest = admitted.manifest().encode()?;
     if manifest.len() as u64 > MAX_MANIFEST_BYTES {
         return Err(BundleError::Invalid(

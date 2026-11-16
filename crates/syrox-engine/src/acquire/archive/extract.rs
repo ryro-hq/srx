@@ -1,6 +1,6 @@
 use super::{
-    ArchiveError, ArchiveFormat, ArchiveInventory, ArchiveLimits, ArchiveSink, MemberKind, Read,
-    cancelled_archive_error, check_cancelled, visit_reader,
+    AdmittedArchiveLimits, ArchiveError, ArchiveFormat, ArchiveInventory, ArchiveLimits,
+    ArchiveSink, MemberKind, Read, cancelled_archive_error, check_cancelled, visit_admitted_reader,
 };
 use crate::cancellation::CancellableReader;
 use crate::platform::linux::fd::tree::Directory;
@@ -15,7 +15,21 @@ pub(crate) fn extract_archive(
     destination: BorrowedFd<'_>,
     cancellation: &crate::cancellation::Cancellation,
 ) -> Result<ArchiveInventory, ArchiveError> {
-    let limits = limits.validate(format)?;
+    extract_admitted(
+        source,
+        AdmittedArchiveLimits::legacy(format, limits)?,
+        destination,
+        cancellation,
+    )
+}
+
+pub(super) fn extract_admitted(
+    source: File,
+    admitted: AdmittedArchiveLimits,
+    destination: BorrowedFd<'_>,
+    cancellation: &crate::cancellation::Cancellation,
+) -> Result<ArchiveInventory, ArchiveError> {
+    let limits = admitted.limits;
     check_cancelled(cancellation)?;
     let metadata = source.metadata()?;
     if !metadata.is_file() {
@@ -24,19 +38,28 @@ pub(crate) fn extract_archive(
     if metadata.len() > limits.compressed_bytes {
         return Err(ArchiveError::Limit);
     }
+    extract_stream(source, admitted, destination, cancellation)
+}
+
+pub(super) fn extract_stream(
+    source: impl Read,
+    admitted: AdmittedArchiveLimits,
+    destination: BorrowedFd<'_>,
+    cancellation: &crate::cancellation::Cancellation,
+) -> Result<ArchiveInventory, ArchiveError> {
+    check_cancelled(cancellation)?;
     let mut sink = Extraction {
         root: Directory::from_fd(destination)?,
         aliases: Vec::new(),
         directories: Vec::new(),
         cancellation,
     };
-    visit_reader(
+    visit_admitted_reader(
         CancellableReader {
             source,
             cancellation,
         },
-        format,
-        limits,
+        admitted,
         &mut sink,
     )
     .map_err(|error| cancelled_archive_error(error, cancellation))
@@ -85,7 +108,9 @@ impl ArchiveSink for Extraction<'_> {
                 self.aliases
                     .push((path.to_path_buf(), target.into()));
             }
-            MemberKind::GlobalComment => return Err(ArchiveError::InvalidTar),
+            MemberKind::GlobalComment | MemberKind::LongName => {
+                return Err(ArchiveError::InvalidTar);
+            }
         }
         Ok(())
     }
@@ -116,7 +141,7 @@ impl ArchiveSink for Extraction<'_> {
 mod tests {
     use super::*;
     use crate::acquire::archive::inspect_reader;
-    use crate::acquire::archive::tests::{alias, archive, member, xz_archive};
+    use crate::acquire::archive::tests::{alias, archive, long_name, member, xz_archive};
     use std::fs;
     use std::io::{Seek as _, Write as _};
     use std::os::unix::fs::PermissionsExt as _;
@@ -138,6 +163,66 @@ mod tests {
             destination.as_fd(),
             &crate::cancellation::Cancellation::default(),
         )
+    }
+
+    #[test]
+    fn gnu_long_name_extracts_only_the_validated_full_path() {
+        let target = tempfile::tempdir().unwrap();
+        let path = format!("source/{}/file", "a".repeat(110));
+        let records = [
+            long_name(&path),
+            member(&path[..100], b"data", b'0', 0o644),
+        ];
+        extract(
+            &xz_archive(&records),
+            ArchiveFormat::XzTar,
+            ArchiveLimits::large_xz(),
+            target.path(),
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(target.path().join(&path)).unwrap(),
+            b"data"
+        );
+        assert!(!target.path().join(&path[..100]).exists());
+        assert!(!target.path().join("@LongLink").exists());
+    }
+
+    #[test]
+    fn contained_descendant_alias_is_created_after_regular_files_and_never_used_as_a_parent() {
+        let target = tempfile::tempdir().unwrap();
+        let entries = [
+            alias("source/RELEASE-NOTES", "doc/releases/version.txt"),
+            member(
+                "source/doc/releases/version.txt",
+                b"notes",
+                b'0',
+                0o644,
+            ),
+        ];
+        extract(
+            &xz_archive(&entries),
+            ArchiveFormat::XzTar,
+            ArchiveLimits::large_xz(),
+            target.path(),
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_link(target.path().join("source/RELEASE-NOTES")).unwrap(),
+            Path::new("doc/releases/version.txt")
+        );
+        assert_eq!(
+            fs::read(target.path().join("source/RELEASE-NOTES")).unwrap(),
+            b"notes"
+        );
+        assert!(
+            !target
+                .path()
+                .join("source/doc")
+                .symlink_metadata()
+                .unwrap()
+                .is_symlink()
+        );
     }
 
     #[test]

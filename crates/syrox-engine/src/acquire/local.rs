@@ -9,6 +9,9 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
+mod import;
+pub use import::import_source_stream;
+
 use crate::store::{
     ContentDigest, MAX_STORE_BLOB_BYTES, RootName, RootPublicationState, Store, StoreError,
     StoreObject,

@@ -26,9 +26,11 @@ fn fixture(store: &Store) -> ResultManifest {
                 output: "data".into(),
                 artifact: digest,
                 files: 1,
+                chunked: None,
             },
         )]),
         commands: BTreeMap::new(),
+        system: None,
     }
 }
 
@@ -295,23 +297,25 @@ fn artifact_budget_charges_unique_objects_at_the_exact_aggregate_boundary() {
     for number in 0_u8..4 {
         let digest = ContentDigest::sha256(&[number]);
         budget
-            .charge(digest, artifact::MAX_OUTPUT_BYTES)
+            .charge(digest, artifact::MAX_OUTPUT_BYTES, 1, None)
             .unwrap();
         budget
-            .charge(digest, artifact::MAX_OUTPUT_BYTES)
+            .charge(digest, artifact::MAX_OUTPUT_BYTES, 1, None)
             .unwrap();
     }
     assert_eq!(budget.bytes, MAX_RESULT_ARTIFACT_BYTES);
     assert!(
         budget
-            .charge(ContentDigest::sha256(b"overflow"), 1)
+            .charge(ContentDigest::sha256(b"overflow"), 1, 1, None)
             .is_err()
     );
     assert!(
         budget
             .charge(
                 ContentDigest::sha256(b"arithmetic overflow"),
-                u64::MAX
+                u64::MAX,
+                1,
+                None
             )
             .is_err()
     );
@@ -347,6 +351,7 @@ fn commands_select_distinct_paths_in_one_output_and_reject_invalid_entries() {
                 output: "out".into(),
                 artifact: digest,
                 files: 3,
+                chunked: None,
             },
         )]),
         commands: ["first", "second"]
@@ -364,6 +369,7 @@ fn commands_select_distinct_paths_in_one_output_and_reject_invalid_entries() {
                 )
             })
             .collect(),
+        system: None,
     };
     let cancel = Cancellation::default();
     let admitted = admit_result(
@@ -512,5 +518,28 @@ fn admitted_result_allows_gc_and_retains_bytes_through_materialization_after_roo
             .unwrap()
             .iter()
             .all(|pin| collected.removed_objects.contains(pin))
+    );
+}
+
+mod systems;
+
+#[test]
+fn legacy_result_and_bundle_keep_their_published_wire_identity() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = Store::initialize(directory.path()).unwrap();
+    let manifest = fixture(&store);
+    let pin = manifest.digest().unwrap();
+    assert_eq!(
+        pin.to_string(),
+        "811312a2bf8d71117f76011c0f55d9b3cd6673119637275010b59a61c3d3264a"
+    );
+    let root = RootName::new("legacy_wire_identity").unwrap();
+    let cancellation = Cancellation::default();
+    admit_result(&store, &root, &manifest, pin, &cancellation).unwrap();
+    let mut bundle = Vec::new();
+    crate::bundle::export_bundle(&store, &root, pin, &mut bundle, &cancellation).unwrap();
+    assert_eq!(
+        ContentDigest::sha256(&bundle).to_string(),
+        "d02c432b08d94c13dc411181b03eebaa5be2cf212381481fa93dc799898e4dee"
     );
 }

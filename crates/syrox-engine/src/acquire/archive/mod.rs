@@ -13,6 +13,12 @@ use thiserror::Error;
 use crate::store::{ContentDigest, Store, StoreError};
 
 pub(crate) mod extract;
+#[cfg(target_arch = "x86_64")]
+mod system;
+#[cfg(target_arch = "x86_64")]
+pub use system::{
+    SystemArchiveLimits, SystemArchiveRole, extract_system_archive, inspect_system_archive,
+};
 
 pub const MAX_ARCHIVE_ENTRIES: usize = 16_384;
 pub const MAX_ARCHIVE_EXPANDED_BYTES: u64 = 128 * 1024 * 1024;
@@ -41,6 +47,24 @@ pub struct ArchiveLimits {
     pub file_bytes: u64,
     pub entries: usize,
     pub decoder_memory_bytes: u64,
+}
+
+/// Private proof that a legacy or separately admitted System envelope was
+/// checked. Decoder/extraction internals never select larger limits themselves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct AdmittedArchiveLimits {
+    format: ArchiveFormat,
+    limits: ArchiveLimits,
+    allow_aliases: bool,
+}
+impl AdmittedArchiveLimits {
+    fn legacy(format: ArchiveFormat, limits: ArchiveLimits) -> Result<Self, ArchiveError> {
+        Ok(Self {
+            format,
+            limits: limits.validate(format)?,
+            allow_aliases: format == ArchiveFormat::XzTar,
+        })
+    }
 }
 
 impl ArchiveLimits {
@@ -237,8 +261,8 @@ pub(crate) fn inspect_gzip_tar_with_cancellation(
 }
 
 /// Separate, resource-bounded admission for xz sources. Only
-/// same-directory aliases to regular files are permitted; general source
-/// symlinks and cross-directory traversal remain forbidden.
+/// relative aliases to regular files below the alias's directory are permitted;
+/// upward traversal, directory aliases and alias chains remain forbidden.
 #[cfg(test)]
 pub(crate) fn inspect_large_xz_tar(source: impl Read) -> Result<ArchiveInventory, ArchiveError> {
     inspect_reader(
@@ -287,9 +311,26 @@ fn visit_reader(
     limits: ArchiveLimits,
     sink: &mut impl ArchiveSink,
 ) -> Result<ArchiveInventory, ArchiveError> {
-    let limits = limits.validate(format)?;
-    match format {
-        ArchiveFormat::GzipTar => inspect_tar(MultiGzDecoder::new(source), limits, false, sink),
+    visit_admitted_reader(
+        source,
+        AdmittedArchiveLimits::legacy(format, limits)?,
+        sink,
+    )
+}
+
+fn visit_admitted_reader(
+    source: impl Read,
+    admitted: AdmittedArchiveLimits,
+    sink: &mut impl ArchiveSink,
+) -> Result<ArchiveInventory, ArchiveError> {
+    let limits = admitted.limits;
+    match admitted.format {
+        ArchiveFormat::GzipTar => inspect_tar(
+            MultiGzDecoder::new(source),
+            limits,
+            admitted.allow_aliases,
+            sink,
+        ),
         ArchiveFormat::XzTar => {
             let stream = xz2::stream::Stream::new_stream_decoder(
                 limits.decoder_memory_bytes,
@@ -299,7 +340,7 @@ fn visit_reader(
             inspect_tar(
                 xz2::bufread::XzDecoder::new_stream(BufReader::new(source), stream),
                 limits,
-                true,
+                admitted.allow_aliases,
                 sink,
             )
         }
@@ -324,11 +365,15 @@ fn inspect_tar(
     };
     let mut header = [0_u8; 512];
     let mut zeros = 0_u8;
+    let mut long_name = None;
     loop {
         reader
             .read_exact(&mut header)
             .map_err(map_archive_io)?;
         if header.iter().all(|byte| *byte == 0) {
+            if long_name.is_some() {
+                return Err(ArchiveError::InvalidTar);
+            }
             zeros += 1;
             if zeros == 2 {
                 break;
@@ -342,7 +387,17 @@ fn inspect_tar(
         if inventory.entries > limits.entries {
             return Err(ArchiveError::Limit);
         }
-        let (path, size, kind) = parse_member(&header, allow_aliases)?;
+        let (path, size, kind) =
+            parse_member_with_long_name(&header, allow_aliases, long_name.as_deref())?;
+        if kind == MemberKind::LongName {
+            long_name = Some(read_long_name(&mut reader, size)?);
+            inventory.expanded_bytes += size;
+            if inventory.expanded_bytes > limits.expanded_bytes {
+                return Err(ArchiveError::Limit);
+            }
+            continue;
+        }
+        long_name = None;
         if kind == MemberKind::GlobalComment {
             validate_global_comment(&mut reader, size, inventory.entries)?;
             inventory.expanded_bytes += size;
@@ -454,7 +509,9 @@ fn register_member(
             MemberKind::Alias(target) => {
                 aliases.insert(path, target);
             }
-            MemberKind::Directory | MemberKind::GlobalComment => unreachable!(),
+            MemberKind::Directory | MemberKind::GlobalComment | MemberKind::LongName => {
+                unreachable!()
+            }
         }
     }
     Ok(())
@@ -503,11 +560,20 @@ pub(crate) enum MemberKind {
     File,
     Alias(String),
     GlobalComment,
+    LongName,
 }
 
 pub(crate) fn parse_member(
     header: &[u8; 512],
     allow_aliases: bool,
+) -> Result<(String, u64, MemberKind), ArchiveError> {
+    parse_member_with_long_name(header, allow_aliases, None)
+}
+
+fn parse_member_with_long_name(
+    header: &[u8; 512],
+    allow_aliases: bool,
+    long_name: Option<&str>,
 ) -> Result<(String, u64, MemberKind), ArchiveError> {
     let checksum = octal(&header[148..156])?;
     let actual: u64 = header
@@ -550,6 +616,53 @@ pub(crate) fn parse_member(
     } else {
         format!("{prefix}/{name}")
     };
+    if allow_aliases && header[156] == b'L' && full == "././@LongLink" {
+        if long_name.is_some() || !(102..=256).contains(&size) {
+            return Err(ArchiveError::UnsafeEntry);
+        }
+        return Ok((full, size, MemberKind::LongName));
+    }
+    let full = if let Some(long_name) = long_name {
+        // GNU tar repeats the first 100 bytes in the following real header.
+        // Reject ambiguous metadata, link targets and unrelated header names.
+        if !matches!(header[156], 0 | b'0' | b'5')
+            || !prefix.is_empty()
+            || long_name.as_bytes().get(..100) != Some(name.as_bytes())
+        {
+            return Err(ArchiveError::UnsafeEntry);
+        }
+        long_name.to_owned()
+    } else {
+        full
+    };
+    let path = member_path(&full)?;
+    let kind = match header[156] {
+        b'g' if allow_aliases && path == "pax_global_header" && size <= 128 => {
+            MemberKind::GlobalComment
+        }
+        b'5' if size == 0 => MemberKind::Directory,
+        0 | b'0' if !full.ends_with('/') => MemberKind::File,
+        b'2' if allow_aliases && size == 0 && !full.ends_with('/') => {
+            let target = text_field(&header[157..257])?;
+            if target.is_empty()
+                || target.len() > 100
+                || target
+                    .split('/')
+                    .any(|part| part.is_empty() || matches!(part, "." | ".."))
+                || target.contains('\\')
+                || !target.is_ascii()
+                || target.bytes().any(|byte| byte.is_ascii_control())
+            {
+                return Err(ArchiveError::UnsafeEntry);
+            }
+            MemberKind::Alias(target.to_owned())
+        }
+        _ => return Err(ArchiveError::UnsafeEntry),
+    };
+    Ok((path.to_owned(), size, kind))
+}
+
+fn member_path(full: &str) -> Result<&str, ArchiveError> {
     let path = full.trim_end_matches('/');
     if path.is_empty()
         || path.len() > MAX_ARCHIVE_PATH_BYTES
@@ -565,29 +678,27 @@ pub(crate) fn parse_member(
     {
         return Err(ArchiveError::UnsafeEntry);
     }
-    let kind = match header[156] {
-        b'g' if allow_aliases && path == "pax_global_header" && size <= 128 => {
-            MemberKind::GlobalComment
-        }
-        b'5' if size == 0 => MemberKind::Directory,
-        0 | b'0' if !full.ends_with('/') => MemberKind::File,
-        b'2' if allow_aliases && size == 0 && !full.ends_with('/') => {
-            let target = text_field(&header[157..257])?;
-            if target.is_empty()
-                || target.len() > 100
-                || target.contains('/')
-                || matches!(target, "." | "..")
-                || target.contains('\\')
-                || !target.is_ascii()
-                || target.bytes().any(|byte| byte.is_ascii_control())
-            {
-                return Err(ArchiveError::UnsafeEntry);
-            }
-            MemberKind::Alias(target.to_owned())
-        }
-        _ => return Err(ArchiveError::UnsafeEntry),
-    };
-    Ok((path.to_owned(), size, kind))
+    Ok(path)
+}
+
+fn read_long_name(reader: &mut impl Read, size: u64) -> Result<String, ArchiveError> {
+    let size = usize::try_from(size).map_err(|_| ArchiveError::Limit)?;
+    if !(102..=MAX_ARCHIVE_PATH_BYTES + 1).contains(&size) {
+        return Err(ArchiveError::Limit);
+    }
+    let mut padded = [0_u8; 512];
+    reader
+        .read_exact(&mut padded)
+        .map_err(map_archive_io)?;
+    if padded[size - 1] != 0
+        || padded[..size - 1].contains(&0)
+        || padded[size..].iter().any(|byte| *byte != 0)
+    {
+        return Err(ArchiveError::InvalidTar);
+    }
+    let name = std::str::from_utf8(&padded[..size - 1]).map_err(|_| ArchiveError::UnsafeEntry)?;
+    member_path(name)?;
+    Ok(name.to_owned())
 }
 
 fn map_archive_io(error: io::Error) -> ArchiveError {
@@ -768,6 +879,103 @@ mod tests {
         record
     }
 
+    pub(super) fn long_name(path: &str) -> Vec<u8> {
+        member(
+            "././@LongLink",
+            &[path.as_bytes(), &[0]].concat(),
+            b'L',
+            0o644,
+        )
+    }
+
+    #[test]
+    fn xz_long_names_are_bounded_one_shot_metadata_and_consume_entry_and_byte_limits() {
+        let path = format!("source/{}/file", "a".repeat(110));
+        let records = [
+            long_name(&path),
+            member(&path[..100], b"data", b'0', 0o644),
+        ];
+        let bytes = xz_archive(&records);
+        let inventory = inspect_large_xz_tar(bytes.as_slice()).unwrap();
+        assert_eq!(inventory.entries(), 2);
+        assert_eq!(inventory.files(), 1);
+        assert_eq!(
+            inventory.expanded_bytes(),
+            path.len() as u64 + 1 + 4
+        );
+        assert!(inspect_gzip_tar(archive(&records).as_slice()).is_err());
+        for limits in [
+            ArchiveLimits {
+                entries: 1,
+                ..ArchiveLimits::large_xz()
+            },
+            ArchiveLimits {
+                expanded_bytes: inventory.expanded_bytes() - 1,
+                ..ArchiveLimits::large_xz()
+            },
+        ] {
+            assert!(matches!(
+                inspect_reader(bytes.as_slice(), ArchiveFormat::XzTar, limits),
+                Err(ArchiveError::Limit)
+            ));
+        }
+        let valid = member(&path[..100], b"data", b'0', 0o644);
+        for records in [
+            vec![long_name(&path)],
+            vec![
+                long_name(&path),
+                long_name(&path),
+                valid.clone(),
+            ],
+            vec![
+                long_name(&path),
+                member("different", b"data", b'0', 0o644),
+            ],
+            vec![
+                long_name(&path),
+                alias(&path[..100], "target"),
+            ],
+            vec![
+                long_name(&path),
+                valid.clone(),
+                long_name(&path),
+                valid.clone(),
+            ],
+        ] {
+            assert!(inspect_large_xz_tar(xz_archive(&records).as_slice()).is_err());
+        }
+        for path in [
+            format!("../{}", "x".repeat(110)),
+            format!("/{}", "x".repeat(110)),
+            format!("source//{}", "x".repeat(110)),
+            format!("source/{}", "é".repeat(60)),
+            "x".repeat(MAX_ARCHIVE_PATH_BYTES + 1),
+        ] {
+            assert!(
+                inspect_large_xz_tar(xz_archive(&[long_name(&path), valid.clone()]).as_slice())
+                    .is_err()
+            );
+        }
+        for offset in [
+            512 + 2,
+            512 + path.len(),
+            512 + path.len() + 2,
+        ] {
+            let mut metadata = long_name(&path);
+            metadata[offset] = if offset == 514 {
+                0
+            } else {
+                b'x'
+            };
+            assert!(
+                inspect_large_xz_tar(xz_archive(&[metadata, valid.clone()]).as_slice()).is_err()
+            );
+        }
+        let mut truncated = long_name(&path);
+        truncated.truncate(512 + path.len());
+        assert!(inspect_large_xz_tar(xz_archive(&[truncated]).as_slice()).is_err());
+    }
+
     #[test]
     fn xz_admits_bounded_same_directory_aliases_and_refuses_chains_or_escape() {
         let valid = xz_archive(&[
@@ -823,6 +1031,65 @@ mod tests {
                 member("source/target", b"data", b'0', 0o644),
             ],
         ] {
+            assert!(matches!(
+                inspect_large_xz_tar(xz_archive(&entries).as_slice()),
+                Err(ArchiveError::UnsafeEntry)
+            ));
+        }
+    }
+
+    #[test]
+    fn xz_admits_contained_descendant_files_but_no_directory_or_alias_traversal() {
+        let valid = [
+            alias("source/RELEASE-NOTES", "doc/releases/version.txt"),
+            member(
+                "source/doc/releases/version.txt",
+                b"notes",
+                b'0',
+                0o644,
+            ),
+        ];
+        let inventory = inspect_large_xz_tar(xz_archive(&valid).as_slice()).unwrap();
+        assert_eq!(inventory.files(), 1);
+        assert_eq!(inventory.entries(), 2);
+        // Ordinary gzip remains the original regular-file/directory subset.
+        assert!(matches!(
+            inspect_gzip_tar(archive(&valid).as_slice()),
+            Err(ArchiveError::UnsafeEntry)
+        ));
+        for target in [
+            "/absolute",
+            "../outside",
+            "doc/../target",
+            "doc/./target",
+            "doc//target",
+            "doc/",
+            "doc",
+        ] {
+            let entries = [
+                alias("source/link", target),
+                member("source/doc", b"", b'5', 0o755),
+                member("source/doc/target", b"notes", b'0', 0o644),
+            ];
+            assert!(
+                matches!(
+                    inspect_large_xz_tar(xz_archive(&entries).as_slice()),
+                    Err(ArchiveError::UnsafeEntry)
+                ),
+                "{target}"
+            );
+        }
+        // A path to a regular member must never pass through a second alias.
+        for reverse in [false, true] {
+            let mut entries = vec![
+                alias("source/link", "doc/target"),
+                alias("source/doc", "actual"),
+                member("source/doc/target", b"notes", b'0', 0o644),
+                member("source/actual", b"other", b'0', 0o644),
+            ];
+            if reverse {
+                entries.reverse();
+            }
             assert!(matches!(
                 inspect_large_xz_tar(xz_archive(&entries).as_slice()),
                 Err(ArchiveError::UnsafeEntry)

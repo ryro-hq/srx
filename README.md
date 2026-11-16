@@ -165,6 +165,9 @@ srx info .#hello
 srx build .#hello --dry-run
 ```
 
+For offline builders, [import an explicitly selected source file](docs/source-import.md)
+against its locked SHA-256 and size with `srx project import-source`.
+
 Public aliases share the same lazy recipe instance. Private bindings stay private;
 inspection and dry runs do not acquire sources or initialize a Store.
 

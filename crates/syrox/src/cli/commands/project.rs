@@ -20,6 +20,9 @@ use syrox_engine::{
     store::{RootName, Store},
 };
 
+mod import;
+pub(crate) use import::ImportSourceArguments;
+
 pub(crate) fn run(command: ProjectCommand, checks: &CheckConfiguration) -> ExitCode {
     match command {
         ProjectCommand::Check {
@@ -74,6 +77,7 @@ pub(crate) fn run(command: ProjectCommand, checks: &CheckConfiguration) -> ExitC
             &store,
             checks,
         )),
+        ProjectCommand::ImportSource(arguments) => import::run(&arguments, checks),
     }
 }
 
