@@ -544,7 +544,7 @@ fn different_refs_at_one_commit_share_one_snapshot_and_domain() {
 fn github_live_resolves_commit_verifies_archive_and_reopens_offline() {
     let directory = tempfile::tempdir().unwrap();
     let config = GithubConfiguration::default();
-    let locator = GithubLocator::parse("github:ryro-hq/syrox-pkgs").unwrap();
+    let locator = GithubLocator::parse("github:ryro-hq/srx-pkgs").unwrap();
     let mut online = GithubSession::new(directory.path(), &config, InputMode::Refresh);
     let snapshot = online.load(&locator, None).unwrap();
     assert!(snapshot.path().join("main.srx").is_file());

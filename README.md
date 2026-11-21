@@ -1,10 +1,4 @@
 <p align="center">
-
-Developer entry point: `cargo xtask check`. Use `cargo xtask fmt` to format explicitly
-and `cargo xtask test --suite portable` for local tests. See [testing](docs/testing.md),
-[contributing](CONTRIBUTING.md) and [security](SECURITY.md). The related package
-catalog is [srx-pkgs](https://github.com/ryro-hq/srx-pkgs); runtime ryro-bot is separate.
-
   <img src="assets/syrox.png" width="180" alt="Syrox mascot: a penguin in a package box" />
 </p>
 
@@ -16,7 +10,7 @@ catalog is [srx-pkgs](https://github.com/ryro-hq/srx-pkgs); runtime ryro-bot is 
 </p>
 
 <p align="center">
-  <a href="https://github.com/ryro-hq/syrox/actions/workflows/ci.yml"><img src="https://github.com/ryro-hq/syrox/actions/workflows/ci.yml/badge.svg?branch=main" alt="Syrox CI on main" /></a>
+  <a href="https://github.com/ryro-hq/srx/actions/workflows/ci.yml"><img src="https://github.com/ryro-hq/srx/actions/workflows/ci.yml/badge.svg?branch=main" alt="Syrox CI on main" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache-2.0 license" /></a>
   <img src="https://img.shields.io/badge/status-experimental-orange.svg" alt="Experimental" />
 </p>
@@ -30,7 +24,16 @@ or building.
 - Lock local projects and pinned GitHub inputs.
 - Get diagnostics, completion, navigation, and formatting in your editor.
 
-Syrox is experimental and currently targets Linux.
+**Syrox** is the public product name. The CLI is `srx`, and it includes the
+`srx lsp` language server for `.srx` files. The core repository is
+[`ryro-hq/srx`](https://github.com/ryro-hq/srx); the separate package catalog is
+[`ryro-hq/srx-pkgs`](https://github.com/ryro-hq/srx-pkgs). The Cargo package
+`syrox`, worker binary `syrox-worker`, and lockfile `Syrox.lock` keep their names.
+[ryro-bot](https://github.com/ryro-hq/ryro-bot) is separate GitHub automation,
+not part of the Syrox runtime.
+
+Syrox is experimental, currently targets Linux, and is licensed under
+[Apache-2.0](LICENSE).
 
 `srx system inspect --builder-directory /existing/scratch --json` also reports
 filesystem capacity and observed project quotas without creating the directory
@@ -55,7 +58,7 @@ contracts and verified limits. Bootable system images remain under implementatio
 See the [language reference](docs/language.md) for checked, executable examples
 of bindings, record calls, platform conditions and shared recipes.
 
-Use packages from [syrox-pkgs](https://github.com/ryro-hq/syrox-pkgs) in your own
+Use packages from [srx-pkgs](https://github.com/ryro-hq/srx-pkgs) in your own
 environment. With the catalog checked out beside your project, save this as
 `main.srx`:
 
@@ -80,7 +83,7 @@ the recipe; your project chooses the packages and commands it exposes.
 Check and lock the catalog, then inspect your project:
 
 ```sh
-srx project lock ../syrox-pkgs
+srx project lock ../srx-pkgs
 srx project check .
 srx project lock .
 srx project plan .
@@ -94,7 +97,7 @@ srx shell .#dev --command hello --non-interactive \
 ```
 
 `build.toml` supplies the host toolchain and source permissions described in
-the [catalog's setup](https://github.com/ryro-hq/syrox-pkgs#build-and-select-a-command).
+the [catalog's setup](https://github.com/ryro-hq/srx-pkgs#build-and-select-a-command).
 
 ## Typed configuration
 
@@ -234,8 +237,8 @@ bundle import; a missing or failed combination prevents a release manifest.
 The repository pins its Rust toolchain. Build the CLI and worker:
 
 ```sh
-git clone https://github.com/ryro-hq/syrox.git
-cd syrox
+git clone https://github.com/ryro-hq/srx.git
+cd srx
 rustup target add x86_64-unknown-linux-musl
 # Linux build host: install musl-gcc, pkg-config and native link tools first.
 export RUSTFLAGS="-C target-feature=+crt-static" LZMA_API_STATIC=1
@@ -247,6 +250,19 @@ SYROX_EMBED_WORKER="$PWD/target/x86_64-unknown-linux-musl/release/syrox-worker" 
 export PATH="$PWD/target/x86_64-unknown-linux-musl/release:$PATH"
 ```
 
-The language server ships with `srx`.
+## Editor integrations
 
-Licensed under [Apache-2.0](LICENSE).
+Install the Linux `srx` binary in the environment where your editor runs, or
+configure the integration with its absolute path. The integrations use
+`srx lsp`; their documentation covers setup and version requirements:
+
+- [Neovim (`ryro-hq/srx.nvim`)](https://github.com/ryro-hq/srx.nvim)
+- [VS Code (`ryro-hq/srx-vscode`)](https://github.com/ryro-hq/srx-vscode)
+- [OpenCode (`ryro-hq/srx-opencode`)](https://github.com/ryro-hq/srx-opencode)
+
+## Contributing
+
+Run `cargo xtask check` from the core checkout, `cargo xtask fmt` to format
+explicitly, and `cargo xtask test --suite portable` for local tests. See
+[testing](docs/testing.md), [contributing](CONTRIBUTING.md) and
+[security](SECURITY.md).
