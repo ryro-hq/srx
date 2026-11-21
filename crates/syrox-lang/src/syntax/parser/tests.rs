@@ -25,7 +25,7 @@ fn signed_decimal_literals_include_i64_minimum_and_reject_overflow_or_separated_
 }
 
 #[test]
-fn representative_v1_source_builds_a_complete_ast() {
+fn representative_source_builds_a_complete_ast() {
     let source = Source::new(
         "main.srx",
         r#"
