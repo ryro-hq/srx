@@ -237,7 +237,7 @@ pub(super) fn tools(destination: &Path, selection: &str) -> Result {
             return Err(format!("download failed: {name}").into());
         }
         let bytes = fs::read(&archive)?;
-        if bytes.len() > 128 * 1024 * 1024 || format!("{:x}", Sha256::digest(&bytes)) != pin {
+        if bytes.len() > 128 * 1024 * 1024 || super::hex(&Sha256::digest(&bytes)) != pin {
             return Err(format!("tool checksum mismatch: {name}").into());
         }
         let entry = if name == "shellcheck" {

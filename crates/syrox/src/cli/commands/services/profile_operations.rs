@@ -1,4 +1,5 @@
 use super::profile::Loaded;
+use crate::cli::hex;
 use std::time::{Duration, Instant};
 use syrox_engine::{
     cancellation::Cancellation,
@@ -295,14 +296,6 @@ fn observe(
         return Err("manager changed during live status observation".into());
     }
     Ok(rows)
-}
-fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    let mut output = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        write!(output, "{byte:02x}").expect("String write");
-    }
-    output
 }
 
 pub(super) fn logs(arguments: &LogArguments, cancel: &Cancellation) -> Result<u8, String> {

@@ -269,7 +269,7 @@ fn independent_hash(path: &Path, deadline: Instant) -> io::Result<ContentDigest>
         hash.update(&buffer[..n]);
         offset += n as u64;
     }
-    format!("{:x}", hash.finalize())
+    hex(&hash.finalize())
         .parse()
         .map_err(io::Error::other)
 }
@@ -354,4 +354,12 @@ impl Drop for SettledChild {
             let _ = child.wait();
         }
     }
+}
+fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut text = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(text, "{byte:02x}").expect("String write");
+    }
+    text
 }

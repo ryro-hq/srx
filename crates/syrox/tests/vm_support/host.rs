@@ -229,22 +229,20 @@ async fn run_vm(
     microsandbox::set_libkrunfw_path(&config.firmware);
     let cache = root().join("target/vm-cache");
     common::private(&cache.join("guest"))?;
-    let environment_key = format!(
-        "{:x}",
-        sha2::Sha256::digest(serde_json::to_vec(&json!({
+    let environment_key = common::hex(&sha2::Sha256::digest(serde_json::to_vec(
+        &json!({
             "schema":5, "sdk":config.sdk, "preparation_image":config.preparation_image.as_deref().unwrap_or(&config.image),
             "lock":super::snapshot::digest(&evidence.join("sources/Cargo.lock"))?,
             "target":"x86_64-unknown-linux-gnu", "rustflags":"-C target-feature=+crt-static",
             "incremental":false, "debug_info":false,
             "candidate_profile":"release", "fixture_profile":"test", "policy":"single-producer-host-inherited-v2"
-        }))?)
-    );
-    let cache_key = format!(
-        "{:x}",
-        sha2::Sha256::digest(serde_json::to_vec(&json!({
+        }),
+    )?));
+    let cache_key = common::hex(&sha2::Sha256::digest(serde_json::to_vec(
+        &json!({
             "schema":3, "build_jobs":super::resources::build_jobs()?, "compilation":environment_key, "environment":config, "release_bundle":config.candidate_bundle.as_ref().map(|directory| super::snapshot::digest(&directory.join("manifest.json"))).transpose()?, "sources":report["sources"]["sha256"], "selected":report["selected"]
-        }))?)
-    );
+        }),
+    )?));
     fs::write(evidence.join("cache-key"), &cache_key)?;
     fs::write(evidence.join("compilation-key"), &environment_key)?;
     report["cache_key"] = json!(cache_key);

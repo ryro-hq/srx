@@ -169,6 +169,6 @@ pub(super) fn load(state: &File, name: &str) -> io::Result<Evidence> {
         directory,
         identity,
         records,
-        sha256: format!("{:x}", hash.finalize()),
+        sha256: crate::hex(&hash.finalize()),
     })
 }

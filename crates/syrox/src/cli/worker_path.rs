@@ -73,7 +73,7 @@ pub(crate) fn digest(path: &Path, cancellation: &Cancellation) -> Result<Content
     cancellation
         .check()
         .map_err(|error| error.to_string())?;
-    format!("{:x}", hasher.finalize())
+    crate::cli::hex(&hasher.finalize())
         .parse()
         .map_err(|error| format!("invalid worker digest: {error}"))
 }

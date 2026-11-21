@@ -383,7 +383,7 @@ fn util_linux_recognizes_both_logical_sector_sizes_and_recovers_the_backup_table
     let metadata = fs::symlink_metadata(&tool).unwrap();
     assert!(metadata.is_file() && metadata.len() <= 16 * 1024 * 1024);
     assert_eq!(
-        format!("{:x}", Sha256::digest(fs::read(&tool).unwrap())),
+        crate::hex(&Sha256::digest(fs::read(&tool).unwrap())),
         pin
     );
     for block in [512, 4096] {

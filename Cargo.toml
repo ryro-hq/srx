@@ -30,7 +30,7 @@ clap = { version = "4.6.6", default-features = false, features = [
     "usage",
 ] }
 thiserror = "2.0.20"
-sha2 = { version = "=0.10.9", default-features = false }
+sha2 = { version = "=0.11.0", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
@@ -58,10 +58,10 @@ missing_panics_doc = "allow"
 
 # Authentication repeatedly hashes retained inputs under fixed startup budgets.
 # Keep the crypto implementation optimized in development as in release builds.
-[profile.dev.package."sha2:0.10.9"]
+[profile.dev.package."sha2:0.11.0"]
 opt-level = 3
 
-[profile.test.package."sha2:0.10.9"]
+[profile.test.package."sha2:0.11.0"]
 opt-level = 3
 
 # Keep local preparation within the minimum product environment.

@@ -84,3 +84,12 @@ pub(crate) fn run(cli: Cli) -> ExitCode {
         } => store::run(&command),
     }
 }
+/// Lowercase hexadecimal text of digest bytes.
+pub(crate) fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut text = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(text, "{byte:02x}").expect("String write");
+    }
+    text
+}

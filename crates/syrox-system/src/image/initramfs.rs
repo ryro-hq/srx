@@ -143,7 +143,7 @@ impl SystemTree {
                         remaining -= read as u64;
                     }
                     if read(&mut input, &mut buffer[..1], &mut cancelled)? != 0
-                        || format!("{:x}", hasher.finalize()) != source.content_sha256
+                        || crate::hex(&hasher.finalize()) != source.content_sha256
                     {
                         return Err(ArchiveError::Content(path.clone()));
                     }

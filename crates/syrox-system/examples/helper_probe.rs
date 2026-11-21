@@ -225,7 +225,7 @@ fn file_digest(path: &Path) -> io::Result<String> {
         }
         hash.update(&bytes[..count]);
     }
-    Ok(format!("{:x}", hash.finalize()))
+    Ok(hex(&hash.finalize()))
 }
 
 fn budget() -> serde_json::Value {
@@ -842,4 +842,12 @@ fn scratch_namespace() -> io::Result<()> {
     mounted.sync_all()?;
     println!("SRX_HELPER_SCRATCH_NAMESPACE_OK");
     Ok(())
+}
+fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut text = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(text, "{byte:02x}").expect("String write");
+    }
+    text
 }

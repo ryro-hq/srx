@@ -325,7 +325,7 @@ fn payload_streaming_is_bounded_and_recovers_from_interrupted_reads() {
     } = &mut entry.entry
     {
         source.size_bytes = LENGTH as u64;
-        source.content_sha256 = format!("{:x}", hash.finalize());
+        source.content_sha256 = crate::hex(&hash.finalize());
     }
     let admitted = budget(2, LENGTH as u64 + 4096);
     let tree = SystemTree::compose(

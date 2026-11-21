@@ -42,7 +42,7 @@ fn two_level_golden_matches_pinned_veritysetup_2_8_8() {
     );
     top.extend_from_slice(&bottom);
     assert_eq!(
-        format!("{:x}", Sha256::digest(&top)),
+        crate::hex(&Sha256::digest(&top)),
         "1ee5d2bfdb6818d7ffc72bd5765eceb96cf510655bf84a17cf31a228aefd881b"
     );
 }
@@ -162,7 +162,7 @@ fn upstream_veritysetup_accepts_byte_identical_trees_and_rejects_corruption() {
     let metadata = fs::symlink_metadata(&tool).unwrap();
     assert!(metadata.is_file() && metadata.len() <= 16 * 1024 * 1024);
     assert_eq!(
-        format!("{:x}", Sha256::digest(fs::read(&tool).unwrap())),
+        crate::hex(&Sha256::digest(fs::read(&tool).unwrap())),
         pin
     );
     let salt = [0x23; 32];

@@ -33,7 +33,7 @@ pub fn digest(path: &Path) -> Result<String> {
     if !same_file(&before, &after) || !same_file(&before, &stream.metadata()?) {
         return Err(format!("input changed while reading: {}", path.display()).into());
     }
-    Ok(format!("{:x}", hash.finalize()))
+    Ok(super::common::hex(&hash.finalize()))
 }
 
 pub fn valid_digest(value: &str) -> bool {
@@ -86,7 +86,7 @@ pub fn copy_candidate(source: &Path, destination: &Path, maximum: u64) -> Result
         hash.update(&buffer[..count]);
         output.write_all(&buffer[..count])?;
     }
-    let pin = format!("{:x}", hash.finalize());
+    let pin = super::common::hex(&hash.finalize());
     if total != before.len()
         || !same_file(&before, &input.metadata()?)
         || !same_file(&before, &fs::symlink_metadata(source)?)
@@ -216,10 +216,7 @@ pub fn snapshot(root: &Path, destination: &Path) -> Result<Value> {
     // Recheck all captured files as a set before freezing the directory tree.
     verify_files(root, &files)?;
     freeze_directories(destination)?;
-    let hash = format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(&files)?)
-    );
+    let hash = super::common::hex(&Sha256::digest(serde_json::to_vec(&files)?));
     let revision = Command::new("git")
         .args(["rev-parse", "HEAD"])
         .current_dir(root)

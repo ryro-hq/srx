@@ -48,3 +48,13 @@ fn run() -> io::Result<()> {
     let socket = unsafe { File::from_raw_fd(3) };
     session::serve(socket, policy, hash)
 }
+
+/// Lowercase hexadecimal text of digest bytes.
+fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut text = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(text, "{byte:02x}").expect("String write");
+    }
+    text
+}

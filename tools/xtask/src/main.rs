@@ -11,6 +11,14 @@ mod release;
 mod structure;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
+fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut text = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(text, "{byte:02x}").expect("String write");
+    }
+    text
+}
 fn run(program: &str, args: &[&str]) -> Result {
     if !Command::new(program)
         .args(args)
