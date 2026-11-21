@@ -1,10 +1,4 @@
 <p align="center">
-
-Developer entry point: `cargo xtask check`. Use `cargo xtask fmt` to format explicitly
-and `cargo xtask test --suite portable` for local tests. See [testing](docs/testing.md),
-[contributing](CONTRIBUTING.md) and [security](SECURITY.md). The related package
-catalog is [srx-pkgs](https://github.com/ryro-hq/srx-pkgs); runtime ryro-bot is separate.
-
   <img src="assets/syrox.png" width="180" alt="Syrox mascot: a penguin in a package box" />
 </p>
 
@@ -16,7 +10,7 @@ catalog is [srx-pkgs](https://github.com/ryro-hq/srx-pkgs); runtime ryro-bot is 
 </p>
 
 <p align="center">
-  <a href="https://github.com/ryro-hq/syrox/actions/workflows/ci.yml"><img src="https://github.com/ryro-hq/syrox/actions/workflows/ci.yml/badge.svg?branch=main" alt="Syrox CI on main" /></a>
+  <a href="https://github.com/ryro-hq/srx/actions/workflows/ci.yml"><img src="https://github.com/ryro-hq/srx/actions/workflows/ci.yml/badge.svg?branch=main" alt="Syrox CI on main" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache-2.0 license" /></a>
   <img src="https://img.shields.io/badge/status-experimental-orange.svg" alt="Experimental" />
 </p>
@@ -30,7 +24,128 @@ or building.
 - Lock local projects and pinned GitHub inputs.
 - Get diagnostics, completion, navigation, and formatting in your editor.
 
-Syrox is experimental and currently targets Linux.
+**Syrox** is the public product name. The CLI is `srx`, and it includes the
+`srx lsp` language server for `.srx` files. The core repository is
+[`ryro-hq/srx`](https://github.com/ryro-hq/srx); the separate package catalog is
+[`ryro-hq/srx-pkgs`](https://github.com/ryro-hq/srx-pkgs). The Cargo package
+`syrox`, worker binary `syrox-worker`, and lockfile `Syrox.lock` keep their names.
+[ryro-bot](https://github.com/ryro-hq/ryro-bot) is separate GitHub automation,
+not part of the Syrox runtime.
+
+Syrox is experimental, currently targets Linux, and is licensed under
+[Apache-2.0](LICENSE).
+
+## Get started
+
+### Build the CLI
+
+Use x86-64 Linux with Git, [rustup](https://rustup.rs/), HTTPS access to GitHub,
+Rust distribution servers and crates.io, and native build tools. On Ubuntu
+24.04, for example, install these system packages before building:
+
+```sh
+sudo apt-get update
+sudo apt-get install build-essential ca-certificates git liblzma-dev musl-tools pkg-config
+```
+
+With `rustup` on `PATH`, run the following from a workspace directory where
+`srx`, `srx-pkgs`, and `hello-demo` do not yet exist. The repository's
+`rust-toolchain.toml` pins Rust. Build the static worker before embedding it in
+the CLI:
+
+```sh
+git clone https://github.com/ryro-hq/srx.git
+cd srx
+rustup toolchain install --no-update
+rustup target add x86_64-unknown-linux-musl
+export RUSTFLAGS="-C target-feature=+crt-static" LZMA_API_STATIC=1
+export CC_x86_64_unknown_linux_musl=musl-gcc
+export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
+cargo build --release --locked -p syrox --bin syrox-worker --target x86_64-unknown-linux-musl
+SYROX_EMBED_WORKER="$PWD/target/x86_64-unknown-linux-musl/release/syrox-worker" \
+  cargo build --release --locked -p syrox --bin srx --target x86_64-unknown-linux-musl
+export PATH="$PWD/target/x86_64-unknown-linux-musl/release:$PATH"
+srx --version
+```
+
+### Check, lock, and plan a project
+
+From `srx`, return to the workspace directory. Clone the catalog and create the
+demo as its sibling, so `path:../srx-pkgs` resolves from the demo:
+
+```sh
+cd ..
+git clone https://github.com/ryro-hq/srx-pkgs.git
+mkdir hello-demo
+cd hello-demo
+cat > main.srx <<'SRX'
+inputs { pkgs = "path:../srx-pkgs"; }
+
+let packages = pkgs.forPlatform { system = "linux-x86_64"; libc = "musl"; };
+
+outputs {
+    dev: Shell = Shell {
+        pkgs = [select_command(package_recipe(packages.hello {
+            version = "2.12.1";
+        }), "out", "hello")];
+        services = [];
+    };
+}
+SRX
+```
+
+Lock the local catalog with the CLI you just built. This can update
+`../srx-pkgs/Syrox.lock` in your clone because the catalog's committed lock
+tracks the core revision pinned in its `.syrox-core` file.
+
+```sh
+srx project lock ../srx-pkgs
+srx project check .
+srx project lock .
+srx project plan . --output dev
+```
+
+The plan lists GNU Hello 2.12.1 for `linux-x86_64-musl` and the `hello` command
+exposed by the `dev` Shell. These commands do not download package sources,
+build Hello, or initialize a Store.
+
+### Build and run Hello (optional)
+
+Run as an unprivileged user on a compatible Linux build host with a running
+systemd user manager, Bubblewrap with user and cgroup namespaces, and a kernel
+and `setpriv` that support Landlock's `ioctl-dev` right. The host toolchain must
+provide `/usr/bin/musl-gcc` and Make, and the source host must be reachable over
+HTTPS. See [catalog qualification](https://github.com/ryro-hq/srx-pkgs#qualification-and-publication)
+for the tested environments; the CLI build prerequisites alone are not enough.
+
+On such a host, create `build.toml` in `hello-demo` to authorize the host
+toolchain and the exact source URL listed in the plan:
+
+```sh
+cat > build.toml <<'TOML'
+[build]
+host-toolchain = "/usr"
+
+[network]
+allow-https = ["https://ftp.gnu.org/gnu/hello/hello-2.12.1.tar.gz"]
+TOML
+srx shell .#dev --command hello --non-interactive \
+    --config ./build.toml --store ./store -- --greeting 'Hello from Syrox!'
+```
+
+The command prints `Hello from Syrox!`.
+
+## Editor integrations
+
+Install the Linux `srx` binary in the environment where your editor runs, or
+configure the integration with its absolute path. The integrations use
+`srx lsp`; their documentation covers setup and version requirements:
+
+- [Neovim (`ryro-hq/srx.nvim`)](https://github.com/ryro-hq/srx.nvim)
+- [VS Code (`ryro-hq/srx-vscode`)](https://github.com/ryro-hq/srx-vscode)
+- [OpenCode (`ryro-hq/srx-opencode`)](https://github.com/ryro-hq/srx-opencode)
+
+## Linux system management
 
 `srx system inspect --builder-directory /existing/scratch --json` also reports
 filesystem capacity and observed project quotas without creating the directory
@@ -54,47 +169,6 @@ contracts and verified limits. Bootable system images remain under implementatio
 
 See the [language reference](docs/language.md) for checked, executable examples
 of bindings, record calls, platform conditions and shared recipes.
-
-Use packages from [syrox-pkgs](https://github.com/ryro-hq/syrox-pkgs) in your own
-environment. With the catalog checked out beside your project, save this as
-`main.srx`:
-
-```srx
-inputs { pkgs = "path:../srx-pkgs"; }
-
-let packages = pkgs.forPlatform { system = "linux-x86_64"; };
-
-outputs {
-    dev: Shell = Shell {
-        pkgs = [select_command(package_recipe(packages.hello {
-            version = "2.12.1";
-        }), "out", "hello")];
-        services = [];
-    };
-}
-```
-
-This selects GNU Hello and its declared runtime dependencies. The catalog owns
-the recipe; your project chooses the packages and commands it exposes.
-
-Check and lock the catalog, then inspect your project:
-
-```sh
-srx project lock ../syrox-pkgs
-srx project check .
-srx project lock .
-srx project plan .
-```
-
-On a configured Linux build host, build and run the selected command:
-
-```sh
-srx shell .#dev --command hello --non-interactive \
-    --config build.toml --store ./store -- --greeting 'Hello from Syrox!'
-```
-
-`build.toml` supplies the host toolchain and source permissions described in
-the [catalog's setup](https://github.com/ryro-hq/syrox-pkgs#build-and-select-a-command).
 
 ## Typed configuration
 
@@ -226,24 +300,9 @@ ordinary functions require compatible branches and exhaustive matches.
 Qualification builds and runs each required combination and verifies offline
 bundle import; a missing or failed combination prevents a release manifest.
 
-## Get started
+## Contributing
 
-The repository pins its Rust toolchain. Build the CLI and worker:
-
-```sh
-git clone https://github.com/ryro-hq/syrox.git
-cd syrox
-rustup target add x86_64-unknown-linux-musl
-# Linux build host: install musl-gcc, pkg-config and native link tools first.
-export RUSTFLAGS="-C target-feature=+crt-static" LZMA_API_STATIC=1
-export CC_x86_64_unknown_linux_musl=musl-gcc
-export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
-cargo build --release --locked -p syrox --bin syrox-worker --target x86_64-unknown-linux-musl
-SYROX_EMBED_WORKER="$PWD/target/x86_64-unknown-linux-musl/release/syrox-worker" \
-  cargo build --release --locked -p syrox --bin srx --target x86_64-unknown-linux-musl
-export PATH="$PWD/target/x86_64-unknown-linux-musl/release:$PATH"
-```
-
-The language server ships with `srx`.
-
-Licensed under [Apache-2.0](LICENSE).
+Run `cargo xtask check` from the core checkout, `cargo xtask fmt` to format
+explicitly, and `cargo xtask test --suite portable` for local tests. See
+[testing](docs/testing.md), [contributing](CONTRIBUTING.md) and
+[security](SECURITY.md).

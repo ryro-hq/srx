@@ -173,7 +173,9 @@ outputs {
 
 ## Modules and public interfaces
 
-Use `inputs { pkgs = "path:../syrox-pkgs"; }` to consume another locked project.
+Use `inputs { pkgs = "path:../srx-pkgs"; }` to consume the locked
+[catalog](https://github.com/ryro-hq/srx-pkgs) cloned beside your project, as in
+the [quickstart](../README.md#check-lock-and-plan-a-project).
 `modules:recipes` maps recipe files into modules. A directory's `package.srx`
 defines that directory's module; other files define named child modules.
 `pub use` reexports a name without duplicating its identity. A private declaration
