@@ -29,6 +29,15 @@
       "reason": "Bundled SQLite CVE reached only through sqlx in the pinned microsandbox =0.7.3 VM test SDK; the fix needs libsqlite3-sys 0.39. Excluded from shipped CLI and worker. Replace the SDK before expiry."
     },
     {
+      "kind": "advisory",
+      "id": "RUSTSEC-2026-0543",
+      "package": "chrono",
+      "version": "=0.4.45",
+      "owner": "fullzer4",
+      "expires": "2027-01-20",
+      "reason": "Unmaintained time crate reached only through the pinned microsandbox =0.7.3 VM test SDK (dev-dependency); absent from shipped CLI and worker. Replace the SDK before expiry."
+    },
+    {
       "kind": "license",
       "package": "option-ext",
       "version": "=0.2.0",
