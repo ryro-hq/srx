@@ -582,7 +582,7 @@ fn worker_format_and_budget_denials_precede_source_or_operation_access() {
 }
 
 #[test]
-fn chunked_v3_tool_inputs_are_authenticated_and_bound_to_the_component_action() {
+fn chunked_system_tool_inputs_are_authenticated_and_bound_to_the_component_action() {
     use crate::result::{ResultManifest, admit_system_result, stage_system_output};
     use crate::store::RootName;
     let mut fixture = fixture(12);

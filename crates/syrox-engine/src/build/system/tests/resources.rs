@@ -420,7 +420,7 @@ fn changed_view_chunk_and_byte_identical_fake_interest_are_refused() {
 }
 
 #[test]
-fn wide_v3_view_keeps_its_producer_limits_without_expanding_legacy_inputs() {
+fn wide_chunked_view_keeps_its_producer_limits_without_expanding_unchunked_inputs() {
     let fixture = imported(&[true], 16_385);
     let inputs = fixture.prepare().unwrap();
     let resources = inputs

@@ -94,7 +94,7 @@ fn version_one_packet_and_budget_binding_have_fixed_wire_identities() {
 }
 
 #[test]
-fn multiple_actual_outputs_cross_chunks_and_admit_as_a_v3_consumption_result() {
+fn multiple_actual_outputs_cross_chunks_and_admit_as_a_system_consumption_result() {
     let limits = budget(32 * 1024 * 1024, 100);
     let size = crate::store::chunked::CHUNK_BYTES + 17;
     let bytes = packet(&limits, size);

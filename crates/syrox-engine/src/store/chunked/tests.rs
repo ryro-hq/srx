@@ -52,7 +52,7 @@ fn admit_manifest(operation: &OperationLease, manifest: &ChunkedArtifactManifest
 }
 
 #[test]
-fn v1_manifest_has_a_fixed_wire_identity() {
+fn chunked_manifest_has_a_fixed_wire_identity() {
     let content: ContentDigest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         .parse()
         .unwrap();

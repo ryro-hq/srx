@@ -390,7 +390,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn membership_parsing_refuses_parent_traversal_and_v1_only() {
+    fn membership_parsing_requires_the_unified_hierarchy_and_refuses_parent_traversal() {
         assert_eq!(
             membership("2:cpu:/group\n0::/user/a\n"),
             Some("/user/a")

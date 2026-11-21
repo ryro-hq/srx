@@ -938,7 +938,7 @@ fn failed_start_authorization_never_dispatches_and_recovery_preserves_uncertaint
 }
 
 #[test]
-fn recovery_closes_only_local_v4_awaiting_and_respects_live_owner() {
+fn recovery_closes_only_current_local_awaiting_records_and_respects_live_owner() {
     for version in [3, 4] {
         let (_temporary, store, operation, context) = fixture();
         operation
