@@ -41,7 +41,13 @@ pub(crate) struct PreservedResource {
     pub binding: OsLaunchBinding,
     pub contract: OsUnitContract,
     // Retains the previous generation's output leases until this resource settles.
-    #[allow(dead_code)] // Its Drop controls the previous generation's lease lifetime.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "its Drop controls the previous generation's lease lifetime"
+        )
+    )]
     retained_generation: Arc<RetainedGeneration>,
 }
 pub(super) struct ExistingSnapshots {

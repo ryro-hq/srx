@@ -64,7 +64,10 @@ pub(crate) struct OwnerHandle {
     manager: SystemdManager,
     channel: Option<PacketChannel>,
     // Keeps the process-retention OFD and its Store interests alive until Drop.
-    #[allow(dead_code)] // This field owns retention; its Drop releases the OFD.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "owns the retention OFD; its Drop releases it")
+    )]
     retention: Option<File>,
     // Never unlink automatically: a lost Start reply may still lead to Exec.
     worker_snapshot: PathBuf,
