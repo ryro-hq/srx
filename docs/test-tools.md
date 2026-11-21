@@ -817,7 +817,7 @@ preceded QEMU exit zero. Case counting deduplicated journal repetitions. Base,
 readonly payload and the all-zero 4-GiB plan disk hashes remained unchanged.
 The ext4 tools and frozen CLI v3 retained their prior pins.
 
-Attempts `v12` and `v13` are recorded separately as unqualified. `v12` encountered
+Attempts `v12` and `v13` were unqualified. `v12` encountered
 guest device-discovery timeouts before the SRX service ran and was interrupted
 (session exit 130). `v13` repeated the previous 43 cases, then its test-only
 workspace socket under root-owned mode-0711 `/var/tmp/srx-helper-probe` denied
