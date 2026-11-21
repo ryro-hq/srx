@@ -51,7 +51,7 @@ fn digest(path: &Path) -> Result<String> {
     if total != meta.len() {
         return Err("release artifact changed".into());
     }
-    Ok(super::hex(&hash.finalize()))
+    Ok(syrox_encoding::hex(&hash.finalize()))
 }
 fn encode(path: &Path, value: &Value) -> Result {
     fs::write(path, serde_json::to_vec_pretty(value)?)?;

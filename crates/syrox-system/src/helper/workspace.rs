@@ -114,7 +114,7 @@ pub(super) fn serve(
     authorization.update(layout.digest());
     authorization.update(capacity.device.to_le_bytes());
     authorization.update(capacity.inode.to_le_bytes());
-    let authorization = crate::hex(&authorization.finalize());
+    let authorization = syrox_encoding::hex(&authorization.finalize());
     let mut journal = Journal::create(&state, &format!("op-{id}"))?;
     journal.record("authorized", serde_json::json!({"request":request,"authorization":authorization,"policy_sha256":policy_sha256,"helper_layout_sha256":layout.digest(),"peer":{"uid":peer.uid,"gid":peer.gid,"pid":peer.pid},"state_filesystem":capacity,"runtime":recovery::runtime()?}))?;
     let result = prepare(

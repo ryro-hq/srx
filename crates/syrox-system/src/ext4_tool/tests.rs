@@ -243,7 +243,10 @@ fn filter_permits_pinned_static_rust_startup() {
     let expected = std::env::var("SRX_TOOL_STARTUP_SHA256").expect("explicit pin");
     let bytes = std::fs::read(&path).unwrap();
     assert!(bytes.len() < 8 * 1024 * 1024);
-    assert_eq!(crate::hex(&Sha256::digest(&bytes)), expected);
+    assert_eq!(
+        syrox_encoding::hex(&Sha256::digest(&bytes)),
+        expected
+    );
     assert_eq!(
         u16::from_le_bytes(bytes[16..18].try_into().unwrap()),
         2

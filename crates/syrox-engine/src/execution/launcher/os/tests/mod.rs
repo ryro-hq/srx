@@ -30,7 +30,7 @@ fn arguments_are_explicit_canonical_and_separate_from_shell() {
 fn invocation_and_main_pid_evidence_are_independent() {
     let invocation = context::invocation("0123456789abcdef0123456789abcdef").unwrap();
     assert_eq!(
-        context::hex(&invocation),
+        syrox_encoding::hex(&invocation),
         "0123456789abcdef0123456789abcdef"
     );
     for invalid in [

@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/syrox",
+    "crates/syrox-encoding",
     "crates/syrox-engine",
     "crates/syrox-lang",
     "crates/syrox-system",
@@ -17,6 +18,7 @@ license = "Apache-2.0"
 repository = "https://github.com/ryro-hq/srx"
 
 [workspace.dependencies]
+syrox-encoding = { version = "0.1.0", path = "crates/syrox-encoding" }
 syrox-lang = { version = "0.1.0", path = "crates/syrox-lang" }
 syrox-engine = { version = "0.1.0", path = "crates/syrox-engine" }
 syrox-system = { version = "0.1.0", path = "crates/syrox-system" }

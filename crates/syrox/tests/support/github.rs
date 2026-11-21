@@ -55,23 +55,13 @@ pub fn prepare(root: &Path, consumer: &str, remote: &str, revision: char) -> Str
     project.update(0_u64.to_be_bytes());
     format!(
         "syrox-lock-v4\nhash sha256\nproject {}\nmain {} {}\ninputs 0\nstd absent\nedges 1\ngithub-edge {} {} {} {commit} {digest}\nassets 0\nend\n",
-        hex(&project.finalize()),
+        syrox_encoding::hex(&project.finalize()),
         consumer.len(),
         ContentDigest::sha256(consumer.as_bytes()),
-        hex(b"remote"),
-        hex(b"github:example/fixture"),
+        syrox_encoding::hex(b"remote"),
+        syrox_encoding::hex(b"github:example/fixture"),
         ContentDigest::sha256(&child_lock)
     )
-}
-
-fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    bytes
-        .iter()
-        .fold(String::new(), |mut result, byte| {
-            write!(result, "{byte:02x}").unwrap();
-            result
-        })
 }
 
 fn member(path: &str, data: &[u8], kind: u8) -> Vec<u8> {

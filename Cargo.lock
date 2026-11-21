@@ -4617,12 +4617,17 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "signal-hook 0.4.6",
+ "syrox-encoding",
  "syrox-engine",
  "syrox-lang",
  "tempfile",
  "tokio",
  "url",
 ]
+
+[[package]]
+name = "syrox-encoding"
+version = "0.1.0"
 
 [[package]]
 name = "syrox-engine"
@@ -4637,6 +4642,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "syrox-encoding",
  "syrox-lang",
  "syrox-system",
  "tempfile",
@@ -4669,6 +4675,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "syrox-encoding",
  "tempfile",
  "thiserror",
 ]
@@ -5685,6 +5692,7 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "sha2 0.11.0",
+ "syrox-encoding",
  "tempfile",
  "toml",
 ]

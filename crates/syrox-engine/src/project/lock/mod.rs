@@ -206,8 +206,8 @@ impl LockManifest {
         let mut total_files = 1_usize;
         for _ in 0..input_count {
             let input_parts = parts(next_line(&mut lines)?, "input", 5)?;
-            let name = hex(input_parts[1])?;
-            let locator = hex(input_parts[2])?;
+            let name = decode_hex(input_parts[1])?;
+            let locator = decode_hex(input_parts[2])?;
             if name.is_empty() || std::str::from_utf8(&name).is_err() || !valid_locator(&locator) {
                 return Err(LockFormatError::InvalidField);
             }
@@ -696,31 +696,17 @@ fn asset_size(value: &str) -> Result<u64, LockFormatError> {
 }
 
 fn digest(value: &str) -> Result<[u8; 32], LockFormatError> {
-    let decoded = hex(value)?;
+    let decoded = decode_hex(value)?;
     decoded
         .try_into()
         .map_err(|_| LockFormatError::InvalidField)
 }
 
-fn hex(value: &str) -> Result<Vec<u8>, LockFormatError> {
+fn decode_hex(value: &str) -> Result<Vec<u8>, LockFormatError> {
     if !value.len().is_multiple_of(2) || value.len() > syrox_lang::MAX_SOURCE_BYTES * 2 {
         return Err(LockFormatError::InvalidField);
     }
-    let mut decoded = Vec::with_capacity(value.len() / 2);
-    for pair in value.as_bytes().as_chunks::<2>().0 {
-        let high = nibble(pair[0])?;
-        let low = nibble(pair[1])?;
-        decoded.push((high << 4) | low);
-    }
-    Ok(decoded)
-}
-
-fn nibble(byte: u8) -> Result<u8, LockFormatError> {
-    match byte {
-        b'0'..=b'9' => Ok(byte - b'0'),
-        b'a'..=b'f' => Ok(byte - b'a' + 10),
-        _ => Err(LockFormatError::NonCanonical),
-    }
+    syrox_encoding::decode_lower_hex(value).ok_or(LockFormatError::NonCanonical)
 }
 
 fn parse_files<'a>(
@@ -731,7 +717,7 @@ fn parse_files<'a>(
     let mut files = Vec::with_capacity(count);
     for _ in 0..count {
         let file_parts = parts(next_line(lines)?, record, 4)?;
-        let path = hex(file_parts[1])?;
+        let path = decode_hex(file_parts[1])?;
         if !is_canonical_logical_path(&path) {
             return Err(LockFormatError::InvalidField);
         }
@@ -820,8 +806,8 @@ fn parse_project_edges<'a>(
                 4
             },
         )?;
-        let alias = hex(fields[1])?;
-        let origin = hex(fields[2])?;
+        let alias = decode_hex(fields[1])?;
+        let origin = decode_hex(fields[2])?;
         let alias = std::str::from_utf8(&alias).map_err(|_| LockFormatError::InvalidField)?;
         let origin = std::str::from_utf8(&origin).map_err(|_| LockFormatError::InvalidField)?;
         let edge = if remote {

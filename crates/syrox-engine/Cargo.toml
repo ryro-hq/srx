@@ -9,6 +9,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+syrox-encoding.workspace = true
 syrox-lang.workspace = true
 syrox-system.workspace = true
 thiserror.workspace = true

@@ -119,7 +119,8 @@ impl Record {
         let context = value.context()?;
         validate_context(&context)?;
         if value.version != 4
-            || (!hex(&value.nonce, 32) || value.nonce.bytes().all(|byte| byte == b'0'))
+            || (!syrox_encoding::is_lower_hex(&value.nonce, 32)
+                || value.nonce.bytes().all(|byte| byte == b'0'))
             || value.encode()? != bytes
             || (matches!(
                 value.state,
@@ -136,7 +137,7 @@ impl Record {
             return Err(invalid("noncanonical managed attempt"));
         }
         if let Some(binding) = &value.binding {
-            if !hex(&binding.invocation, 32)
+            if !syrox_encoding::is_lower_hex(&binding.invocation, 32)
                 || binding.invocation.bytes().all(|b| b == b'0')
                 || binding.main_pid <= 1
                 || binding.main_pid > i32::MAX as u32
@@ -233,12 +234,6 @@ fn digest(text: &str) -> Result<ContentDigest, BuildError> {
         .parse()
         .map_err(|_| invalid("invalid managed digest"))?;
     Ok(value)
-}
-fn hex(text: &str, length: usize) -> bool {
-    text.len() == length
-        && text
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 fn validate_context(context: &ManagedAttemptContext) -> Result<(), BuildError> {
     let canonical_boot = crate::platform::linux::boot::BootId::parse(&context.boot).is_ok();

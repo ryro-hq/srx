@@ -1,6 +1,6 @@
 use super::profile::Loaded;
-use crate::cli::hex;
 use std::time::{Duration, Instant};
+use syrox_encoding::hex;
 use syrox_engine::{
     cancellation::Cancellation,
     deployment::os::{self, OsPreparation, OsStatus},

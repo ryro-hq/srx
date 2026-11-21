@@ -130,11 +130,8 @@ impl Fixture {
                 let store = self.observe_fd_store(&status.unit)?;
                 let after = self.observe()?;
                 if payload_observed(&status, &after) {
-                    let invocation = context::hex(
-                        &status
-                            .invocation
-                            .clone()
-                            .try_into()
+                    let invocation = syrox_encoding::hex(
+                        &<[u8; 16]>::try_from(status.invocation.clone())
                             .map_err(|_| invalid("invalid current invocation"))?,
                     );
                     check(
@@ -268,11 +265,8 @@ impl Fixture {
         }
         let status = self.observe()?;
         if status.main_pid != 0 {
-            let invocation = context::hex(
-                &status
-                    .invocation
-                    .clone()
-                    .try_into()
+            let invocation = syrox_encoding::hex(
+                &<[u8; 16]>::try_from(status.invocation.clone())
                     .map_err(|_| invalid("cleanup invocation malformed"))?,
             );
             check(

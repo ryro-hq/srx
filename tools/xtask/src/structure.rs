@@ -194,6 +194,7 @@ fn check(root: &Path) -> io::Result<Vec<String>> {
     let mut files = Vec::new();
     for name in [
         "syrox-lang",
+        "syrox-encoding",
         "syrox-engine",
         "syrox-system",
         "syrox",
@@ -204,6 +205,7 @@ fn check(root: &Path) -> io::Result<Vec<String>> {
     let mut errors = Vec::new();
     for entry in [
         "crates/syrox-lang/src/lib.rs",
+        "crates/syrox-encoding/src/lib.rs",
         "crates/syrox-engine/src/lib.rs",
         "crates/syrox-system/src/lib.rs",
         "crates/syrox/src/main.rs",
@@ -236,7 +238,7 @@ fn check(root: &Path) -> io::Result<Vec<String>> {
         }
     }
     println!(
-        "Checked {} Rust files across four crates",
+        "Checked {} Rust files across five crates",
         files.len()
     );
     Ok(errors)
@@ -274,6 +276,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("syrox-doc-layout-{}", std::process::id()));
         for entry in [
             "crates/syrox-lang/src/lib.rs",
+            "crates/syrox-encoding/src/lib.rs",
             "crates/syrox-engine/src/lib.rs",
             "crates/syrox-system/src/lib.rs",
             "crates/syrox/src/main.rs",

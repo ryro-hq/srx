@@ -3,7 +3,6 @@ use crate::{
     build::BuildProgram, result::OutputOrigin, store::ContentDigest, system::budget::BuildBudget,
 };
 use serde::{Deserialize, Serialize};
-use std::fmt::Write as _;
 
 const HEADER: &[u8] = b"syrox-system-build-action-v1\n";
 const PROFILE: &str = "syrox-system-managed-x86_64-v1";
@@ -135,9 +134,9 @@ impl SystemBuildAction {
                     output: i.output.clone(),
                 })
                 .collect(),
-            program: hex(&self.template.program.encode()),
+            program: syrox_encoding::hex(&self.template.program.encode()),
             budget: *self.budget.request(),
-            policy: hex(self.budget.policy_fingerprint()),
+            policy: syrox_encoding::hex(self.budget.policy_fingerprint()),
             output_protocol: "syrox-system-worker-outputs-v1".into(),
             settlement: "subreaper-echild".into(),
         };
@@ -158,13 +157,18 @@ impl SystemBuildAction {
         .map_err(|_| BuildError::InvalidRequest)?;
         if wire.profile != PROFILE
             || wire.budget != *budget.request()
-            || wire.policy != hex(budget.policy_fingerprint())
+            || wire.policy != syrox_encoding::hex(budget.policy_fingerprint())
             || wire.output_protocol != "syrox-system-worker-outputs-v1"
             || wire.settlement != "subreaper-echild"
         {
             return Err(BuildError::InvalidRequest);
         }
-        let program = BuildProgram::decode(&unhex(&wire.program)?)?;
+        if wire.program.len() > 2 * crate::build::MAX_BUILD_PROGRAM_BYTES {
+            return Err(BuildError::InvalidRequest);
+        }
+        let program = BuildProgram::decode(
+            &syrox_encoding::decode_lower_hex(&wire.program).ok_or(BuildError::InvalidRequest)?,
+        )?;
         let inputs = wire
             .inputs
             .into_iter()
@@ -208,31 +212,6 @@ fn pin(value: &str) -> Result<ContentDigest, BuildError> {
     value
         .parse()
         .map_err(|_| BuildError::InvalidRequest)
-}
-fn hex(bytes: &[u8]) -> String {
-    let mut text = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        write!(text, "{byte:02x}").expect("String write");
-    }
-    text
-}
-fn unhex(text: &str) -> Result<Vec<u8>, BuildError> {
-    if !text.len().is_multiple_of(2) || text.len() > 2 * crate::build::MAX_BUILD_PROGRAM_BYTES {
-        return Err(BuildError::InvalidRequest);
-    }
-    text.as_bytes()
-        .as_chunks::<2>()
-        .0
-        .iter()
-        .map(|pair| {
-            let digit = |c: u8| match c {
-                b'0'..=b'9' => Ok(c - b'0'),
-                b'a'..=b'f' => Ok(c - b'a' + 10),
-                _ => Err(BuildError::InvalidRequest),
-            };
-            Ok(digit(pair[0])? * 16 + digit(pair[1])?)
-        })
-        .collect()
 }
 
 #[cfg(test)]

@@ -218,7 +218,7 @@ fn capture_admission(
             &opened.binding.process_key(),
             pin,
             &opened.binding.unit(),
-            &context::hex(invocation),
+            &syrox_encoding::hex(invocation),
             opened.binding.epoch(),
             &launcher_identity,
             cancel,

@@ -8,13 +8,6 @@ use std::{
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
-
-fn hex(text: &str, len: usize) -> bool {
-    text.len() == len
-        && text
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
 pub(super) fn today() -> Result<String> {
     // Gregorian date conversion from the UTC Unix day; no locale or clock shell.
     let days = i64::try_from(
@@ -202,7 +195,7 @@ pub(super) fn tools(destination: &Path, selection: &str) -> Result {
         }
         let pin = tool["sha256"]
             .as_str()
-            .filter(|pin| hex(pin, 64))
+            .filter(|pin| syrox_encoding::is_lower_hex(pin, 64))
             .ok_or("invalid tool digest")?;
         let url = tool["url"]
             .as_str()
@@ -237,7 +230,7 @@ pub(super) fn tools(destination: &Path, selection: &str) -> Result {
             return Err(format!("download failed: {name}").into());
         }
         let bytes = fs::read(&archive)?;
-        if bytes.len() > 128 * 1024 * 1024 || super::hex(&Sha256::digest(&bytes)) != pin {
+        if bytes.len() > 128 * 1024 * 1024 || syrox_encoding::hex(&Sha256::digest(&bytes)) != pin {
             return Err(format!("tool checksum mismatch: {name}").into());
         }
         let entry = if name == "shellcheck" {
@@ -295,7 +288,7 @@ pub(super) fn tools(destination: &Path, selection: &str) -> Result {
 }
 
 pub(super) fn classify(base: &str, head: &str) -> Result {
-    if !hex(base, 40) || !hex(head, 40) {
+    if !syrox_encoding::is_lower_hex(base, 40) || !syrox_encoding::is_lower_hex(head, 40) {
         return Err("classification requires exact commit SHAs".into());
     }
     let output = Command::new("git")
@@ -332,7 +325,7 @@ fn documentation(path: &str) -> bool {
 }
 
 pub(super) fn commits(base: &str, head: &str) -> Result {
-    if !hex(base, 40) || !hex(head, 40) {
+    if !syrox_encoding::is_lower_hex(base, 40) || !syrox_encoding::is_lower_hex(head, 40) {
         return Err("commit policy requires exact SHAs".into());
     }
     let output = Command::new("git")
@@ -396,13 +389,13 @@ pub(super) fn workflows() -> Result {
             if uses.starts_with("docker://")
                 && uses
                     .rsplit_once("@sha256:")
-                    .is_some_and(|(_, pin)| hex(pin, 64))
+                    .is_some_and(|(_, pin)| syrox_encoding::is_lower_hex(pin, 64))
             {
                 continue;
             }
             if !uses
                 .rsplit_once('@')
-                .is_some_and(|(_, pin)| hex(pin, 40))
+                .is_some_and(|(_, pin)| syrox_encoding::is_lower_hex(pin, 40))
             {
                 return Err(format!(
                     "{}: action must be commit-pinned: {uses}",

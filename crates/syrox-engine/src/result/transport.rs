@@ -26,7 +26,7 @@ pub struct ChunkedOutput {
 impl ChunkedOutput {
     pub fn from_artifact(artifact: &RetainedChunkedArtifact) -> Self {
         Self {
-            manifest: encode_hex(&artifact.manifest().canonical_bytes()),
+            manifest: syrox_encoding::hex(&artifact.manifest().canonical_bytes()),
         }
     }
 
@@ -52,41 +52,14 @@ impl ChunkedOutput {
     }
 }
 
-fn encode_hex(bytes: &[u8]) -> String {
-    const DIGITS: &[u8] = b"0123456789abcdef";
-    let mut result = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        result.push(char::from(DIGITS[usize::from(byte >> 4)]));
-        result.push(char::from(DIGITS[usize::from(byte & 15)]));
-    }
-    result
-}
-
 fn decode_hex(text: &str) -> Result<Vec<u8>, ResultError> {
-    fn digit(byte: u8) -> Option<u8> {
-        match byte {
-            b'0'..=b'9' => Some(byte - b'0'),
-            b'a'..=b'f' => Some(byte - b'a' + 10),
-            _ => None,
-        }
-    }
     if text.len() > 2 * (crate::store::chunked::MAX_CHUNKS * 32 + 128)
         || !text.len().is_multiple_of(2)
     {
         return Err(invalid("chunk manifest encoding exceeds bounds"));
     }
-    text.as_bytes()
-        .as_chunks::<2>()
-        .0
-        .iter()
-        .map(|pair| {
-            let high =
-                digit(pair[0]).ok_or_else(|| invalid("noncanonical chunk manifest encoding"))?;
-            let low =
-                digit(pair[1]).ok_or_else(|| invalid("noncanonical chunk manifest encoding"))?;
-            Ok((high << 4) | low)
-        })
-        .collect()
+    syrox_encoding::decode_lower_hex(text)
+        .ok_or_else(|| invalid("noncanonical chunk manifest encoding"))
 }
 
 /// A seekable logical artifact. The chunked reader has one verified chunk in

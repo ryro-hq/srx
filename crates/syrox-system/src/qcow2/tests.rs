@@ -19,12 +19,6 @@ fn budget(bytes: u64) -> AdmittedBudget {
         .admit(request)
         .unwrap()
 }
-fn be64(bytes: &[u8], offset: usize) -> u64 {
-    u64::from_be_bytes(bytes[offset..offset + 8].try_into().unwrap())
-}
-fn be32(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_be_bytes(bytes[offset..offset + 4].try_into().unwrap())
-}
 
 #[test]
 fn geometry_includes_metadata_refcounts_and_handles_l2_and_refcount_boundaries() {
@@ -82,32 +76,40 @@ fn standard_cluster_mapping_refcounts_padding_and_hashes_are_consistent() {
             )
             .unwrap();
         assert_eq!(&output[..4], b"QFI\xfb");
-        assert_eq!(be32(&output, 4), 3);
-        assert_eq!(be64(&output, 8), 0);
-        assert_eq!(be64(&output, 24), length);
-        assert_eq!(be32(&output, 60), 0);
+        assert_eq!(syrox_encoding::u32_be_at(&output, 4).unwrap(), 3);
+        assert_eq!(syrox_encoding::u64_be_at(&output, 8).unwrap(), 0);
+        assert_eq!(
+            syrox_encoding::u64_be_at(&output, 24).unwrap(),
+            length
+        );
+        assert_eq!(syrox_encoding::u32_be_at(&output, 60).unwrap(), 0);
         assert!(output[72..96].iter().all(|byte| *byte == 0));
-        assert_eq!(be32(&output, 96), 4);
-        assert_eq!(be32(&output, 100), 104);
+        assert_eq!(syrox_encoding::u32_be_at(&output, 96).unwrap(), 4);
+        assert_eq!(
+            syrox_encoding::u32_be_at(&output, 100).unwrap(),
+            104
+        );
         assert_eq!(written.bytes, geometry.encoded_bytes());
         assert_eq!(
             written.sha256,
             <[u8; 32]>::from(Sha256::digest(&output))
         );
-        let l1 = usize::try_from(be64(&output, 40)).unwrap();
+        let l1 = usize::try_from(syrox_encoding::u64_be_at(&output, 40).unwrap()).unwrap();
         let offset_mask = 0x00ff_ffff_ffff_fe00;
         let mut decoded = Vec::new();
         for guest in 0..geometry.data_clusters() {
-            let l1_entry = be64(
+            let l1_entry = syrox_encoding::u64_be_at(
                 &output,
                 l1 + usize::try_from(guest / TABLE_ENTRIES * 8).unwrap(),
-            );
+            )
+            .unwrap();
             assert_ne!(l1_entry & COPIED, 0);
             let l2 = usize::try_from(l1_entry & offset_mask).unwrap();
-            let descriptor = be64(
+            let descriptor = syrox_encoding::u64_be_at(
                 &output,
                 l2 + usize::try_from(guest % TABLE_ENTRIES * 8).unwrap(),
-            );
+            )
+            .unwrap();
             assert_ne!(descriptor & COPIED, 0);
             let data = usize::try_from(descriptor & offset_mask).unwrap();
             let take = usize::try_from((length - decoded.len() as u64).min(CLUSTER_BYTES)).unwrap();
@@ -119,12 +121,15 @@ fn standard_cluster_mapping_refcounts_padding_and_hashes_are_consistent() {
             );
         }
         assert_eq!(Sha256::digest(&decoded), Sha256::digest(&raw));
-        let ref_table = usize::try_from(be64(&output, 48)).unwrap();
+        let ref_table = usize::try_from(syrox_encoding::u64_be_at(&output, 48).unwrap()).unwrap();
         for cluster in 0..written.bytes / CLUSTER_BYTES {
-            let reference = usize::try_from(be64(
-                &output,
-                ref_table + usize::try_from(cluster / REFCOUNT_ENTRIES * 8).unwrap(),
-            ))
+            let reference = usize::try_from(
+                syrox_encoding::u64_be_at(
+                    &output,
+                    ref_table + usize::try_from(cluster / REFCOUNT_ENTRIES * 8).unwrap(),
+                )
+                .unwrap(),
+            )
             .unwrap();
             let offset = reference + usize::try_from(cluster % REFCOUNT_ENTRIES * 2).unwrap();
             assert_eq!(
@@ -218,7 +223,7 @@ fn qemu_checks_refcounts_and_decodes_byte_identical_raw_content() {
     let metadata = fs::symlink_metadata(&tool).unwrap();
     assert!(metadata.is_file() && metadata.len() <= 32 * 1024 * 1024);
     assert_eq!(
-        crate::hex(&Sha256::digest(fs::read(&tool).unwrap())),
+        syrox_encoding::hex(&Sha256::digest(fs::read(&tool).unwrap())),
         pin
     );
     for length in [

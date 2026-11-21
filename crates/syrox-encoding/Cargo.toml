@@ -1,0 +1,12 @@
+[package]
+name = "syrox-encoding"
+description = "Byte encodings shared by Syrox crates: lowercase hex and fixed-width integer fields"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true

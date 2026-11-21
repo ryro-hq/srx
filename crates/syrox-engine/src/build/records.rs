@@ -236,20 +236,8 @@ fn decode_program(hex: &str) -> Result<BuildProgram, BuildError> {
     if !hex.len().is_multiple_of(2) || hex.len() > 2 * super::MAX_BUILD_PROGRAM_BYTES {
         return Err(invalid("invalid program length"));
     }
-    let bytes = hex
-        .as_bytes()
-        .as_chunks::<2>()
-        .0
-        .iter()
-        .map(|pair| {
-            let digit = |c: u8| match c {
-                b'0'..=b'9' => Ok(c - b'0'),
-                b'a'..=b'f' => Ok(c - b'a' + 10),
-                _ => Err(invalid("invalid program hex")),
-            };
-            Ok((digit(pair[0])? << 4) | digit(pair[1])?)
-        })
-        .collect::<Result<Vec<_>, BuildError>>()?;
+    let bytes =
+        syrox_encoding::decode_lower_hex(hex).ok_or_else(|| invalid("invalid program hex"))?;
     BuildProgram::decode(&bytes)
 }
 

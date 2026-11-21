@@ -62,13 +62,6 @@ impl PartitionReader for Sources {
     }
 }
 
-fn u64_at(bytes: &[u8], offset: usize) -> u64 {
-    u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap())
-}
-fn u32_at(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap())
-}
-
 #[test]
 fn complete_images_have_consistent_primary_backup_guids_payload_padding_and_digest() {
     assert_eq!(format::crc32(b"123456789"), 0xcbf4_3926);
@@ -100,9 +93,18 @@ fn complete_images_have_consistent_primary_backup_guids_payload_padding_and_dige
         ] {
             let header = &output[current * block..(current + 1) * block];
             assert_eq!(&header[..8], b"EFI PART");
-            assert_eq!(u64_at(header, 24), current as u64);
-            assert_eq!(u64_at(header, 32), alternate as u64);
-            assert_eq!(u64_at(header, 72), table_lba as u64);
+            assert_eq!(
+                syrox_encoding::u64_le_at(header, 24).unwrap(),
+                current as u64
+            );
+            assert_eq!(
+                syrox_encoding::u64_le_at(header, 32).unwrap(),
+                alternate as u64
+            );
+            assert_eq!(
+                syrox_encoding::u64_le_at(header, 72).unwrap(),
+                table_lba as u64
+            );
             assert_eq!(
                 &header[56..72],
                 &[
@@ -112,13 +114,19 @@ fn complete_images_have_consistent_primary_backup_guids_payload_padding_and_dige
             );
             let mut checked = header[..92].to_vec();
             checked[16..20].fill(0);
-            assert_eq!(format::crc32(&checked), u32_at(header, 16));
+            assert_eq!(
+                format::crc32(&checked),
+                syrox_encoding::u32_le_at(header, 16).unwrap()
+            );
             assert!(header[92..].iter().all(|byte| *byte == 0));
             let table = &output[table_lba * block..table_lba * block + TABLE_BYTES];
-            assert_eq!(format::crc32(table), u32_at(header, 88));
+            assert_eq!(
+                format::crc32(table),
+                syrox_encoding::u32_le_at(header, 88).unwrap()
+            );
             assert!(table[..ENTRY_BYTES].iter().all(|byte| *byte == 0));
             assert_eq!(
-                u64_at(&table[ENTRY_BYTES..], 32),
+                syrox_encoding::u64_le_at(&table[ENTRY_BYTES..], 32).unwrap(),
                 1024 * 1024 / block as u64
             );
         }
@@ -383,7 +391,7 @@ fn util_linux_recognizes_both_logical_sector_sizes_and_recovers_the_backup_table
     let metadata = fs::symlink_metadata(&tool).unwrap();
     assert!(metadata.is_file() && metadata.len() <= 16 * 1024 * 1024);
     assert_eq!(
-        crate::hex(&Sha256::digest(fs::read(&tool).unwrap())),
+        syrox_encoding::hex(&Sha256::digest(fs::read(&tool).unwrap())),
         pin
     );
     for block in [512, 4096] {

@@ -297,7 +297,7 @@ pub(crate) fn parse_file_url(url: &str) -> Result<PathBuf, LocalSourceError> {
                 .get(index + 1..index + 3)
                 .ok_or(LocalSourceError::InvalidUrl)?;
             index += 3;
-            (hex(pair[0])? << 4) | hex(pair[1])?
+            (hex_digit(pair[0])? << 4) | hex_digit(pair[1])?
         } else {
             let byte = encoded[index];
             index += 1;
@@ -320,7 +320,7 @@ pub(crate) fn parse_file_url(url: &str) -> Result<PathBuf, LocalSourceError> {
     Ok(path)
 }
 
-fn hex(byte: u8) -> Result<u8, LocalSourceError> {
+fn hex_digit(byte: u8) -> Result<u8, LocalSourceError> {
     match byte {
         b'0'..=b'9' => Ok(byte - b'0'),
         b'a'..=b'f' => Ok(byte - b'a' + 10),

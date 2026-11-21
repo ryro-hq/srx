@@ -77,14 +77,6 @@ pub(super) fn invocation(text: &str) -> Result<[u8; 16], OsWorkerError> {
     }
     Ok(value)
 }
-pub(super) fn hex(invocation: &[u8; 16]) -> String {
-    use std::fmt::Write as _;
-    let mut output = String::new();
-    for byte in invocation {
-        write!(output, "{byte:02x}").expect("String write");
-    }
-    output
-}
 pub(super) fn identity(binding: &OsLaunchBinding) -> Result<(), OsWorkerError> {
     // SAFETY: credential queries have no process-global mutations.
     let actual = unsafe {

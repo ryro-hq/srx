@@ -13,6 +13,7 @@ name = "syrox-system-helper"
 path = "src/helper/main.rs"
 
 [dependencies]
+syrox-encoding.workspace = true
 thiserror.workspace = true
 sha2.workspace = true
 serde = { version = "=1.0.229", features = ["derive"] }

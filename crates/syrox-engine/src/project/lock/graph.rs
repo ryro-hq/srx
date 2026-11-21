@@ -2,8 +2,8 @@ use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
 
 use super::{
-    LockFormatError, MAX_LOCK_BYTES, digest, ensure_sorted_unique, framed, hash, hex, hex_into,
-    is_canonical_logical_path, next_line, parts,
+    LockFormatError, MAX_LOCK_BYTES, decode_hex, digest, ensure_sorted_unique, framed, hash,
+    hex_into, is_canonical_logical_path, next_line, parts,
 };
 
 pub(crate) const MAX_PROJECT_EDGES: usize = 1024;
@@ -162,8 +162,8 @@ impl GraphLock {
         let mut edges = Vec::with_capacity(count);
         for _ in 0..count {
             let fields = parts(next_line(&mut lines)?, "edge", 4)?;
-            let alias = hex(fields[1])?;
-            let origin = hex(fields[2])?;
+            let alias = decode_hex(fields[1])?;
+            let origin = decode_hex(fields[2])?;
             let edge = ProjectEdge::new(
                 std::str::from_utf8(&alias).map_err(|_| LockFormatError::InvalidField)?,
                 std::str::from_utf8(&origin).map_err(|_| LockFormatError::InvalidField)?,

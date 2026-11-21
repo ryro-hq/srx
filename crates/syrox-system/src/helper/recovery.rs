@@ -47,7 +47,7 @@ impl Plan {
         let mut hash = Sha256::new();
         hash.update(b"syrox-private-scratch-recovery-plan-v1\n");
         hash.update(serde_json::to_vec(self)?);
-        Ok(crate::hex(&hash.finalize()))
+        Ok(syrox_encoding::hex(&hash.finalize()))
     }
 }
 
@@ -157,7 +157,7 @@ pub(super) fn inspect(
             "blocked"
         },
         reasons,
-        policy_sha256: crate::hex(&policy_sha256),
+        policy_sha256: syrox_encoding::hex(&policy_sha256),
         journal_sha256: evidence.sha256,
         operation: evidence.identity,
         state_directory: evidence::Identity::read(

@@ -38,7 +38,7 @@ impl HelperClient {
         deadline: Instant,
     ) -> io::Result<WorkspaceGrant> {
         validate_id(id)?;
-        let layout_sha256 = hex(layout.digest());
+        let layout_sha256 = syrox_encoding::hex(&layout.digest());
         self.connection.send(
             &Request::PrepareWorkspace {
                 version: 1,
@@ -190,7 +190,7 @@ impl WorkspaceLease {
         let response = self.connection.response(&mut check, deadline)?;
         let details = record(&response, "released", &self.id)?;
         if details["authorization"] != self.authorization
-            || details["layout_sha256"] != hex(self.layout.digest())
+            || details["layout_sha256"] != syrox_encoding::hex(&self.layout.digest())
             || details["image_retained"] != true
             || details["images"] != 2
         {
@@ -200,12 +200,4 @@ impl WorkspaceLease {
         }
         Ok(response)
     }
-}
-fn hex(bytes: [u8; 32]) -> String {
-    use std::fmt::Write as _;
-    let mut text = String::with_capacity(64);
-    for byte in bytes {
-        write!(&mut text, "{byte:02x}").expect("writing to a String cannot fail");
-    }
-    text
 }

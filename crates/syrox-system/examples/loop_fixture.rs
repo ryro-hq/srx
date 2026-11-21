@@ -133,7 +133,10 @@ fn embedded_file(
     if bytes.len() > 8 * 1024 * 1024 || !bytes.starts_with(b"\x7fELF") {
         return Err("fixture executable must be an ELF file of at most 8 MiB".into());
     }
-    let digest = format!("sha512-{}", hex(&Sha512::digest(&bytes)));
+    let digest = format!(
+        "sha512-{}",
+        syrox_encoding::hex(&Sha512::digest(&bytes))
+    );
     let mut compressed = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
     compressed.write_all(&bytes)?;
     let contents = format!(
@@ -142,12 +145,4 @@ fn embedded_file(
     );
     Ok(serde_json::json!({ "path": target, "mode": 493,
         "contents": { "source": contents, "compression": "gzip", "verification": { "hash": digest } } }))
-}
-fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    let mut text = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        write!(text, "{byte:02x}").expect("String write");
-    }
-    text
 }

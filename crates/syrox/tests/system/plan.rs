@@ -218,7 +218,7 @@ fn system_budget_admission_is_explicit_read_only_and_uses_a_separate_report_vers
     hash.update(serde_json::to_vec(plan).unwrap());
     assert_eq!(
         report["observation_sha256"],
-        hex(&hash.finalize())
+        syrox_encoding::hex(&hash.finalize())
     );
     let user = syrox_engine::config::UserConfiguration::load(Some(&config)).unwrap();
     let mut expected = String::with_capacity(64);
@@ -425,12 +425,4 @@ fn system_plan_exposes_unresolved_disk_binding_and_separate_boot_requirements() 
         before
     );
     preserved(directory.path(), source, &locked);
-}
-fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    let mut text = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        write!(text, "{byte:02x}").expect("String write");
-    }
-    text
 }

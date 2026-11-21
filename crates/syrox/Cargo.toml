@@ -16,6 +16,7 @@ vm-guest = []
 ecosystem-tests = ["vm-tests"]
 
 [dependencies]
+syrox-encoding.workspace = true
 clap.workspace = true
 syrox-engine.workspace = true
 signal-hook = { version = "=0.4.6", default-features = false }

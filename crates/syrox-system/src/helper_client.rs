@@ -251,11 +251,7 @@ fn validate_hash(hash: &str) -> io::Result<()> {
     validate_hex(hash, 64)
 }
 fn validate_hex(value: &str, length: usize) -> io::Result<()> {
-    if value.len() != length
-        || !value
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
+    if !syrox_encoding::is_lower_hex(value, length) {
         return Err(refused(
             "helper identifiers and hashes require canonical lowercase hex",
         ));

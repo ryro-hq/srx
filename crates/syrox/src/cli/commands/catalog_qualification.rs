@@ -192,7 +192,7 @@ pub(super) fn file_digest(path: &Path, cancellation: &Cancellation) -> Result<St
         }
         digest.update(&buffer[..read]);
     }
-    Ok(crate::cli::hex(&digest.finalize()))
+    Ok(syrox_encoding::hex(&digest.finalize()))
 }
 
 fn manifest(closure: &RuntimeClosure, name: &str) -> Result<ResultManifest> {

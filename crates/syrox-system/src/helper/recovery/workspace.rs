@@ -195,7 +195,7 @@ fn inspect(
             return Err(refused("workspace evidence has an unknown role"));
         }
     }
-    let plan = serde_json::json!({"version":1,"id":id,"action":if reasons.is_empty() {"reconcile-retained-workspace"} else {"blocked"},"reasons":reasons,"policy_sha256":crate::hex(&policy_sha256),"journal_sha256":evidence.sha256,"operation":evidence.identity,"state_directory":Identity::read(state,state.metadata()?.uid(),true)?,"images":images,"loops":loops,"layout_sha256":layout_sha256,"boot_id":now.boot_id,"pid_namespace":now.pid_namespace,"original_session":original,"image_retained":true,"filesystem_health_verified":false});
+    let plan = serde_json::json!({"version":1,"id":id,"action":if reasons.is_empty() {"reconcile-retained-workspace"} else {"blocked"},"reasons":reasons,"policy_sha256":syrox_encoding::hex(&policy_sha256),"journal_sha256":evidence.sha256,"operation":evidence.identity,"state_directory":Identity::read(state,state.metadata()?.uid(),true)?,"images":images,"loops":loops,"layout_sha256":layout_sha256,"boot_id":now.boot_id,"pid_namespace":now.pid_namespace,"original_session":original,"image_retained":true,"filesystem_health_verified":false});
     Ok((
         plan,
         evidence.directory,
@@ -207,7 +207,7 @@ fn hash(plan: &serde_json::Value) -> io::Result<String> {
     let mut hash = Sha256::new();
     hash.update(b"syrox-private-workspace-recovery-plan-v1\n");
     hash.update(serde_json::to_vec(plan)?);
-    Ok(crate::hex(&hash.finalize()))
+    Ok(syrox_encoding::hex(&hash.finalize()))
 }
 
 #[cfg(test)]

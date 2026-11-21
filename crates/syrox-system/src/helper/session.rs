@@ -114,7 +114,7 @@ pub(super) fn serve(socket: File, policy: Policy, policy_sha256: [u8; 32]) -> io
     authorization.update(serde_json::to_vec(&request)?);
     authorization.update(capacity.device.to_le_bytes());
     authorization.update(capacity.inode.to_le_bytes());
-    let authorization = crate::hex(&authorization.finalize());
+    let authorization = syrox_encoding::hex(&authorization.finalize());
     let runtime = recovery::runtime()?;
     let mut journal = Journal::create(&state, &format!("op-{id}"))?;
     journal.record("authorized", serde_json::json!({ "request": request, "authorization": authorization,
@@ -316,7 +316,7 @@ pub(super) fn tool_attempt(
     }
     directory.sync_all()?;
     journal.record("tool-result", serde_json::json!({ "stage": stage, "status": result.status.to_string(),
-        "stdout_sha256": crate::hex(&Sha256::digest(&result.stdout)), "stderr_sha256": crate::hex(&Sha256::digest(&result.stderr)) }))?;
+        "stdout_sha256": syrox_encoding::hex(&Sha256::digest(&result.stdout)), "stderr_sha256": syrox_encoding::hex(&Sha256::digest(&result.stderr)) }))?;
     if !result.status.success() {
         return Err(io::Error::other(format!(
             "helper {stage} failed: {}",

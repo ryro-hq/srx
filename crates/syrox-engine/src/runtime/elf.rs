@@ -295,26 +295,16 @@ pub(super) fn checked(bytes: &[u8], start: usize, length: usize) -> Result<&[u8]
         )
         .ok_or_else(|| invalid("truncated ELF"))
 }
+// `checked` keeps the overflow and truncation diagnostics distinct; the
+// shared readers then decode the bounded field.
 fn u16_at(bytes: &[u8], at: usize) -> Result<u16, RuntimeError> {
-    Ok(u16::from_le_bytes(
-        checked(bytes, at, 2)?
-            .try_into()
-            .expect("checked returns exactly 2 bytes"),
-    ))
+    syrox_encoding::u16_le_at(checked(bytes, at, 2)?, 0).ok_or_else(|| invalid("truncated ELF"))
 }
 fn u32_at(bytes: &[u8], at: usize) -> Result<u32, RuntimeError> {
-    Ok(u32::from_le_bytes(
-        checked(bytes, at, 4)?
-            .try_into()
-            .expect("checked returns exactly 4 bytes"),
-    ))
+    syrox_encoding::u32_le_at(checked(bytes, at, 4)?, 0).ok_or_else(|| invalid("truncated ELF"))
 }
 fn u64_at(bytes: &[u8], at: usize) -> Result<u64, RuntimeError> {
-    Ok(u64::from_le_bytes(
-        checked(bytes, at, 8)?
-            .try_into()
-            .expect("checked returns exactly 8 bytes"),
-    ))
+    syrox_encoding::u64_le_at(checked(bytes, at, 8)?, 0).ok_or_else(|| invalid("truncated ELF"))
 }
 
 /// Reject implicit ELF loaders before launching a pinned worker outside its payload namespace.

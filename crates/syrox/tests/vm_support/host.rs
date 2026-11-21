@@ -229,7 +229,7 @@ async fn run_vm(
     microsandbox::set_libkrunfw_path(&config.firmware);
     let cache = root().join("target/vm-cache");
     common::private(&cache.join("guest"))?;
-    let environment_key = common::hex(&sha2::Sha256::digest(serde_json::to_vec(
+    let environment_key = syrox_encoding::hex(&sha2::Sha256::digest(serde_json::to_vec(
         &json!({
             "schema":5, "sdk":config.sdk, "preparation_image":config.preparation_image.as_deref().unwrap_or(&config.image),
             "lock":super::snapshot::digest(&evidence.join("sources/Cargo.lock"))?,
@@ -238,7 +238,7 @@ async fn run_vm(
             "candidate_profile":"release", "fixture_profile":"test", "policy":"single-producer-host-inherited-v2"
         }),
     )?));
-    let cache_key = common::hex(&sha2::Sha256::digest(serde_json::to_vec(
+    let cache_key = syrox_encoding::hex(&sha2::Sha256::digest(serde_json::to_vec(
         &json!({
             "schema":3, "build_jobs":super::resources::build_jobs()?, "compilation":environment_key, "environment":config, "release_bundle":config.candidate_bundle.as_ref().map(|directory| super::snapshot::digest(&directory.join("manifest.json"))).transpose()?, "sources":report["sources"]["sha256"], "selected":report["selected"]
         }),

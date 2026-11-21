@@ -51,7 +51,7 @@ pub(super) fn file(path: &str, component: &str, bytes: &[u8]) -> ComponentEntry 
             source: FileSource {
                 component: component.into(),
                 path: "out/bin/tool".into(),
-                content_sha256: crate::hex(&Sha256::digest(bytes)),
+                content_sha256: syrox_encoding::hex(&Sha256::digest(bytes)),
                 size_bytes: bytes.len() as u64,
             },
         },
