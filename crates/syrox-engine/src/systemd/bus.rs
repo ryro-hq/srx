@@ -139,6 +139,7 @@ fn wait(socket: &OwnedFd, events: libc::c_short, budget: &Budget<'_>) -> Result<
         events,
         revents: 0,
     };
+    // SAFETY: one initialized pollfd for a live socket, and nfds is exactly 1.
     let result = unsafe { libc::poll(&raw mut poll, 1, ms) };
     if result < 0 {
         let error = SystemdError::Io(std::io::Error::last_os_error());
@@ -150,6 +151,7 @@ fn wait(socket: &OwnedFd, events: libc::c_short, budget: &Budget<'_>) -> Result<
 }
 fn connect_socket(path: &[u8], budget: &Budget<'_>) -> Result<OwnedFd, SystemdError> {
     budget.check()?;
+    // SAFETY: socket takes integer arguments only and returns a new descriptor or -1.
     let raw = io_status(unsafe {
         libc::socket(
             libc::AF_UNIX,
@@ -157,12 +159,16 @@ fn connect_socket(path: &[u8], budget: &Budget<'_>) -> Result<OwnedFd, SystemdEr
             0,
         )
     })?;
+    // SAFETY: io_status rejected -1, so `raw` is the fresh socket nothing else owns.
     let socket = unsafe { OwnedFd::from_raw_fd(raw) };
+    // SAFETY: sockaddr_un is plain integer data, so all-zero bytes are a valid value.
     let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
     address.sun_family = libc::sa_family_t::try_from(libc::AF_UNIX).expect("AF_UNIX fits");
     for (out, byte) in address.sun_path.iter_mut().zip(path) {
         *out = libc::c_char::from_ne_bytes([*byte]);
     }
+    // SAFETY: `address` holds an absolute path shorter than sun_path plus its NUL,
+    // and the length passed covers exactly the family and that terminated path.
     let result = unsafe {
         libc::connect(
             raw,
@@ -180,6 +186,7 @@ fn connect_socket(path: &[u8], budget: &Budget<'_>) -> Result<OwnedFd, SystemdEr
         wait(&socket, libc::POLLOUT, budget)?;
         let mut code: libc::c_int = 0;
         let mut length = libc::socklen_t::try_from(size_of_val(&code)).expect("int size");
+        // SAFETY: SO_ERROR writes one c_int into `code`, and `length` holds its size.
         io_status(unsafe {
             libc::getsockopt(
                 raw,
@@ -199,6 +206,8 @@ fn send(socket: &OwnedFd, bytes: &[u8], budget: &Budget<'_>) -> Result<(), Syste
     let mut offset = 0;
     while offset < bytes.len() {
         budget.check()?;
+        // SAFETY: the pointer and length describe the unsent tail of `bytes`, which
+        // stays borrowed for the call; MSG_NOSIGNAL avoids SIGPIPE.
         let n = unsafe {
             libc::send(
                 socket.as_raw_fd(),
@@ -227,11 +236,14 @@ fn recv(socket: &OwnedFd, bytes: &mut [u8]) -> Result<usize, SystemdError> {
         iov_base: bytes.as_mut_ptr().cast(),
         iov_len: bytes.len(),
     };
+    // SAFETY: msghdr is plain integer and pointer data; all-zero is a valid empty header.
     let mut message: libc::msghdr = unsafe { std::mem::zeroed() };
     message.msg_iov = &raw mut iov;
     message.msg_iovlen = 1;
     // Zero control capacity: Linux closes discarded SCM_RIGHTS descriptors; CTRUNC
     // reports forbidden ancillary data. No descriptors can enter our ownership.
+    // SAFETY: `message` points at one iovec over the live mutable `bytes` buffer, with
+    // no control buffer, so the kernel writes only inside `bytes`.
     let n = unsafe {
         libc::recvmsg(
             socket.as_raw_fd(),
@@ -255,6 +267,7 @@ fn recv(socket: &OwnedFd, bytes: &mut [u8]) -> Result<usize, SystemdError> {
 impl Bus {
     pub fn connect(address: &str, budget: &Budget<'_>) -> Result<Self, SystemdError> {
         let socket = connect_socket(&socket_path(address)?, budget)?;
+        // SAFETY: geteuid takes no arguments and only reads the effective uid.
         let uid = unsafe { libc::geteuid() }.to_string();
         let mut auth = String::from("\0AUTH EXTERNAL ");
         for byte in uid.bytes() {
@@ -803,6 +816,7 @@ fn unique_name(name: &str) -> bool {
 
 /// Operational credentials used only to constrain user-manager contracts.
 pub(super) fn caller_ids() -> (u32, u32, u32, u32) {
+    // SAFETY: these four calls take no arguments and only read process credentials.
     unsafe {
         (
             libc::getuid(),

@@ -1,4 +1,12 @@
 //! Consultation must not initialize a session registry or a Store.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::undocumented_unsafe_blocks,
+        reason = "tests assert with unwrap and drive raw syscalls; non-test builds keep both lints"
+    )
+)]
 use std::fs;
 use std::os::unix::fs::{PermissionsExt as _, symlink};
 use std::path::Path;

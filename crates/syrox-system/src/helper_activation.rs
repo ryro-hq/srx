@@ -83,7 +83,8 @@ impl HelperActivation {
         // ':' disables environment substitution; quote doubles '%' separately
         // because systemd expands specifiers even inside quoted command words.
         writeln!(service, "ExecStart=:{executable} \"--policy\" {policy}\nReadWritePaths={state}\nMemoryMax={}\nCPUQuota={}%\nTasksMax={}\nLimitNOFILE={}\nRuntimeMaxSec={}s",
-            limits.memory_bytes, limits.cpu_percent, limits.processes, limits.descriptors, limits.duration_seconds).unwrap();
+            limits.memory_bytes, limits.cpu_percent, limits.processes, limits.descriptors, limits.duration_seconds)
+            .expect("writing to a String cannot fail");
         Ok(ActivationUnits {
             socket,
             service,

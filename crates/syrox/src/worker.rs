@@ -24,6 +24,14 @@
 //! Helpers that change process state require a dedicated process before threads
 //! start. Their call sites retain the safety contracts for inherited descriptors,
 //! namespace changes and cleanup.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::undocumented_unsafe_blocks,
+        reason = "tests assert with unwrap and drive raw syscalls; non-test builds keep both lints"
+    )
+)]
 
 use std::path::PathBuf;
 use std::process::ExitCode;

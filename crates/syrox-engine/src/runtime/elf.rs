@@ -297,17 +297,23 @@ pub(super) fn checked(bytes: &[u8], start: usize, length: usize) -> Result<&[u8]
 }
 fn u16_at(bytes: &[u8], at: usize) -> Result<u16, RuntimeError> {
     Ok(u16::from_le_bytes(
-        checked(bytes, at, 2)?.try_into().unwrap(),
+        checked(bytes, at, 2)?
+            .try_into()
+            .expect("checked returns exactly 2 bytes"),
     ))
 }
 fn u32_at(bytes: &[u8], at: usize) -> Result<u32, RuntimeError> {
     Ok(u32::from_le_bytes(
-        checked(bytes, at, 4)?.try_into().unwrap(),
+        checked(bytes, at, 4)?
+            .try_into()
+            .expect("checked returns exactly 4 bytes"),
     ))
 }
 fn u64_at(bytes: &[u8], at: usize) -> Result<u64, RuntimeError> {
     Ok(u64::from_le_bytes(
-        checked(bytes, at, 8)?.try_into().unwrap(),
+        checked(bytes, at, 8)?
+            .try_into()
+            .expect("checked returns exactly 8 bytes"),
     ))
 }
 

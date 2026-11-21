@@ -15,6 +15,14 @@
 //! Internal execution uses a separate binary, [the worker](../syrox_worker/index.html),
 //! so CLI changes do not change the worker's identity. Its entry explains modes
 //! and admission; the engine owns the execution protocols.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::undocumented_unsafe_blocks,
+        reason = "tests assert with unwrap and drive raw syscalls; non-test builds keep both lints"
+    )
+)]
 
 mod cli;
 #[cfg(target_os = "linux")]

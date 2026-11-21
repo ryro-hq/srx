@@ -30,6 +30,7 @@ impl MonitorUnderCustody {
     pub(super) fn validate(&self) -> io::Result<()> {
         // SAFETY: process identity queries have no pointer arguments.
         if unsafe { libc::getpid() } != self.process
+            // SAFETY: getppid takes no arguments and only reads the parent id.
             || unsafe { libc::getppid() } != self.parent
             || crate::platform::linux::fd::pidfd_exited(self.guardian.as_fd())?
         {
@@ -239,8 +240,11 @@ fn kill_child(pid: libc::pid_t) -> io::Result<()> {
 pub(super) unsafe fn enter(execution: &ExecutionId) -> io::Result<Spawn> {
     // SAFETY: read-only identity and initialized sigaction/fstatfs destinations.
     let process = unsafe { libc::getpid() };
+    // SAFETY: gettid takes no arguments and only reads the calling thread id.
     let thread = unsafe { libc::syscall(libc::SYS_gettid) };
     let mut children = File::open(format!("/proc/self/task/{thread}/children"))?;
+    // SAFETY: zeroed statfs/sigaction are valid all-integer ABI storage, and every
+    // pointer passed below refers to live local storage of the exact type.
     unsafe {
         let mut filesystem: libc::statfs = std::mem::zeroed();
         if libc::fstatfs(children.as_raw_fd(), &raw mut filesystem) < 0 {

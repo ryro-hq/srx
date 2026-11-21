@@ -127,6 +127,7 @@ fn validate_socket(socket: &OwnedFd) -> io::Result<()> {
         || metadata.mode() & libc::S_IFMT != libc::S_IFSOCK
         || metadata.mode() & 0o7777 != 0o600
         || metadata.nlink() != 1
+        // SAFETY: geteuid takes no arguments and only reads the effective uid.
         || metadata.uid() != unsafe { libc::geteuid() }
     {
         return Err(invalid());

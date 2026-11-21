@@ -49,6 +49,7 @@ fn case(name: &str) {
 }
 
 pub(super) fn root() -> io::Result<()> {
+    // SAFETY: geteuid takes no arguments and only reads the effective uid.
     if unsafe { libc::geteuid() } != 0
         || std::fs::read("/etc/srx-disposable-vm")? != b"srx-loop-fixture-v1\n"
         || std::fs::read_to_string("/sys/class/dmi/id/sys_vendor")?.trim() != "QEMU"
@@ -221,12 +222,15 @@ pub(super) fn root() -> io::Result<()> {
 
 pub(super) fn worker() -> io::Result<()> {
     assert_eq!(
-        (
-            unsafe { libc::getuid() },
-            unsafe { libc::geteuid() },
-            unsafe { libc::getgid() },
-            unsafe { libc::getegid() }
-        ),
+        // SAFETY: these four calls take no arguments and only read process credentials.
+        unsafe {
+            (
+                libc::getuid(),
+                libc::geteuid(),
+                libc::getgid(),
+                libc::getegid(),
+            )
+        },
         (1000, 1000, 1000, 1000)
     );
     assert_eq!(
@@ -239,6 +243,7 @@ pub(super) fn worker() -> io::Result<()> {
     );
     // SAFETY: the guarded parent uniquely assigns these two inherited roles.
     let scratch = unsafe { File::from_raw_fd(3) };
+    // SAFETY: fd 4 is the second role the guarded parent assigns; this is its only owner.
     let output = unsafe { File::from_raw_fd(4) };
     let plan = layout()?;
     let observed: WorkspaceObservation = serde_json::from_slice(&std::fs::read(
@@ -288,9 +293,9 @@ pub(super) fn worker() -> io::Result<()> {
     }
     namespace()?;
     let invalid = ReceivedWorkspace::from_authorized_roots(&plan, &observed, scratch, output)?;
-    // SAFETY: this dedicated worker owns its private namespace and discards it
-    // after every error. Both aliases must fail before the first move.
     assert!(
+        // SAFETY: this dedicated worker owns its private namespace and discards it
+        // after every error. Both aliases must fail before the first move.
         unsafe {
             invalid.attach(
                 File::open(base.join("scratch"))?,
@@ -509,11 +514,14 @@ fn namespace() -> io::Result<()> {
     std::fs::write("/proc/self/uid_map", "1000 1000 1")?;
     std::fs::write("/proc/self/setgroups", "deny")?;
     std::fs::write("/proc/self/gid_map", "1000 1000 1")?;
+    // SAFETY: fixed namespace flags with no pointers; affects only this dedicated worker.
     if unsafe {
         libc::unshare(
             libc::CLONE_NEWNS | libc::CLONE_NEWNET | libc::CLONE_NEWIPC | libc::CLONE_NEWUTS,
         )
     } < 0
+        // SAFETY: static NUL-terminated target and null optional arguments; the worker
+        // owns the private mount namespace it just created.
         || unsafe {
             libc::mount(
                 std::ptr::null(),
@@ -550,7 +558,9 @@ fn drop_capabilities() -> io::Result<()> {
         permitted: 0,
         inheritable: 0,
     }; 2];
+    // SAFETY: integer-only prctl on this dedicated worker.
     if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } < 0
+        // SAFETY: exact version-3 capset ABI: one header and two capability records.
         || unsafe { libc::syscall(libc::SYS_capset, &raw const header, caps.as_ptr()) } < 0
     {
         return Err(io::Error::last_os_error());

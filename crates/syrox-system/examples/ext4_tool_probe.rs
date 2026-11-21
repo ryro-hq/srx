@@ -2,7 +2,10 @@
 //!
 //! Run only through `ext4_tool::run` in the marked disposable guest probe. All
 //! forbidden syscall attempts use harmless arguments, even if the filter fails.
-
+#![expect(
+    clippy::unwrap_used,
+    reason = "qualification probe: a failed step aborts the run"
+)]
 #![allow(unsafe_code)]
 
 use std::fs::{File, OpenOptions};
@@ -37,8 +40,8 @@ fn main() -> io::Result<()> {
     // Check before opening any files: descriptors retained by the runner or
     // deliberately inherited by the qualification parent must not survive exec.
     for fd in 3..4096 {
-        // SAFETY: F_GETFD is an observation, with no pointer argument.
         assert_eq!(
+            // SAFETY: F_GETFD is an observation, with no pointer argument.
             unsafe { libc::fcntl(fd, libc::F_GETFD) },
             -1,
             "inherited fd {fd}"
@@ -105,8 +108,8 @@ fn main() -> io::Result<()> {
             rlim_cur: 0,
             rlim_max: 0,
         };
-        // SAFETY: fixed supported resource and writable ABI output storage.
         assert_eq!(
+            // SAFETY: fixed supported resource and writable ABI output storage.
             unsafe { libc::getrlimit(resource, &raw mut limit) },
             0
         );
@@ -152,8 +155,8 @@ fn main() -> io::Result<()> {
         version: 0x2008_0522,
         pid: 0,
     };
-    // SAFETY: exact version-3 capget ABI storage, querying only this process.
     assert_eq!(
+        // SAFETY: exact version-3 capget ABI storage, querying only this process.
         unsafe {
             libc::syscall(
                 libc::SYS_capget,

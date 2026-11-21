@@ -1,4 +1,12 @@
 //! Operational commands must retain the same source diagnostics as project check.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::undocumented_unsafe_blocks,
+        reason = "tests assert with unwrap and drive raw syscalls; non-test builds keep both lints"
+    )
+)]
 #![cfg(target_os = "linux")]
 
 use std::{fs, process::Command};

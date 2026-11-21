@@ -205,7 +205,7 @@ fn hex(bytes: [u8; 32]) -> String {
     use std::fmt::Write as _;
     let mut text = String::with_capacity(64);
     for byte in bytes {
-        write!(&mut text, "{byte:02x}").unwrap();
+        write!(&mut text, "{byte:02x}").expect("writing to a String cannot fail");
     }
     text
 }

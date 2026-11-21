@@ -20,8 +20,8 @@ pub(in crate::execution::native) struct Sender(Option<File>);
 pub(super) struct Receiver(File);
 pub(super) fn pair() -> io::Result<(Receiver, Sender)> {
     let mut descriptors = [-1; 2];
-    // SAFETY: writable pair; successful pipe2 transfers both owned descriptors.
     super::super::checked(
+        // SAFETY: writable pair; successful pipe2 transfers both owned descriptors.
         unsafe {
             libc::pipe2(
                 descriptors.as_mut_ptr(),

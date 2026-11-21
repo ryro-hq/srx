@@ -1,4 +1,12 @@
 //! Shell preflight must reject unsupported plans before initializing a Store.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::undocumented_unsafe_blocks,
+        reason = "tests assert with unwrap and drive raw syscalls; non-test builds keep both lints"
+    )
+)]
 use std::fs;
 use std::process::{Command, Output};
 

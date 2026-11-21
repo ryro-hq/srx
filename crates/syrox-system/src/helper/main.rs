@@ -3,7 +3,14 @@
 //! Accepts one preconnected Unix seqpacket on fd 3 and a root-owned policy.
 //! It never elevates itself, accepts a shell, chooses physical disks or changes
 //! host boot. Incomplete attempts stay recorded; formatting is never replayed.
-
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::undocumented_unsafe_blocks,
+        reason = "tests assert with unwrap and drive raw syscalls; non-test builds keep both lints"
+    )
+)]
 #![allow(unsafe_code)]
 
 use std::fs::File;
@@ -45,6 +52,7 @@ fn run() -> io::Result<()> {
     if unsafe { libc::fcntl(3, libc::F_GETFD) } < 0 {
         return Err(io::Error::last_os_error());
     }
+    // SAFETY: fd 3 was confirmed open above and this is the only owner created for it.
     let socket = unsafe { File::from_raw_fd(3) };
     session::serve(socket, policy, hash)
 }

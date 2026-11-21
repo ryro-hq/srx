@@ -228,12 +228,9 @@ fn generate_with(
         .split('_')
         .map(|word| {
             let mut chars = word.chars();
-            chars
-                .next()
-                .unwrap()
-                .to_uppercase()
-                .collect::<String>()
-                + chars.as_str()
+            chars.next().map_or_else(String::new, |first| {
+                first.to_uppercase().collect::<String>() + chars.as_str()
+            })
         })
         .collect();
     let name = &args.name;

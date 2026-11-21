@@ -186,6 +186,7 @@ fn run(name: &str, state: &Path, success: bool) -> io::Result<()> {
 }
 
 pub(super) fn client(path: &Path, name: &str) -> io::Result<()> {
+    // SAFETY: geteuid takes no arguments and only reads the effective uid.
     assert_eq!(unsafe { libc::geteuid() }, 1000);
     if name.starts_with("workspace-rpc-cli-") && name != "workspace-rpc-cli-abandon" {
         return cli(path, name);

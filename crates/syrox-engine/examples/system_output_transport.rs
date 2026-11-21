@@ -3,7 +3,10 @@
 //! Uses only newly created regular files beneath an explicit absent directory.
 //! The worker and coordinator impose per-process address-space/descriptor limits;
 //! this is not a System recipe, cgroup qualification, receipt or own-toolchain build.
-
+#![expect(
+    clippy::unwrap_used,
+    reason = "qualification probe: a failed step aborts the run"
+)]
 #![allow(unsafe_code)]
 
 use sha2::{Digest as _, Sha256};
@@ -285,6 +288,7 @@ fn high_water() -> io::Result<String> {
 fn nonblocking(fd: RawFd) -> io::Result<()> {
     // SAFETY: the parent exclusively owns this live pipe read description.
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    // SAFETY: same owned pipe description; F_SETFL takes integer flags only.
     if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
         return Err(io::Error::last_os_error());
     }

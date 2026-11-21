@@ -1,4 +1,12 @@
 //! Profile configuration and offline journal operations require no manager or service.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::undocumented_unsafe_blocks,
+        reason = "tests assert with unwrap and drive raw syscalls; non-test builds keep both lints"
+    )
+)]
 use std::{
     os::unix::fs::PermissionsExt as _,
     path::Path,

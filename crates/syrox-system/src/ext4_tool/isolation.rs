@@ -52,7 +52,7 @@ impl Setup {
         let filter = policy::filter();
         let filter_len =
             u16::try_from(filter.len()).map_err(|_| refused("tool filter length overflow"))?;
-        let mut argv = vec![CString::new("/tool").unwrap()];
+        let mut argv = vec![CString::from(c"/tool")];
         for argument in arguments {
             argv.push(CString::new(argument).map_err(|_| refused("NUL in fixed tool argument"))?);
         }
@@ -62,7 +62,8 @@ impl Setup {
         Ok(Self {
             directory: Reopen::new(directory, true)?,
             tool: tool.as_raw_fd(),
-            image: CString::new(format!("/proc/self/fd/{}", image.as_raw_fd())).unwrap(),
+            image: CString::new(format!("/proc/self/fd/{}", image.as_raw_fd()))
+                .map_err(|_| refused("NUL in image descriptor path"))?,
             image_fd: image.as_raw_fd(),
             reopen_image: Reopen::new(image, false)?,
             arguments: argv,
@@ -82,6 +83,7 @@ impl Setup {
         // SAFETY: arm termination on helper death, then close the race where
         // the parent exited before prctl. Neither call mutates the parent.
         ok(unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0) })?;
+        // SAFETY: getppid takes no arguments and only reads this process's parent id.
         if unsafe { libc::getppid() } != self.parent {
             return Err(io::ErrorKind::Interrupted.into());
         }
@@ -103,11 +105,13 @@ impl Setup {
         let directory = self.directory.open()?;
         // SAFETY: reopened identity-checked directory in THIS mount namespace.
         ok(unsafe { libc::fchdir(directory) })?;
+        // SAFETY: `directory` was opened above by this child and is closed exactly once.
         ok(unsafe { libc::close(directory) })?;
         let image = self.reopen_image.open()?;
         // SAFETY: replace only our inherited image descriptor in the child.
         // Its proc-fd path now refers to the same inode in the new namespace.
         ok(unsafe { libc::dup3(image, self.image_fd, libc::O_CLOEXEC) })?;
+        // SAFETY: `image` is the fresh reopened descriptor, now duplicated; close it once.
         ok(unsafe { libc::close(image) })?;
         self.mark(3)?;
         mount(
@@ -119,6 +123,7 @@ impl Setup {
         )?;
         // chdir resolves the NEW mount; fchdir to the covered directory would
         // retain the host filesystem and defeat the intended root isolation.
+        // SAFETY: a static NUL-terminated relative path; chdir only reads it.
         ok(unsafe { libc::chdir(c"tool-root".as_ptr()) })?;
         self.mark(4)?;
         for path in [c"image", c"config"] {
@@ -131,6 +136,7 @@ impl Setup {
                 )
             };
             ok(fd)?;
+            // SAFETY: `fd` was just created by open above, succeeded, and is closed once.
             ok(unsafe { libc::close(fd) })?;
         }
         self.mark(5)?;
@@ -163,12 +169,16 @@ impl Setup {
             None,
         )?;
         self.mark(8)?;
+        // SAFETY: static NUL-terminated path; the child owns its private mount namespace.
         ok(unsafe { libc::chroot(c".".as_ptr()) })?;
+        // SAFETY: static NUL-terminated path; chdir only reads it.
         ok(unsafe { libc::chdir(c"/".as_ptr()) })?;
         // All unknown inherited FDs, including the original image, tool and
         // operation directory, close on exec. Keep Rust's spawn error pipe
         // usable until exec so setup failure is reported without running tool.
         self.mark(9)?;
+        // SAFETY: close_range with CLOSE_RANGE_CLOEXEC (4) only marks descriptors >= 3
+        // close-on-exec; it takes no pointers and closes nothing before exec.
         ok(unsafe { libc::syscall(libc::SYS_close_range, 3_u32, u32::MAX, 4_u32) })?;
         self.mark(10)?;
         limit(libc::RLIMIT_CORE, 0)?;
@@ -179,7 +189,9 @@ impl Setup {
         limit(libc::RLIMIT_NPROC, 0)?;
         limit(libc::RLIMIT_FSIZE, self.image_bytes)?;
         self.mark(11)?;
+        // SAFETY: a zero-length group list; the kernel does not read the null pointer.
         ok(unsafe { libc::setgroups(0, std::ptr::null()) })?;
+        // SAFETY: fixed prctl option with integer arguments only; affects this child.
         ok(unsafe {
             libc::prctl(
                 libc::PR_CAP_AMBIENT,
@@ -191,6 +203,7 @@ impl Setup {
         })?;
         // NOROOT, NO_SETUID_FIXUP, !KEEP_CAPS, NO_CAP_AMBIENT_RAISE, all locked.
         self.mark(12)?;
+        // SAFETY: fixed prctl option with integer arguments only; affects this child.
         ok(unsafe { libc::prctl(libc::PR_SET_SECUREBITS, 239, 0, 0, 0) })?;
         let header = Header {
             version: 0x2008_0522,
@@ -208,18 +221,19 @@ impl Setup {
                 inheritable: 0,
             },
         ];
-        // SAFETY: fixed version-3 Linux capabilities ABI, exactly two records.
         self.mark(13)?;
+        // SAFETY: fixed version-3 Linux capabilities ABI, exactly two records.
         ok(unsafe { libc::syscall(libc::SYS_capset, &raw const header, data.as_ptr()) })?;
         self.mark(14)?;
+        // SAFETY: fixed prctl option with integer arguments only; affects this child.
         ok(unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) })?;
         let program = libc::sock_fprog {
             len: self.filter_len,
             filter: self.filter.as_ptr().cast_mut(),
         };
+        self.mark(15)?;
         // SAFETY: filter storage was constructed before fork and remains live;
         // fixed SECCOMP_SET_MODE_FILTER, no listener or TSYNC flags.
-        self.mark(15)?;
         ok(unsafe {
             libc::syscall(
                 libc::SYS_seccomp,
@@ -311,15 +325,20 @@ fn null_device() -> io::Result<()> {
     ok(fd)?;
     // SAFETY: exact stat output storage and our fresh owned descriptor.
     let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: `fd` is our fresh descriptor and `stat` is writable storage of the exact type.
     ok(unsafe { libc::fstat(fd, &raw mut stat) })?;
     if stat.st_mode & libc::S_IFMT != libc::S_IFCHR || stat.st_rdev != libc::makedev(1, 3) {
         return Err(io::ErrorKind::InvalidData.into());
     }
     // Replace stdin only in this child with the namespace-local description,
     // so its fixed proc-fd path can be bind-mounted without a path race.
+    // SAFETY: `fd` is our validated null device; dup3 replaces stdin in this child only.
     ok(unsafe { libc::dup3(fd, 0, 0) })?;
+    // SAFETY: `fd` is now duplicated to stdin and is closed exactly once.
     ok(unsafe { libc::close(fd) })?;
+    // SAFETY: static NUL-terminated relative path on the private tmpfs.
     ok(unsafe { libc::mkdir(c"dev".as_ptr(), 0o755) })?;
+    // SAFETY: static NUL-terminated relative path; O_EXCL creates a fresh file.
     let placeholder = unsafe {
         libc::open(
             c"dev/null".as_ptr(),
@@ -328,6 +347,7 @@ fn null_device() -> io::Result<()> {
         )
     };
     ok(placeholder)?;
+    // SAFETY: `placeholder` was just created above, succeeded, and is closed once.
     ok(unsafe { libc::close(placeholder) })?;
     mount(
         Some(c"/proc/self/fd/0"),

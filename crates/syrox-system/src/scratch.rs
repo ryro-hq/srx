@@ -69,7 +69,8 @@ impl<'a> DetachedScratch<'a> {
         let expected_device = File::from(block.try_clone_to_owned()?)
             .metadata()?
             .rdev();
-        let source = CString::new(format!("/proc/self/fd/{}", block.as_raw_fd())).unwrap();
+        let source = CString::new(format!("/proc/self/fd/{}", block.as_raw_fd()))
+            .expect("a decimal descriptor path contains no NUL");
         // SAFETY: fixed terminated filesystem name, supported CLOEXEC flag only.
         let context = owned(unsafe { libc::syscall(libc::SYS_fsopen, c"ext4".as_ptr(), 1_u32) })?;
         check()?;
@@ -185,6 +186,7 @@ fn observe(root: &File, expected_device: u64) -> io::Result<ScratchCapacity> {
     let mut space: libc::statvfs = unsafe { std::mem::zeroed() };
     // SAFETY: root stays open and pointers span writable ABI output structures.
     if unsafe { libc::fstatfs(root.as_raw_fd(), &raw mut fs) } < 0
+        // SAFETY: root stays open and `space` is writable statvfs output storage.
         || unsafe { libc::fstatvfs(root.as_raw_fd(), &raw mut space) } < 0
     {
         return Err(io::Error::last_os_error());

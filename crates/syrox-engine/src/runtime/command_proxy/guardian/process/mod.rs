@@ -164,7 +164,9 @@ fn peer(pid: u32) -> Peer {
     // SAFETY: read-only credentials of the dedicated process.
     Peer {
         pid,
+        // SAFETY: geteuid takes no arguments and only reads the effective uid.
         uid: unsafe { libc::geteuid() },
+        // SAFETY: getegid takes no arguments and only reads the effective gid.
         gid: unsafe { libc::getegid() },
     }
 }

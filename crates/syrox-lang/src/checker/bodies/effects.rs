@@ -291,10 +291,11 @@ impl Checker<'_> {
             }
             self.reference_inventory = Some(inventory.into());
         }
-        self.observe_effect(
-            span,
-            EffectOperation::ReferenceScan(self.reference_inventory.as_ref().unwrap().clone()),
-        );
+        let inventory = self
+            .reference_inventory
+            .clone()
+            .expect("reference inventory is populated above or by an earlier scan");
+        self.observe_effect(span, EffectOperation::ReferenceScan(inventory));
     }
     pub(in crate::checker) fn observe_effect(&mut self, span: Span, operation: EffectOperation) {
         if !self.body.active || self.cancellation.is_none() || self.effect_retention.truncated {

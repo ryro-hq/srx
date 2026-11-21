@@ -15,7 +15,7 @@ pub(super) fn authenticate(socket: &File, policy: &Policy) -> io::Result<PeerCre
         (libc::SO_ACCEPTCONN, 0),
     ] {
         let mut value = 0_i32;
-        let mut bytes = u32::try_from(size_of::<i32>()).unwrap();
+        let mut bytes = u32::try_from(size_of::<i32>()).expect("size of i32 fits in socklen_t");
         // SAFETY: exact writable integer option output on the owned socket.
         if unsafe {
             libc::getsockopt(
@@ -48,6 +48,7 @@ pub(super) fn authenticate(socket: &File, policy: &Policy) -> io::Result<PeerCre
             flags | libc::O_NONBLOCK,
         )
     } < 0
+        // SAFETY: same owned connection; F_SETFD takes integer flags only.
         || unsafe {
             libc::fcntl(
                 socket.as_raw_fd(),
@@ -122,6 +123,7 @@ pub(super) fn reply_value(socket: &File, value: &impl Serialize) -> io::Result<(
     if raw < 0 {
         return Err(io::Error::last_os_error());
     }
+    // SAFETY: memfd_create succeeded, so `raw` is a fresh descriptor nothing else owns.
     let mut source = unsafe { File::from_raw_fd(raw) };
     source.write_all(&bytes)?;
     source.rewind()?;

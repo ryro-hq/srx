@@ -139,6 +139,8 @@ impl ProcessGroup {
         // the bounded output structures before they are read.
         let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
         loop {
+            // SAFETY: the owned child is unreaped, and `status` and `usage` are live
+            // writable storage of the exact types wait4 fills.
             let result = unsafe {
                 libc::wait4(
                     i32::try_from(self.child.id())?,
@@ -183,6 +185,7 @@ impl Drop for ProcessGroup {
 fn require_waitable_children() -> std::io::Result<()> {
     // SAFETY: querying the current signal action does not alter its disposition.
     let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+    // SAFETY: a null new action only queries; `action` is writable sigaction storage.
     if unsafe { libc::sigaction(libc::SIGCHLD, std::ptr::null(), &raw mut action) } < 0 {
         return Err(std::io::Error::last_os_error());
     }
@@ -199,6 +202,7 @@ fn exited_without_reaping(pid: u32) -> std::io::Result<bool> {
     // SAFETY: waitid initializes this siginfo and WNOWAIT preserves the child
     // identity until the group cleanup and the single final wait.
     let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    // SAFETY: `info` is writable siginfo storage, and WNOWAIT leaves the child waitable.
     let result = unsafe {
         libc::waitid(
             libc::P_PID,

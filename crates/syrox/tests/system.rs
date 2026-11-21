@@ -1,4 +1,12 @@
 //! Read-only system inspection needs no project, Store, utility or privilege.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::undocumented_unsafe_blocks,
+        reason = "tests assert with unwrap and drive raw syscalls; non-test builds keep both lints"
+    )
+)]
 use std::process::Command;
 
 #[path = "system/plan.rs"]

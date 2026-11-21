@@ -177,7 +177,7 @@ fn prepare(
         libc::posix_fallocate(
             image.as_raw_fd(),
             0,
-            i64::try_from(geometry.image_bytes()).unwrap(),
+            i64::try_from(geometry.image_bytes()).expect("Geometry caps images at 128 GiB"),
         )
     };
     if result != 0 {

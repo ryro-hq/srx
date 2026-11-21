@@ -224,7 +224,10 @@ fn check(root: &Path) -> io::Result<Vec<String>> {
             && !path
                 .components()
                 .any(|part| part.as_os_str() == "tests")
-            && !production_child(path.parent().unwrap())?
+            && !production_child(
+                path.parent()
+                    .ok_or_else(|| io::Error::other("mod.rs path has no parent"))?,
+            )?
         {
             errors.push(format!(
                 "{}: leaf implementation must be a sibling .rs file; place large suites in domain tests",

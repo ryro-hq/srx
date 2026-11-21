@@ -1,7 +1,14 @@
 //! Explicit host integration: requires systemd user services, Bubblewrap,
 //! setpriv and Landlock ABI >= 6. Execute with `cargo test --release --locked
 //! -p syrox --test build -- --ignored` on the intended build host.
-
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::undocumented_unsafe_blocks,
+        reason = "tests assert with unwrap and drive raw syscalls; non-test builds keep both lints"
+    )
+)]
 #![cfg(all(target_os = "linux", target_arch = "x86_64"))]
 
 use std::fs;

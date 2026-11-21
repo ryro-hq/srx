@@ -70,7 +70,10 @@ pub(super) fn new_directory(parent: &File, name: &str) -> io::Result<File> {
     }
     let directory = descriptor::open_resolved(
         Some(parent.as_fd()),
-        Path::new(name.to_str().unwrap()),
+        Path::new(
+            name.to_str()
+                .expect("component was built from a validated &str"),
+        ),
         true,
         libc::RESOLVE_BENEATH | libc::RESOLVE_NO_SYMLINKS | libc::RESOLVE_NO_MAGICLINKS,
     )?;

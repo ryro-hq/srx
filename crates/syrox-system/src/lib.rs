@@ -2,6 +2,14 @@
 //!
 //! Observing a device never grants authority to write to it. Installation and
 //! reconciliation must independently authorize and revalidate their real targets.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::undocumented_unsafe_blocks,
+        reason = "tests assert with unwrap and drive raw syscalls; non-test builds keep both lints"
+    )
+)]
 
 #[cfg(not(target_os = "linux"))]
 compile_error!("syrox-system supports Linux only");

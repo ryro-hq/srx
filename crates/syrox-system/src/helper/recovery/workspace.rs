@@ -34,7 +34,10 @@ fn request(evidence: &Evidence) -> io::Result<(String, String, syrox_system::bud
 
 pub(super) fn settled(evidence: &Evidence) -> io::Result<bool> {
     let (id, layout, _) = request(evidence)?;
-    let mut last = evidence.records.last().unwrap();
+    let mut last = evidence
+        .records
+        .last()
+        .expect("evidence::load rejects a journal without its authorization record");
     if last.state == "response-undelivered" && evidence.records.len() >= 2 {
         last = &evidence.records[evidence.records.len() - 2];
     }

@@ -99,6 +99,7 @@ pub(super) fn geometry(fd: BorrowedFd<'_>) -> io::Result<(u64, i32)> {
     let mut sector = 0_i32;
     // SAFETY: both fixed ioctls receive live writable output storage of their ABI types.
     if unsafe { libc::ioctl(fd.as_raw_fd(), GET_BYTES, &raw mut bytes) } < 0
+        // SAFETY: `sector` is live writable storage of the i32 that BLKSSZGET writes.
         || unsafe { libc::ioctl(fd.as_raw_fd(), GET_SECTOR, &raw mut sector) } < 0
     {
         return Err(io::Error::last_os_error());

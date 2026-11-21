@@ -189,9 +189,9 @@ fn kernel_filter_probe() {
         len: u16::try_from(filter.len()).unwrap(),
         filter: filter.as_mut_ptr(),
     };
-    // SAFETY: this test runs only in a spawned child. The filter affects this
-    // thread, grants no privilege and cannot modify the parent test process.
     assert_eq!(
+        // SAFETY: this test runs only in a spawned child. The filter affects this
+        // thread, grants no privilege and cannot modify the parent test process.
         unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) },
         0
     );
@@ -359,8 +359,8 @@ fn collector_bounds_both_streams_and_reaps_on_overflow_and_cancellation() {
                 _ => io::ErrorKind::InvalidInput,
             }
         );
-        // SAFETY: WNOHANG query of this fixture's child; no signal or other PID.
         assert_eq!(
+            // SAFETY: WNOHANG query of this fixture's child; no signal or other PID.
             unsafe { libc::waitpid(pid, std::ptr::null_mut(), libc::WNOHANG) },
             -1
         );

@@ -97,6 +97,7 @@ fn require_procfs(file: &File) -> io::Result<()> {
     if unsafe { libc::fstatfs(file.as_raw_fd(), stat.as_mut_ptr()) } < 0 {
         return Err(io::Error::last_os_error());
     }
+    // SAFETY: fstatfs returned success above, so the kernel initialized `stat`.
     if unsafe { stat.assume_init() }.f_type != 0x9fa0 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,

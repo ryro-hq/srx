@@ -41,6 +41,8 @@ struct Inputs {
 /// Dedicated single-threaded worker; descriptor arguments transfer ownership.
 /// No caller code may run after this helper returns.
 pub(in crate::execution::native) unsafe fn run(args: &[OsString]) -> io::Result<i32> {
+    // SAFETY: this function's own contract (dedicated single-threaded worker, transferred
+    // descriptors) is exactly what receive_header requires of its caller.
     let (mut inputs, custody_args, forbidden) = unsafe { receive_header(args)? };
     crate::runtime::command_proxy::launch_contract::validate_stdio(
         inputs.terminal.as_ref().map(|fd| fd.as_fd()),
@@ -173,8 +175,8 @@ unsafe fn receive_header(args: &[OsString]) -> io::Result<(Inputs, &[OsString], 
     metadata.validate_root_arguments(&args[tail..])?;
     let (numbers, group, terminal) = header_descriptors(args, tail)?;
     for fd in &numbers {
-        // SAFETY: each inherited descriptor was probed and is uniquely owned.
         crate::execution::native::checked(
+            // SAFETY: each inherited descriptor was probed and is uniquely owned.
             unsafe { libc::fcntl(*fd, libc::F_SETFD, libc::FD_CLOEXEC) }.into(),
         )?;
     }

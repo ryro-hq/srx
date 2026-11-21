@@ -151,6 +151,7 @@ impl Pty {
         let master = own(fd)?;
         // SAFETY: master owns a live fresh PTY; these calls only grant/unlock its peer.
         checked(unsafe { libc::grantpt(master.as_raw_fd()) })?;
+        // SAFETY: master is the live fresh PTY owned above; unlockpt only unlocks its peer.
         checked(unsafe { libc::unlockpt(master.as_raw_fd()) })?;
         // SAFETY: TIOCGPTPEER opens this master's peer atomically with CLOEXEC.
         let peer = unsafe {
@@ -236,9 +237,11 @@ pub(crate) fn validate_slave(fd: BorrowedFd<'_>) -> io::Result<()> {
     let mut filesystem = MaybeUninit::<libc::statfs>::uninit();
     // SAFETY: both pointers have their ABI-sized writable storage and fd is live.
     checked(unsafe { libc::fstat(fd.as_raw_fd(), stat.as_mut_ptr()) })?;
+    // SAFETY: fd is live and `filesystem` has statfs-sized writable storage.
     checked(unsafe { libc::fstatfs(fd.as_raw_fd(), filesystem.as_mut_ptr()) })?;
     // SAFETY: successful syscalls initialized the complete structures.
     let stat = unsafe { stat.assume_init() };
+    // SAFETY: fstatfs succeeded above, so the kernel initialized the whole structure.
     let filesystem = unsafe { filesystem.assume_init() };
     if stat.st_mode & libc::S_IFMT != libc::S_IFCHR
         || !super::filesystem_magic_matches(filesystem.f_type, libc::DEVPTS_SUPER_MAGIC)
@@ -275,6 +278,7 @@ pub(crate) unsafe fn establish_controlling_terminal(slave: BorrowedFd<'_>) -> io
     checked(unsafe { libc::ioctl(slave.as_raw_fd(), libc::TIOCSCTTY, 0) })?;
     // SAFETY: own process group exists and belongs to the just-created session.
     let group = unsafe { libc::getpgrp() };
+    // SAFETY: slave is the validated controlling tty and `group` is our own process group.
     checked(unsafe { libc::tcsetpgrp(slave.as_raw_fd(), group) })?;
     for destination in 0..=2 {
         // SAFETY: validated live slave; the child owns stdio exclusively.
@@ -298,6 +302,7 @@ pub(crate) fn foreground_terminal(fd: BorrowedFd<'_>) -> io::Result<u32> {
     if foreground < 0 {
         return Err(io::Error::last_os_error());
     }
+    // SAFETY: getpgrp takes no arguments and only reads our process group.
     if foreground != unsafe { libc::getpgrp() } {
         return Err(io::Error::from_raw_os_error(libc::EPERM));
     }
@@ -363,6 +368,7 @@ pub(crate) fn suspend_foreground_observed(
         if let Some(outcome) = pause_observation(
             root,
             cancel,
+            // SAFETY: getpgrp takes no arguments and only reads our process group.
             Some(foreground == unsafe { libc::getpgrp() }),
         )? {
             return Ok(outcome);
@@ -408,6 +414,7 @@ impl TerminalGuard {
         if foreground < 0 {
             return Err(io::Error::last_os_error());
         }
+        // SAFETY: getpgrp takes no arguments and only reads our process group.
         if foreground != unsafe { libc::getpgrp() } {
             return Err(io::Error::from_raw_os_error(libc::EPERM));
         }
@@ -432,6 +439,7 @@ impl TerminalGuard {
         if foreground < 0 {
             return Err(io::Error::last_os_error());
         }
+        // SAFETY: getpgrp takes no arguments and only reads our process group.
         if foreground != self.foreground || foreground != unsafe { libc::getpgrp() } {
             return Err(io::Error::from_raw_os_error(libc::EPERM));
         }

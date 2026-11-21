@@ -318,6 +318,7 @@ impl PacketChannel {
             credentials.pid > 0
         };
         if !valid_pid
+            // SAFETY: geteuid takes no arguments and only reads the effective uid.
             || credentials.uid != unsafe { libc::geteuid() }
             || (namespace_ancestor && credentials.gid != linux_fd::real_gid())
         {
@@ -398,6 +399,7 @@ fn socket_node(parent: BorrowedFd<'_>, name: &CString, require_mode: bool) -> io
     let stat = unsafe { stat.assume_init() };
     // SAFETY: geteuid takes no arguments.
     if stat.st_mode & libc::S_IFMT != libc::S_IFSOCK
+        // SAFETY: geteuid takes no arguments and only reads the effective uid.
         || stat.st_uid != unsafe { libc::geteuid() }
         || stat.st_nlink != 1
         || (require_mode && stat.st_mode & 0o7777 != 0o600)

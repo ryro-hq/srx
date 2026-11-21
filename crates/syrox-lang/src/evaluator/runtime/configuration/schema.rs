@@ -336,7 +336,11 @@ impl Evaluator<'_> {
         }
         match (schema, data) {
             (Ty::Int, Data::Number(number)) if number.as_i64().is_some() => {
-                return Ok(Value::Int(number.as_i64().unwrap()));
+                return Ok(Value::Int(
+                    number
+                        .as_i64()
+                        .expect("match guard checked as_i64"),
+                ));
             }
             (Ty::Str, Data::String(text)) => {
                 self.expand(text.len(), span)?;
@@ -373,7 +377,7 @@ impl Evaluator<'_> {
             }
             let primitive = match (info.declaration.primitive, data) {
                 (Primitive::Int, Data::Number(n)) if n.as_i64().is_some() => {
-                    PrimitiveValue::Int(n.as_i64().unwrap())
+                    PrimitiveValue::Int(n.as_i64().expect("match guard checked as_i64"))
                 }
                 (Primitive::Str, Data::String(s)) => {
                     self.expand(s.len(), span)?;

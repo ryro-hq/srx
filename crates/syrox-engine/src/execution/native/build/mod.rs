@@ -276,8 +276,8 @@ pub(crate) unsafe fn prepare(
     // blocked signals/signalfd; the monitor's installed cancellation handlers
     // must remain live even during bounded protocol and notification waits.
     let original_mask = signals.original();
-    // SAFETY: dedicated monitor owns this thread's mask; initialized saved set.
     checked(
+        // SAFETY: dedicated monitor owns this thread's mask; initialized saved set.
         unsafe {
             libc::sigprocmask(
                 libc::SIG_SETMASK,

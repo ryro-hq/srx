@@ -72,7 +72,9 @@ impl Custody {
         let mut device = 0_u32;
         // SAFETY: same-session read-only identity queries; device is writable.
         if unsafe { libc::getsid(0) }.cast_unsigned() != self.session
+            // SAFETY: tcgetsid only queries the session of the retained terminal descriptor.
             || unsafe { libc::tcgetsid(fd) }.cast_unsigned() != self.session
+            // SAFETY: TIOCGDEV writes one u32 into `device`, which is live writable storage.
             || unsafe { libc::ioctl(fd, libc::TIOCGDEV, &raw mut device) } < 0
             || device != self.snapshot.device
         {

@@ -41,6 +41,14 @@
 //! [Build cancellation]: ../src/syrox_engine/build/cancellation/mod.rs.html
 //! [build journal]: ../src/syrox_engine/build/journal/mod.rs.html
 //! [Services recovery]: ../src/syrox_engine/deployment/os/apply/recovery/mod.rs.html
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::undocumented_unsafe_blocks,
+        reason = "tests assert with unwrap and drive raw syscalls; non-test builds keep both lints"
+    )
+)]
 
 #[cfg(not(target_os = "linux"))]
 compile_error!("syrox-engine supports Linux only");

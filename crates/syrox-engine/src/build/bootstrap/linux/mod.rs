@@ -246,7 +246,10 @@ fn prepare_action(
     if acquisition.sources().len() != 1 {
         return Err(BuildError::UnsupportedInputs);
     }
-    let source = acquisition.sources().next().unwrap();
+    let source = acquisition
+        .sources()
+        .next()
+        .ok_or(BuildError::UnsupportedInputs)?;
     let source_digest = source.digest();
     let lease = store.operation()?;
     let maximum_source = request.program.maximum_source_bytes();

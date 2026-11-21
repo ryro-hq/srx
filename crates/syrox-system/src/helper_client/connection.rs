@@ -39,16 +39,21 @@ impl Connection {
         if raw < 0 {
             return Err(io::Error::last_os_error());
         }
+        // SAFETY: `raw` is a non-negative descriptor just returned by socket() and owned
+        // by nothing else; File takes sole ownership and closes it on drop.
         let socket = unsafe { File::from_raw_fd(raw) };
         // SAFETY: initialized sockaddr_un with a bounded terminated pathname.
         let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
-        address.sun_family = u16::try_from(libc::AF_UNIX).unwrap();
+        address.sun_family = u16::try_from(libc::AF_UNIX).expect("AF_UNIX fits in sa_family_t");
         for (out, byte) in address.sun_path.iter_mut().zip(bytes) {
-            *out = libc::c_char::try_from(*byte).unwrap();
+            *out = libc::c_char::try_from(*byte)
+                .map_err(|_| invalid("helper endpoint path must be ASCII"))?;
         }
         let length =
             u32::try_from(std::mem::offset_of!(libc::sockaddr_un, sun_path) + bytes.len() + 1)
-                .unwrap();
+                .expect("sockaddr_un length is bounded by its fixed size");
+        // SAFETY: `address` is an initialized sockaddr_un whose path is NUL-terminated
+        // within sun_path, `length` covers exactly that prefix, and the socket is live.
         if unsafe {
             libc::connect(
                 socket.as_raw_fd(),
@@ -267,7 +272,7 @@ fn endpoint(path: &Path) -> io::Result<std::fs::Metadata> {
 
 pub(super) fn authenticate(socket: &File) -> io::Result<()> {
     let mut kind = 0_i32;
-    let mut bytes = u32::try_from(size_of::<i32>()).unwrap();
+    let mut bytes = u32::try_from(size_of::<i32>()).expect("size of i32 fits in socklen_t");
     // SAFETY: fixed integer output query on an owned connection.
     if unsafe {
         libc::getsockopt(

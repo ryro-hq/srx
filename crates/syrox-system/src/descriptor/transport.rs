@@ -193,8 +193,8 @@ mod tests {
         drop((file, sender));
         let descriptor = std::fs::File::from(receive_fd(receiver.as_fd()).unwrap());
         assert_eq!(descriptor.metadata().unwrap().len(), 0);
-        // SAFETY: query the live descriptor returned by recvmsg.
         assert_ne!(
+            // SAFETY: query the live descriptor returned by recvmsg.
             unsafe { libc::fcntl(descriptor.as_raw_fd(), libc::F_GETFD) } & libc::FD_CLOEXEC,
             0
         );

@@ -13,9 +13,9 @@ pub(in crate::execution::native) fn scrub_init_stdio() -> io::Result<()> {
     let pinned = unsafe { OwnedFd::from_raw_fd(raw) };
     drop(null);
     for target in 0..3 {
-        // SAFETY: dedicated namespace init owns these standard descriptor slots;
-        // explicit payload IO descriptors are distinct and retained above 2.
         crate::execution::native::checked(
+            // SAFETY: dedicated namespace init owns these standard descriptor slots;
+            // explicit payload IO descriptors are distinct and retained above 2.
             unsafe { libc::dup2(pinned.as_raw_fd(), target) }.into(),
         )?;
     }

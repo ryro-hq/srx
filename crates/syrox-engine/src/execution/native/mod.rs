@@ -213,6 +213,8 @@ unsafe fn runtime_helper_profile(args: &[OsString], managed_environment: bool) -
             "terminal frontend aborted before namespace preparation",
         ))
     } else {
+        // SAFETY: this dedicated single-threaded helper process satisfies runtime_helper_run's
+        // contract; no other code runs in it after the call returns.
         unsafe { runtime_helper_run(args, managed_environment, &mut custody) }
     };
     let settlement = custody.as_mut().map_or(
@@ -268,6 +270,7 @@ unsafe fn runtime_helper_run(
         }
         // The helper is single-threaded, so this successful probe establishes a
         // live descriptor before constructing the Rust borrow below.
+        // SAFETY: F_GETFD only queries descriptor flags; an invalid number fails with EBADF.
         checked(unsafe { libc::fcntl(terminal, libc::F_GETFD) }.into())?;
         // SAFETY: the inherited descriptor was checked and stays open through this call.
         crate::platform::linux::fd::terminal::validate_slave(unsafe {
@@ -860,6 +863,7 @@ fn drop_privileges() -> io::Result<()> {
     // SAFETY: integer-only prctl operations on this single-threaded init.
     checked(unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) }.into())?;
     // SECBIT_NOROOT | SECBIT_NOROOT_LOCKED prevents uid 0 regaining caps on exec.
+    // SAFETY: integer-only prctl on this single-threaded init.
     checked(unsafe { libc::prctl(libc::PR_SET_SECUREBITS, 3, 0, 0, 0) }.into())?;
     for cap in 0..1024 {
         // SAFETY: dropping a numeric bounding capability has no pointers.
@@ -920,9 +924,11 @@ unsafe fn configure_payload_child(
     } else if original.is_some() {
         // A PTY payload is already a session/group leader after setsid, so
         // setpgid would fail EPERM. Nonterminal Managed payloads still need it.
+        // SAFETY: setpgid(0, 0) only moves this process into its own new group; no pointers.
         checked(unsafe { libc::setpgid(0, 0) }.into())?;
     }
     if let Some(original) = original {
+        // SAFETY: called in the single-threaded payload child before exec, as payload_mask requires.
         unsafe { signals::payload_mask(original) }?;
     }
     Ok(())

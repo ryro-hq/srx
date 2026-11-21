@@ -1,3 +1,11 @@
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::undocumented_unsafe_blocks,
+        reason = "tests assert with unwrap and drive raw syscalls; non-test builds keep both lints"
+    )
+)]
 #[cfg(target_os = "linux")]
 use std::io::Read as _;
 use std::path::PathBuf;

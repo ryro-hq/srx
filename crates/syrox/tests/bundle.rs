@@ -1,5 +1,13 @@
 //! Public bundle transport and admission tests. Metadata ELF fixtures do not
 //! pretend to execute; opted-in host tests cover the runtime process boundary.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::undocumented_unsafe_blocks,
+        reason = "tests assert with unwrap and drive raw syscalls; non-test builds keep both lints"
+    )
+)]
 #![cfg(all(target_os = "linux", target_arch = "x86_64"))]
 
 #[path = "bundle/fixtures.rs"]

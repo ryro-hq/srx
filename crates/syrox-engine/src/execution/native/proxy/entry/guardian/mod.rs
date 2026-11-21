@@ -124,8 +124,8 @@ impl Guardian {
             }
             if let Some(custody) = &mut self.custody {
                 let descriptors = custody.descriptors();
-                // SAFETY: custody retains both descriptors throughout this poll.
                 if crate::execution::native::ready(
+                    // SAFETY: custody retains both descriptors throughout this poll.
                     unsafe { std::os::fd::BorrowedFd::borrow_raw(descriptors[0]) },
                     0,
                 )? {

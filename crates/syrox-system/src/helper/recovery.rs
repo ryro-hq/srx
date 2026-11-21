@@ -176,7 +176,7 @@ pub(super) fn inspect(
     Ok((
         plan,
         evidence.directory,
-        u32::try_from(evidence.records.len()).unwrap(),
+        u32::try_from(evidence.records.len()).expect("evidence::load admits at most 64 records"),
     ))
 }
 
@@ -219,7 +219,10 @@ pub(super) fn settled(state: &File, name: &str) -> io::Result<bool> {
     if evidence.records[0].details["request"]["operation"] == "prepare_workspace" {
         return workspace::settled(&evidence);
     }
-    let last = evidence.records.last().unwrap();
+    let last = evidence
+        .records
+        .last()
+        .expect("evidence::load rejects a journal without its authorization record");
     if last.state == "released" {
         return Ok(true);
     }

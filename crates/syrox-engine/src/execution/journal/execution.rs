@@ -245,7 +245,7 @@ impl ExecutionGuard<'_> {
         state
             .executions
             .get_mut(self.execution.as_str())
-            .unwrap()
+            .ok_or(OwnershipError::State("unknown execution"))?
             .guardian = Some(guardian);
         state.advance()?;
         storage::check(cancel, deadline)?;
@@ -278,7 +278,7 @@ impl ExecutionGuard<'_> {
         let entry = state
             .executions
             .get_mut(self.execution.as_str())
-            .unwrap();
+            .ok_or(OwnershipError::State("unknown execution"))?;
         if entry.next_gate != sequence {
             return Err(OwnershipError::State(
                 "execution gate sequence differs",
@@ -326,7 +326,7 @@ impl ExecutionGuard<'_> {
         state
             .executions
             .get_mut(self.execution.as_str())
-            .unwrap()
+            .ok_or(OwnershipError::State("unknown execution"))?
             .phase = ExecutionPhase::Settled;
         state.advance()?;
         storage::check(cancel, deadline)?;
@@ -368,7 +368,7 @@ impl ExecutionGuard<'_> {
         let entry = state
             .executions
             .get_mut(self.execution.as_str())
-            .unwrap();
+            .ok_or(OwnershipError::State("unknown execution"))?;
         entry.phase = phase;
         entry.retention = retention.map(|pin| pin.to_string());
         state.advance()?;

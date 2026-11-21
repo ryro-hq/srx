@@ -95,6 +95,7 @@ impl PacketChannel {
         // SAFETY: fd is owned and both operations use fixed fcntl arguments.
         let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFD) };
         if flags < 0
+            // SAFETY: fd is owned and F_SETFD takes integer flags only.
             || unsafe {
                 libc::fcntl(
                     fd.as_raw_fd(),

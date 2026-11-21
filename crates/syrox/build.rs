@@ -10,14 +10,16 @@ fn main() {
     let bytes = if let Some(path) = std::env::var_os("SYROX_EMBED_WORKER") {
         assert!(
             matches!(
-                std::env::var("TARGET").unwrap().as_str(),
+                std::env::var("TARGET")
+                    .expect("Cargo TARGET")
+                    .as_str(),
                 "x86_64-unknown-linux-gnu" | "x86_64-unknown-linux-musl"
             ),
             "embedded releases require a Linux x86_64 target"
         );
         assert!(
             std::env::var("CARGO_CFG_TARGET_FEATURE")
-                .unwrap()
+                .expect("Cargo CARGO_CFG_TARGET_FEATURE")
                 .split(',')
                 .any(|feature| feature == "crt-static"),
             "embedded releases require crt-static for CLI and worker"

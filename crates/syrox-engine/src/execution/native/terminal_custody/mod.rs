@@ -78,6 +78,7 @@ impl Custody {
             ));
         }
         for value in [channel, tty] {
+            // SAFETY: F_GETFD only queries descriptor flags; an invalid number fails with EBADF.
             checked(unsafe { libc::fcntl(value, libc::F_GETFD) }.into())?;
         }
         let numbers = args[2..]
@@ -91,8 +92,11 @@ impl Custody {
             .collect::<io::Result<Vec<_>>>()?;
         let expected_parent = i32::try_from(numbers[0]).map_err(io::Error::other)?;
         // SAFETY: direct parent and session observations do not mutate state.
+        // SAFETY: getppid takes no arguments and only reads the parent id.
         if unsafe { libc::getppid() } != expected_parent
+            // SAFETY: getsid(0) reads this process's session id and takes no pointers.
             || unsafe { libc::getsid(0) }.cast_unsigned() != numbers[1]
+            // SAFETY: getpgid only reads the process group of the given pid; no pointers.
             || unsafe { libc::getpgid(expected_parent) }.cast_unsigned() != numbers[2]
         {
             return Err(io::Error::other(
@@ -100,6 +104,7 @@ impl Custody {
             ));
         }
         let parent = crate::platform::linux::fd::pidfd_open(numbers[0])?;
+        // SAFETY: getppid takes no arguments and only reads the parent id.
         if unsafe { libc::getppid() } != expected_parent
             || crate::platform::linux::fd::pidfd_exited(parent.as_fd())?
         {
@@ -108,6 +113,8 @@ impl Custody {
         // SAFETY: caller transfers two checked distinct descriptors exclusively.
         let channel = unsafe { UnixStream::from_raw_fd(channel) };
         channel.set_nonblocking(true)?;
+        // SAFETY: `tty` was probed live above, is distinct from `channel`, and the caller
+        // transfers it exclusively, so OwnedFd becomes its only owner.
         let tty = unsafe { OwnedFd::from_raw_fd(tty) };
         let original = TerminalAttributes::read(tty.as_fd())?;
         let mut custody = Self {
@@ -184,8 +191,8 @@ impl Custody {
     }
     fn validate_terminal_identity(&self) -> io::Result<()> {
         let mut device = 0_u32;
-        // SAFETY: live tty and writable scalar ioctl destination.
         checked(
+            // SAFETY: live tty and writable scalar ioctl destination.
             unsafe {
                 libc::ioctl(
                     self.tty.as_raw_fd(),
@@ -195,6 +202,7 @@ impl Custody {
             }
             .into(),
         )?;
+        // SAFETY: tcgetsid only queries the session of the live tty this custody owns.
         if device != self.device || unsafe { libc::tcgetsid(self.tty.as_raw_fd()) } != self.session
         {
             return Err(io::Error::other(

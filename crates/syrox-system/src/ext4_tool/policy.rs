@@ -93,7 +93,7 @@ pub(super) fn filter() -> Vec<libc::sock_filter> {
             0x15,
             0,
             1,
-            u32::try_from(syscall).unwrap(),
+            u32::try_from(syscall).expect("Linux syscall numbers fit in u32"),
         ));
         code.push(instruction(0x06, 0, 0, 0x7fff_0000)); // ALLOW
     }
@@ -103,7 +103,7 @@ pub(super) fn filter() -> Vec<libc::sock_filter> {
         0x15,
         0,
         8,
-        u32::try_from(libc::SYS_prlimit64).unwrap(),
+        u32::try_from(libc::SYS_prlimit64).expect("Linux syscall numbers fit in u32"),
     ));
     code.extend([
         instruction(0x20, 0, 0, 16), // args[0] pid, low and high

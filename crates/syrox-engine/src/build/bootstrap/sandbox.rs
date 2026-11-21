@@ -502,11 +502,17 @@ impl Pipes {
     fn new(child: &mut Child, large: bool) -> std::io::Result<Self> {
         Ok(Self {
             output: Capture::new_disk(
-                child.stdout.take().unwrap(),
+                child
+                    .stdout
+                    .take()
+                    .ok_or_else(|| std::io::Error::other("bootstrap stdout was not piped"))?,
                 usize::try_from(group::MAX_GROUP_BYTES).expect("bounded output fits usize"),
             )?,
             log: Capture::new(
-                child.stderr.take().unwrap(),
+                child
+                    .stderr
+                    .take()
+                    .ok_or_else(|| std::io::Error::other("bootstrap stderr was not piped"))?,
                 if large {
                     512 * 1024
                 } else {

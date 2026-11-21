@@ -1,4 +1,12 @@
 //! Reproducible developer checks and security gates used locally and in CI.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::undocumented_unsafe_blocks,
+        reason = "tests assert with unwrap and drive raw syscalls; non-test builds keep both lints"
+    )
+)]
 use std::{
     env,
     error::Error,

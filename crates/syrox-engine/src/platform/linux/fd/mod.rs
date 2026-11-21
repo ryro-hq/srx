@@ -145,6 +145,7 @@ pub(crate) fn set_nonblocking(fd: BorrowedFd<'_>) -> io::Result<()> {
     // take integer flags only. Existing status flags are preserved.
     let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
     if flags < 0
+        // SAFETY: the borrowed descriptor is live and F_SETFL takes integer flags only.
         || unsafe {
             libc::fcntl(
                 fd.as_raw_fd(),
@@ -165,10 +166,10 @@ pub(crate) fn kill_launcher_group(pid: u32) -> io::Result<()> {
         .ok()
         .filter(|pid| *pid > 1)
         .ok_or_else(|| io::Error::other("invalid launcher group"))?;
-    // SAFETY: kill takes integers only. The caller establishes ownership of this
-    // exact process group. Its leader remains an unreaped child until this call
-    // completes, so the group number cannot be reused to signal a stranger.
     loop {
+        // SAFETY: kill takes integers only. The caller establishes ownership of this
+        // exact process group. Its leader remains an unreaped child until this call
+        // completes, so the group number cannot be reused to signal a stranger.
         let result = unsafe { libc::kill(-pid, libc::SIGKILL) };
         if result == 0 {
             return Ok(());

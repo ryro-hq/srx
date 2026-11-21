@@ -1,4 +1,12 @@
 //! Persistence checks do not execute the launcher or contact a service manager.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::undocumented_unsafe_blocks,
+        reason = "tests assert with unwrap and drive raw syscalls; non-test builds keep both lints"
+    )
+)]
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;

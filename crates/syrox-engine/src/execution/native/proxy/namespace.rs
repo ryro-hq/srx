@@ -64,8 +64,8 @@ pub(in crate::execution::native) unsafe fn prepare(
         process::Spawn::Init => {
             drop((gate, channel));
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                // SAFETY: fresh PID1; parent death must destroy its namespace.
                 checked(
+                    // SAFETY: fresh PID1; parent death must destroy its namespace.
                     unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0) }.into(),
                 )?;
                 crate::execution::native::require_live_monitor(parent.as_fd())?;

@@ -3,7 +3,10 @@
 //! This fixture creates only its own regular images and Unix sockets. It never
 //! selects a physical disk or changes boot; the root mode requires the same
 //! explicit QEMU marker as the loop qualification fixture.
-
+#![expect(
+    clippy::unwrap_used,
+    reason = "qualification probe: a failed step aborts the run"
+)]
 #![allow(unsafe_code)]
 
 use sha2::{Digest as _, Sha256};
@@ -377,6 +380,7 @@ fn listener(path: &Path) -> io::Result<OwnedFd> {
             bytes,
         )
     } < 0
+        // SAFETY: integer-only call on the socket bound above.
         || unsafe { libc::listen(socket.as_raw_fd(), 4) } < 0
     {
         return Err(io::Error::last_os_error());
@@ -398,6 +402,7 @@ fn accept(listener: &OwnedFd, client: &mut Child) -> io::Result<OwnedFd> {
             )
         };
         if raw >= 0 {
+            // SAFETY: accept4 succeeded, so `raw` is a fresh descriptor nothing else owns.
             return Ok(unsafe { OwnedFd::from_raw_fd(raw) });
         }
         let error = io::Error::last_os_error();
@@ -417,6 +422,7 @@ fn send(socket: &OwnedFd, body: &serde_json::Value) -> io::Result<()> {
     if raw < 0 {
         return Err(io::Error::last_os_error());
     }
+    // SAFETY: memfd_create succeeded, so `raw` is a fresh descriptor nothing else owns.
     let mut source = unsafe { File::from_raw_fd(raw) };
     source.write_all(&serde_json::to_vec(body)?)?;
     source.rewind()?;
@@ -480,6 +486,7 @@ fn wait_operation_teardown(operation: &Path) -> io::Result<()> {
 fn client(path: &Path, case: &str) -> io::Result<()> {
     // SAFETY: verify the separate unprivileged process actually has the intended IDs.
     assert_eq!(unsafe { libc::geteuid() }, 1000);
+    // SAFETY: getegid takes no arguments and only reads the effective gid.
     assert_eq!(unsafe { libc::getegid() }, 1000);
     assert!(File::open(Path::new(ROOT).join(format!("policy-{case}.json"))).is_err());
     if case == "activated-namespace" || case.starts_with("typed-") {
@@ -763,6 +770,7 @@ fn scratch_namespace() -> io::Result<()> {
     std::fs::write("/proc/self/uid_map", "1000 1000 1")?;
     std::fs::write("/proc/self/setgroups", "deny")?;
     std::fs::write("/proc/self/gid_map", "1000 1000 1")?;
+    // SAFETY: fixed namespace flags with no pointers; affects only this dedicated worker.
     if unsafe {
         libc::unshare(
             libc::CLONE_NEWNS | libc::CLONE_NEWNET | libc::CLONE_NEWIPC | libc::CLONE_NEWUTS,
@@ -771,6 +779,8 @@ fn scratch_namespace() -> io::Result<()> {
     {
         return Err(io::Error::last_os_error());
     }
+    // SAFETY: static NUL-terminated target and null optional arguments; the worker
+    // owns the private mount namespace it just created.
     if unsafe {
         libc::mount(
             std::ptr::null(),
@@ -803,11 +813,14 @@ fn scratch_namespace() -> io::Result<()> {
     );
     // SAFETY: writable fixed ABI output on the observed mount root.
     let mut fs: libc::statfs = unsafe { std::mem::zeroed() };
+    // SAFETY: the mounted root is live and `fs` is writable statfs storage.
     if unsafe { libc::fstatfs(mounted.as_raw_fd(), &raw mut fs) } < 0 {
         return Err(io::Error::last_os_error());
     }
     assert_eq!(fs.f_type, 0xef53);
+    // SAFETY: statvfs is plain integer data, so all-zero bytes are a valid value.
     let mut space: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: the mounted root is live and `space` is writable statvfs storage.
     if unsafe { libc::fstatvfs(mounted.as_raw_fd(), &raw mut space) } < 0 {
         return Err(io::Error::last_os_error());
     }
@@ -826,7 +839,9 @@ fn scratch_namespace() -> io::Result<()> {
         permitted: 0,
         inheritable: 0,
     }; 2];
+    // SAFETY: integer-only prctl on this dedicated worker.
     if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } < 0
+        // SAFETY: exact version-3 capset ABI: one header and two capability records.
         || unsafe { libc::syscall(libc::SYS_capset, &raw const header, caps.as_ptr()) } < 0
     {
         return Err(io::Error::last_os_error());

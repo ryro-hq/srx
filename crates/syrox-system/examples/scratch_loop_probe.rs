@@ -3,7 +3,10 @@
 //! This is a qualification executable, not a privileged helper or build executor.
 //! It creates only its own regular scratch image, preserves intent/evidence on
 //! failure, and never accepts a disk path or formats an existing resource.
-
+#![expect(
+    clippy::unwrap_used,
+    reason = "qualification probe: a failed step aborts the run"
+)]
 #![allow(unsafe_code)]
 
 use std::fs::{File, OpenOptions};

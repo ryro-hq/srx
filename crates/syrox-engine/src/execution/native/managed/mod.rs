@@ -42,6 +42,7 @@ pub(crate) unsafe fn prepare_managed_runtime(
     super::environment::validate_uid(uid)?;
     super::environment::validate_request(request)?;
     let null = super::environment::open_null()?;
+    // SAFETY: fixed namespace flag with no pointers; affects only this dedicated process.
     checked(unsafe { libc::unshare(libc::CLONE_NEWUSER) }.into())?;
     std::fs::write("/proc/self/uid_map", format!("{uid} {uid} 1"))?;
     std::fs::write("/proc/self/setgroups", "deny")?;
@@ -250,8 +251,8 @@ fn init_process(
 ) -> ! {
     let (executed, mut preparation) = reports;
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        // SAFETY: dedicated namespace init; abrupt monitor death must tear it down.
         let setup = (|| {
+            // SAFETY: dedicated namespace init; abrupt monitor death must tear it down.
             checked(unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0) }.into())?;
             super::require_live_monitor(parent)?;
             SignalFd::for_init(original)

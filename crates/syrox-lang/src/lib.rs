@@ -42,6 +42,14 @@
 //!
 //! [`formatter`] needs complete syntax and checks that formatting preserves tokens.
 //! It works on one source without resolving imports or evaluating a project.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::undocumented_unsafe_blocks,
+        reason = "tests assert with unwrap and drive raw syscalls; non-test builds keep both lints"
+    )
+)]
 
 pub mod analysis;
 pub mod checker;

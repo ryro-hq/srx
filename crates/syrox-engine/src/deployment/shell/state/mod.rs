@@ -93,7 +93,7 @@ impl SessionState {
         let owned_path = temporary.keep();
         let root = linux_fd::open_beneath(
             parent.fd(),
-            Path::new(path.file_name().unwrap()),
+            Path::new(path.file_name().ok_or_else(invalid)?),
             true,
         )
         .map_err(|_| invalid())?;

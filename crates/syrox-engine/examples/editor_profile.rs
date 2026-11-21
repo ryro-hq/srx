@@ -1,3 +1,7 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "qualification probe: a failed step aborts the run"
+)]
 #[cfg(target_os = "linux")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     linux::run()

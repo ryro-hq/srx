@@ -51,7 +51,7 @@ impl Reopen {
                     libc::O_RDWR
                 },
         )
-        .unwrap();
+        .expect("fixed open flags are non-negative");
         how.resolve = libc::RESOLVE_NO_SYMLINKS | libc::RESOLVE_NO_MAGICLINKS;
         // SAFETY: bounded parent-prepared C string, initialized fixed ABI input.
         let result = unsafe {
@@ -69,6 +69,7 @@ impl Reopen {
         let fd = i32::try_from(result).map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
         // SAFETY: stat is writable output-only ABI storage; fd is newly opened.
         let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: `fd` was just opened above and `stat` is writable storage of the exact type.
         if unsafe { libc::fstat(fd, &raw mut stat) } < 0 {
             return Err(io::Error::last_os_error());
         }

@@ -99,11 +99,23 @@ fn bounded(start: u64, size: u64, bytes: u64) -> io::Result<()> {
 }
 
 fn u16_at(bytes: &[u8], at: usize) -> u16 {
-    u16::from_le_bytes(bytes[at..at + 2].try_into().unwrap())
+    u16::from_le_bytes(
+        bytes[at..at + 2]
+            .try_into()
+            .expect("slice has exactly 2 bytes"),
+    )
 }
 fn u32_at(bytes: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
+    u32::from_le_bytes(
+        bytes[at..at + 4]
+            .try_into()
+            .expect("slice has exactly 4 bytes"),
+    )
 }
 fn u64_at(bytes: &[u8], at: usize) -> u64 {
-    u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap())
+    u64::from_le_bytes(
+        bytes[at..at + 8]
+            .try_into()
+            .expect("slice has exactly 8 bytes"),
+    )
 }

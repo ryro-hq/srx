@@ -1,4 +1,12 @@
 //! Public `RecipeRef` globals use the same pure CLI selection as publications.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::undocumented_unsafe_blocks,
+        reason = "tests assert with unwrap and drive raw syscalls; non-test builds keep both lints"
+    )
+)]
 
 use std::process::{Command, Output};
 
