@@ -1031,8 +1031,10 @@ was built with the development host toolchain (SHA-256
 69,642,192 bytes). It uses the host's dynamic loader. Its existing sibling host
 worker and the explicitly configured static Managed worker retain their earlier
 pins. The new private project `../.syrox-source-streaming-probe-v1` is a sibling
-of the catalog, using the supported single-parent `path:../syrox-pkgs` locator;
-no loader traversal rule was relaxed. It was checked and explicitly locked.
+of the catalog, whose checkout was named `syrox-pkgs` for that run, so it used
+`path:../syrox-pkgs`. The [quickstart](../README.md#check-lock-and-plan-a-project)
+uses the canonical checkout name `srx-pkgs`. No loader traversal rule was
+relaxed. The private project was checked and explicitly locked.
 
 The build used `.syrox/managed-bootstrap.toml`, the existing absolute bootstrap
 Store and `--offline`, with the pinned binutils output as its sole build input.

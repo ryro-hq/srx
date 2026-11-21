@@ -56,6 +56,10 @@ Store reuse; it does not grant source downloads when `prefer` falls back.
 
 ## Select packages normally
 
+This example assumes a locked [`srx-pkgs`](https://github.com/ryro-hq/srx-pkgs)
+checkout beside your project, as in the [quickstart](../README.md#check-lock-and-plan-a-project).
+Use the catalog snapshot that matches your authorized artifact descriptor.
+
 ```srx
 inputs { pkgs = "path:../srx-pkgs"; }
 
