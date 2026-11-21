@@ -936,5 +936,5 @@ fn problem(error: impl std::fmt::Debug) -> BuildError {
 }
 
 #[cfg(test)]
-#[path = "tests/cache.rs"]
+#[path = "tests/cache/mod.rs"]
 pub(crate) mod tests;

@@ -193,8 +193,8 @@ pub fn private(path: &Path) -> Result<()> {
 pub const ESSENTIAL_GATES: [&str; 8] = [
     "build::managed::execution::tests::host_managed_directory_build_publishes_verified_artifact_without_toolchain",
     "host_build_prefix_materializes_and_runs_at_its_action_path",
-    "runtime::tests::host_dynamic_runtime_uses_only_declared_loader_and_library",
-    "runtime::tests::host_runtime_cancellation_settles_before_releasing_retention",
+    "runtime::tests::host::host_dynamic_runtime_uses_only_declared_loader_and_library",
+    "runtime::tests::host::host_runtime_cancellation_settles_before_releasing_retention",
     "deployment::shell::managed::tests::state::session_state_persists_between_commands_isolates_sessions_and_closes_after_settlement",
     "execution::launcher::os::tests::restart::automatic_restart_reopens_pins_limits_attempts_and_refuses_revoked_payload",
     "interactive::interactive_literal_resize_exit_and_restore",

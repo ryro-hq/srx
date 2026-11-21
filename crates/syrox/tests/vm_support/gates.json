@@ -2,7 +2,7 @@
   {
     "package": "syrox-engine",
     "target": "lib",
-    "name": "build::cache::tests::real_hello_runs_after_collecting_only_the_provider_root",
+    "name": "build::cache::tests::collection::real_hello_runs_after_collecting_only_the_provider_root",
     "category": "external",
     "group": "build",
     "reason": "set SYROX_RETAINED_STORE, SYROX_RETAINED_HELLO_RECEIPT, SYROX_RETAINED_GLIBC_RECEIPT, SYROX_RETAINED_SRX and SYROX_RETAINED_CATALOG"
@@ -10,7 +10,7 @@
   {
     "package": "syrox-engine",
     "target": "lib",
-    "name": "build::cache::tests::root_selection_profile_growing_store",
+    "name": "build::cache::tests::collection::root_selection_profile_growing_store",
     "category": "benchmark",
     "group": "build",
     "reason": "explicit Store root-scan profile; publishes 1024 results"
@@ -146,7 +146,7 @@
   {
     "package": "syrox-engine",
     "target": "lib",
-    "name": "runtime::tests::host_dynamic_runtime_uses_only_declared_loader_and_library",
+    "name": "runtime::tests::host::host_dynamic_runtime_uses_only_declared_loader_and_library",
     "category": "gate",
     "group": "runtime",
     "reason": "requires syrox-worker, user namespaces, GCC and a Linux x86_64 bootstrap loader"
@@ -154,7 +154,7 @@
   {
     "package": "syrox-engine",
     "target": "lib",
-    "name": "runtime::tests::host_managed_foreground_preserves_identity_minimal_environment_and_exit_status",
+    "name": "runtime::tests::foreground::host_managed_foreground_preserves_identity_minimal_environment_and_exit_status",
     "category": "gate",
     "group": "runtime",
     "reason": "requires explicit SYROX_OWNER_WORKER and SYROX_SESSION_PAYLOAD candidates, nonroot UID and Linux user/PID/mount namespaces"
@@ -162,7 +162,7 @@
   {
     "package": "syrox-engine",
     "target": "lib",
-    "name": "runtime::tests::host_namespace_init_reaps_orphan_before_main_exit_and_preserves_main_status",
+    "name": "runtime::tests::host::host_namespace_init_reaps_orphan_before_main_exit_and_preserves_main_status",
     "category": "gate",
     "group": "runtime",
     "reason": "requires syrox-worker, Linux user/PID namespaces and a host static compiler"
@@ -170,7 +170,7 @@
   {
     "package": "syrox-engine",
     "target": "lib",
-    "name": "runtime::tests::host_runtime_cancellation_settles_before_releasing_retention",
+    "name": "runtime::tests::host::host_runtime_cancellation_settles_before_releasing_retention",
     "category": "gate",
     "group": "runtime",
     "reason": "requires syrox-worker, user namespaces and host static GCC"
@@ -178,7 +178,7 @@
   {
     "package": "syrox-engine",
     "target": "lib",
-    "name": "runtime::tests::host_runtime_consumes_private_configuration_outside_cwd",
+    "name": "runtime::tests::host::host_runtime_consumes_private_configuration_outside_cwd",
     "category": "gate",
     "group": "runtime",
     "reason": "requires syrox-worker, Linux user namespaces and a host static compiler"
@@ -186,7 +186,7 @@
   {
     "package": "syrox-engine",
     "target": "lib",
-    "name": "runtime::tests::host_runtime_payload_owns_terminal_foreground_and_observes_resize",
+    "name": "runtime::tests::host::host_runtime_payload_owns_terminal_foreground_and_observes_resize",
     "category": "gate",
     "group": "runtime",
     "reason": "requires syrox-worker, Linux user/PID namespaces, devpts and a host static compiler"
@@ -194,7 +194,7 @@
   {
     "package": "syrox-engine",
     "target": "lib",
-    "name": "runtime::tests::host_session_ends_descendants_before_the_store_lease_can_be_released",
+    "name": "runtime::tests::host::host_session_ends_descendants_before_the_store_lease_can_be_released",
     "category": "gate",
     "group": "runtime",
     "reason": "requires syrox-worker, user namespaces and a host static compiler"
@@ -202,7 +202,7 @@
   {
     "package": "syrox-engine",
     "target": "lib",
-    "name": "runtime::tests::host_static_runtime_mounts_only_the_verified_output_and_preserves_cwd",
+    "name": "runtime::tests::host::host_static_runtime_mounts_only_the_verified_output_and_preserves_cwd",
     "category": "gate",
     "group": "runtime",
     "reason": "requires syrox-worker beside the test profile directory, user namespaces and static GCC"
@@ -218,7 +218,7 @@
   {
     "package": "syrox-engine",
     "target": "lib",
-    "name": "runtime::tests::namespace_descendants_are_exited_at_return_not_merely_eventually",
+    "name": "runtime::tests::host::namespace_descendants_are_exited_at_return_not_merely_eventually",
     "category": "gate",
     "group": "runtime",
     "reason": "requires syrox-worker, user namespaces and a host static compiler"
@@ -226,7 +226,7 @@
   {
     "package": "syrox-engine",
     "target": "lib",
-    "name": "runtime::tests::native_runtime_refuses_eof_invalid_authorization_and_coordinator_loss",
+    "name": "runtime::tests::native::native_runtime_refuses_eof_invalid_authorization_and_coordinator_loss",
     "category": "gate",
     "group": "runtime",
     "reason": "requires the release syrox-worker binary, Linux user namespaces and static GCC"
@@ -234,7 +234,7 @@
   {
     "package": "syrox-engine",
     "target": "lib",
-    "name": "runtime::tests::native_cancellation_after_pin_prevents_payload_and_settles",
+    "name": "runtime::tests::native::native_cancellation_after_pin_prevents_payload_and_settles",
     "category": "gate",
     "group": "runtime",
     "reason": "requires syrox-worker, Linux user and PID namespaces and static GCC"
@@ -242,7 +242,7 @@
   {
     "package": "syrox-engine",
     "target": "lib",
-    "name": "runtime::tests::native_cancellation_before_pin_prevents_payload",
+    "name": "runtime::tests::native::native_cancellation_before_pin_prevents_payload",
     "category": "gate",
     "group": "runtime",
     "reason": "requires syrox-worker, Linux user and PID namespaces and static GCC"
@@ -250,7 +250,7 @@
   {
     "package": "syrox-engine",
     "target": "lib",
-    "name": "runtime::tests::source_built_glibc_loader_and_libc_run_from_separate_retained_outputs",
+    "name": "runtime::tests::host::source_built_glibc_loader_and_libc_run_from_separate_retained_outputs",
     "category": "external",
     "group": "runtime",
     "reason": "requires SYROX_SOURCE_BUILT_GLIBC_OUTPUT pointing to a source-built x86_64 glibc install, GCC and rootless Bubblewrap"
