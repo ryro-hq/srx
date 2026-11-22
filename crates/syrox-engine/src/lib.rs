@@ -21,7 +21,7 @@
 //! # Shell sessions and Services generations
 //!
 //! [`deployment::shell`] owns temporary sessions and their commands, configuration
-//! and secrets. [`deployment::os`] owns persistent generations and records the
+//! and secrets. [`deployment::services`] owns persistent generations and records the
 //! effects of applying them. Both use [`execution`] for admission and process
 //! observations, [`systemd`] for manager communication and [`platform`] for Linux
 //! handles. Follow these modules for the contracts behind each handoff.
@@ -40,7 +40,7 @@
 //!
 //! [Build cancellation]: ../src/syrox_engine/build/cancellation/mod.rs.html
 //! [build journal]: ../src/syrox_engine/build/journal/mod.rs.html
-//! [Services recovery]: ../src/syrox_engine/deployment/os/apply/recovery/mod.rs.html
+//! [Services recovery]: ../src/syrox_engine/deployment/services/apply/recovery/mod.rs.html
 #![cfg_attr(
     test,
     allow(

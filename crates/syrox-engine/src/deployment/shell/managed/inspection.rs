@@ -183,9 +183,9 @@ mod tests {
             |_, _| panic!("configuration cannot build"),
         )
         .unwrap();
-        let (snapshot, _) = crate::deployment::os::shell_snapshot(
+        let (snapshot, _) = crate::deployment::services::shell_snapshot(
             &prepared,
-            crate::deployment::os::LauncherIdentity::new(ContentDigest::sha256(b"candidate"), 1)
+            crate::deployment::services::LauncherIdentity::new(ContentDigest::sha256(b"candidate"), 1)
                 .unwrap(),
         )
         .unwrap();

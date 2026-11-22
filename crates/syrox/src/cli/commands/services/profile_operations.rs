@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use syrox_encoding::hex;
 use syrox_engine::{
     cancellation::Cancellation,
-    deployment::os::{self, OsPreparation, OsStatus},
+    deployment::services::{self, OsPreparation, OsStatus},
     project::CheckConfiguration,
     store::{ContentDigest, Store},
 };
@@ -74,13 +74,13 @@ pub(super) fn apply(
     )
     .map_err(|e| e.to_string())?;
     loaded.revalidate(cancel)?;
-    let installation = os::open_os_installation(&p.installation, cancel, super::deadline())
+    let installation = services::open_os_installation(&p.installation, cancel, super::deadline())
         .map_err(|e| e.to_string())?;
     if installation.id() != p.installation_id {
         return Err("profile installation identity differs".into());
     }
     let store = Store::initialize(&p.store).map_err(|e| e.to_string())?;
-    let summary = os::prepare_os_generation(
+    let summary = services::prepare_os_generation(
         prepared,
         &OsPreparation {
             installation: &installation,
@@ -106,7 +106,7 @@ pub(super) fn activate(
     require_settled(before, &loaded.profile.name)?;
     loaded.revalidate(cancel)?;
     let request = loaded.request(pin, before.desired);
-    let report = os::apply_os_generation_with_authority(
+    let report = services::apply_os_generation_with_authority(
         &request,
         &loaded.authority(before),
         rollback,
@@ -138,13 +138,13 @@ pub(super) fn stop(arguments: &StopArguments, cancel: &Cancellation) -> Result<u
     loaded.check_manager_paths(cancel)?;
     let worker = crate::cli::worker_path::installed()?;
     let digest = crate::cli::worker_path::digest(&worker, cancel)?;
-    let installation = os::open_os_installation(&p.installation, cancel, super::deadline())
+    let installation = services::open_os_installation(&p.installation, cancel, super::deadline())
         .map_err(|e| e.to_string())?;
     if installation.id() != p.installation_id {
         return Err("profile installation identity differs".into());
     }
     let store = Store::open_existing(&p.store).map_err(|e| e.to_string())?;
-    let summary = os::prepare_empty_os_generation(
+    let summary = services::prepare_empty_os_generation(
         &OsPreparation {
             installation: &installation,
             store: &store,
@@ -341,7 +341,7 @@ pub(super) fn logs(arguments: &LogArguments, cancel: &Cancellation) -> Result<u8
 }
 
 fn journal_matches(
-    profile: &os::profile::OsProfile,
+    profile: &services::profile::OsProfile,
     status: &OsStatus,
     service: Option<&str>,
 ) -> Result<Vec<String>, String> {
@@ -361,7 +361,7 @@ fn journal_matches(
         };
         let boot = binding.epoch.boot.replace('-', "");
         let (unit_field, manager_unit, manager_invocation, manager_uid) = match profile.scope {
-            os::profile::ProfileScope::User {
+            services::profile::ProfileScope::User {
                 ..
             } => (
                 "_SYSTEMD_USER_UNIT",
@@ -369,7 +369,7 @@ fn journal_matches(
                 "USER_INVOCATION_ID",
                 profile.uid,
             ),
-            os::profile::ProfileScope::System => ("_SYSTEMD_UNIT", "UNIT", "INVOCATION_ID", 0),
+            services::profile::ProfileScope::System => ("_SYSTEMD_UNIT", "UNIT", "INVOCATION_ID", 0),
         };
         for (unit_key, invocation_key, uid) in [
             (unit_field, "_SYSTEMD_INVOCATION_ID", profile.uid),

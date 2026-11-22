@@ -196,7 +196,7 @@ pub const ESSENTIAL_GATES: [&str; 8] = [
     "runtime::tests::host::host_dynamic_runtime_uses_only_declared_loader_and_library",
     "runtime::tests::host::host_runtime_cancellation_settles_before_releasing_retention",
     "deployment::shell::managed::tests::state::session_state_persists_between_commands_isolates_sessions_and_closes_after_settlement",
-    "execution::launcher::os::tests::restart::automatic_restart_reopens_pins_limits_attempts_and_refuses_revoked_payload",
+    "execution::launcher::services::tests::restart::automatic_restart_reopens_pins_limits_attempts_and_refuses_revoked_payload",
     "interactive::interactive_literal_resize_exit_and_restore",
     "interactive::interactive_ctrl_c_status_and_restore",
 ];

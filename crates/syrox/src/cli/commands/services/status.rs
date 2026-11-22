@@ -1,7 +1,7 @@
 use std::path::Path;
 use syrox_engine::{
     cancellation::Cancellation,
-    deployment::os::{OsStatus, inspect_os_status},
+    deployment::services::{OsStatus, inspect_os_status},
 };
 
 pub(crate) fn run(installation: &Path, as_json: bool, cancel: &Cancellation) -> Result<u8, String> {

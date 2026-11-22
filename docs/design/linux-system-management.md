@@ -371,7 +371,7 @@ Esses limites foram conferidos em
 [`result`](../../crates/syrox-engine/src/result/mod.rs) e
 [`store`](../../crates/syrox-engine/src/store/mod.rs). A restrição de identidade
 dos perfis está em
-[`deployment::os::profile`](../../crates/syrox-engine/src/deployment/os/profile.rs).
+[`deployment::services::profile`](../../crates/syrox-engine/src/deployment/services/profile.rs).
 
 Kernel, compiladores e imagens ultrapassam parte desses limites. A implementação
 precisa evoluir o modelo de artefatos e recursos antes de adicionar suas receitas.

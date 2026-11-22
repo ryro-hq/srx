@@ -98,7 +98,7 @@
   {
     "package": "syrox-engine",
     "target": "lib",
-    "name": "execution::launcher::os::tests::restart::automatic_restart_reopens_pins_limits_attempts_and_refuses_revoked_payload",
+    "name": "execution::launcher::services::tests::restart::automatic_restart_reopens_pins_limits_attempts_and_refuses_revoked_payload",
     "category": "gate",
     "group": "launcher",
     "reason": "real systemd/user namespaces; explicit SYROX_RESTART_{WORKER,PAYLOAD} and _SHA256, SYROX_RESTART_PARENT, SYROX_RESTART_UNITS, SYROX_SYSTEMD_USER_BUS; retains evidence"

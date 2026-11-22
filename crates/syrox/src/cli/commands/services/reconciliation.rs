@@ -1,8 +1,8 @@
 use std::time::{Duration, Instant};
 
 use syrox_engine::{
-    cancellation::Cancellation, deployment::os::OsRecoveryEffect, deployment::os::OsRecoveryReport,
-    deployment::os::OsRecoveryRequest,
+    cancellation::Cancellation, deployment::services::OsRecoveryEffect, deployment::services::OsRecoveryReport,
+    deployment::services::OsRecoveryRequest,
 };
 
 #[derive(Debug, clap::Args)]
@@ -75,14 +75,14 @@ pub(crate) fn recover(arguments: &RecoveryArguments, cancel: &Cancellation) -> R
     };
     let report = if let Some(loaded) = &loaded {
         loaded.revalidate(cancel)?;
-        syrox_engine::deployment::os::recover_os_generation_with_identity(
+        syrox_engine::deployment::services::recover_os_generation_with_identity(
             &request,
             &loaded.profile.installation_id,
             cancel,
             Instant::now() + Duration::from_secs(300),
         )
     } else {
-        syrox_engine::deployment::os::recover_os_generation(
+        syrox_engine::deployment::services::recover_os_generation(
             &request,
             cancel,
             Instant::now() + Duration::from_secs(300),
@@ -162,7 +162,7 @@ pub(crate) struct AbandonArguments {
 }
 
 pub(crate) fn abandon(arguments: &AbandonArguments, cancel: &Cancellation) -> Result<u8, String> {
-    let report = syrox_engine::deployment::os::abandon_os_operation(
+    let report = syrox_engine::deployment::services::abandon_os_operation(
         &arguments.installation,
         &arguments.operation,
         cancel,
@@ -192,7 +192,7 @@ pub(crate) fn abandon(arguments: &AbandonArguments, cancel: &Cancellation) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
-    use syrox_engine::{deployment::os::OsRecoveryState, store::ContentDigest};
+    use syrox_engine::{deployment::services::OsRecoveryState, store::ContentDigest};
 
     #[test]
     fn not_applied_is_reported_distinctly_without_claiming_candidate_application() {

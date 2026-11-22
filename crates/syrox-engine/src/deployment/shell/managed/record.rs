@@ -16,7 +16,7 @@ pub(super) enum RecordError {
     #[error("invalid Shell operation metadata: {0}")]
     Encoding(#[from] serde_json::Error),
     #[error("invalid Shell snapshot: {0}")]
-    Snapshot(#[from] crate::deployment::os::GenerationError),
+    Snapshot(#[from] crate::deployment::services::GenerationError),
 }
 
 #[derive(Debug)]
@@ -150,7 +150,7 @@ fn validate_snapshot(snapshot: &[u8]) -> Result<(), RecordError> {
             "snapshot size bound exceeded",
         ));
     }
-    crate::deployment::os::ShellSessionManifest::decode_bounded(
+    crate::deployment::services::ShellSessionManifest::decode_bounded(
         snapshot,
         ContentDigest::sha256(snapshot),
     )?;

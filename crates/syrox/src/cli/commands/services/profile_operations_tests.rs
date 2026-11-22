@@ -1,5 +1,5 @@
 use super::*;
-use os::{
+use services::{
     OsStatusBinding, OsStatusEffect, OsStatusEpoch,
     profile::{OsProfile, ProfileScope},
 };

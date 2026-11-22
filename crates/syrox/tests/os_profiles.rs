@@ -36,7 +36,7 @@ fn success(home: &Path, arguments: &[&str]) -> serde_json::Value {
 
 #[test]
 fn init_binds_identity_without_building_and_recorded_commands_work_offline() {
-    if syrox_engine::deployment::os::profile::profile_credentials().is_err() {
+    if syrox_engine::deployment::services::profile::profile_credentials().is_err() {
         return;
     }
     let home = tempfile::tempdir().unwrap();
@@ -57,7 +57,7 @@ fn init_binds_identity_without_building_and_recorded_commands_work_offline() {
     assert_eq!(report["applied"], false);
     assert_eq!(report["manager_verified"], false);
     let path = home.path().join("config/syrox/os/web.json");
-    let profile = syrox_engine::deployment::os::profile::read_os_profile(&path).unwrap();
+    let profile = syrox_engine::deployment::services::profile::read_os_profile(&path).unwrap();
     assert_eq!(profile.version, 1);
     assert_eq!(report["installation"], profile.installation_id);
     let original_profile = std::fs::read(&path).unwrap();
@@ -128,8 +128,8 @@ fn init_binds_identity_without_building_and_recorded_commands_work_offline() {
     assert!(!profile.store.exists());
     let moved = home.path().join("previous-installation");
     std::fs::rename(&profile.installation, moved).unwrap();
-    syrox_engine::deployment::os::profile::ensure_profile_directory(&profile.installation).unwrap();
-    syrox_engine::deployment::os::initialize_os_installation(
+    syrox_engine::deployment::services::profile::ensure_profile_directory(&profile.installation).unwrap();
+    syrox_engine::deployment::services::initialize_os_installation(
         &profile.installation,
         &Cancellation::default(),
         std::time::Instant::now() + std::time::Duration::from_secs(5),
@@ -154,7 +154,7 @@ fn init_binds_identity_without_building_and_recorded_commands_work_offline() {
 
 #[test]
 fn profile_execution_cannot_mix_explicit_authority_and_rejects_profile_symlinks() {
-    if syrox_engine::deployment::os::profile::profile_credentials().is_err() {
+    if syrox_engine::deployment::services::profile::profile_credentials().is_err() {
         return;
     }
     let home = tempfile::tempdir().unwrap();

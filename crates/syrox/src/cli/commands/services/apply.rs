@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use super::{ExecutionArguments, profile, profile_operations};
 
 use syrox_engine::{
-    cancellation::Cancellation, deployment::os::OsRollbackRequest, store::ContentDigest,
+    cancellation::Cancellation, deployment::services::OsRollbackRequest, store::ContentDigest,
 };
 
 #[derive(Debug, clap::Args)]
@@ -111,7 +111,7 @@ fn execute(
     let request = arguments.request(candidate, expected)?;
     let deadline = Instant::now() + Duration::from_secs(300);
     let report = if rollback {
-        syrox_engine::deployment::os::rollback_os_generation(
+        syrox_engine::deployment::services::rollback_os_generation(
             &OsRollbackRequest {
                 target: request.candidate,
                 expected: request
@@ -131,14 +131,14 @@ fn execute(
             deadline,
         )
     } else {
-        syrox_engine::deployment::os::apply_os_generation(&request, cancel, deadline)
+        syrox_engine::deployment::services::apply_os_generation(&request, cancel, deadline)
     }
     .map_err(|error| error.to_string())?;
     Ok(print_report(&report, rollback, arguments.json))
 }
 
 pub(super) fn print_report(
-    report: &syrox_engine::deployment::os::OsApplyReport,
+    report: &syrox_engine::deployment::services::OsApplyReport,
     rollback: bool,
     json: bool,
 ) -> u8 {

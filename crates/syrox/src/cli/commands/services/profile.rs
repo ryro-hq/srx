@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use syrox_engine::{
     cancellation::Cancellation,
     config::UserConfiguration,
-    deployment::os::{
+    deployment::services::{
         self,
         profile::{self, OsProfile, ProfileScope},
     },
@@ -83,7 +83,7 @@ impl Loaded {
         if current != self.profile {
             return Err("profile changed during the operation; retry explicitly".into());
         }
-        let installation = os::open_os_installation(
+        let installation = services::open_os_installation(
             &self.profile.installation,
             cancel,
             super::deadline(),
@@ -96,9 +96,9 @@ impl Loaded {
         }
         Ok(())
     }
-    pub fn status(&self, cancel: &Cancellation) -> Result<os::OsStatus, String> {
+    pub fn status(&self, cancel: &Cancellation) -> Result<services::OsStatus, String> {
         self.revalidate(cancel)?;
-        let status = os::inspect_os_status(
+        let status = services::inspect_os_status(
             &self.profile.installation,
             cancel,
             super::deadline(),
@@ -109,8 +109,8 @@ impl Loaded {
         }
         Ok(status)
     }
-    pub fn authority(&self, status: &os::OsStatus) -> os::OsSelectionAuthority {
-        os::OsSelectionAuthority {
+    pub fn authority(&self, status: &services::OsStatus) -> services::OsSelectionAuthority {
+        services::OsSelectionAuthority {
             installation: self.profile.installation_id.clone(),
             active_operation: status.active_operation.clone(),
         }
@@ -119,9 +119,9 @@ impl Loaded {
         &self,
         candidate: ContentDigest,
         expected: Option<ContentDigest>,
-    ) -> os::OsApplyRequest {
+    ) -> services::OsApplyRequest {
         let profile = &self.profile;
-        os::OsApplyRequest {
+        services::OsApplyRequest {
             installation: profile.installation.clone(),
             store: profile.store.clone(),
             units: profile.units.clone(),
@@ -232,7 +232,7 @@ pub(crate) fn init(arguments: &InitArguments, cancel: &Cancellation) -> Result<u
         profile::ensure_profile_directory(directory).map_err(|e| e.to_string())?;
     }
     let installation =
-        os::initialize_os_installation(&profile.installation, cancel, super::deadline())
+        services::initialize_os_installation(&profile.installation, cancel, super::deadline())
             .map_err(|e| e.to_string())?;
     profile.installation_id = installation.id().into();
     profile::create_os_profile(&destination, &profile).map_err(|e| e.to_string())?;

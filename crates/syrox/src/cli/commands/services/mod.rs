@@ -3,8 +3,8 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use syrox_engine::{
-    cancellation::Cancellation, config::UserConfiguration, deployment::os::OsCandidatePhase,
-    deployment::os::OsGenerationSummary, deployment::os::OsPreparation, plan::PlanConsumerKind,
+    cancellation::Cancellation, config::UserConfiguration, deployment::services::OsCandidatePhase,
+    deployment::services::OsGenerationSummary, deployment::services::OsPreparation, plan::PlanConsumerKind,
     project::CheckConfiguration, project::reference::ProjectReference, store::ContentDigest,
     store::Store,
 };
@@ -124,7 +124,7 @@ impl ExecutionArguments {
         &self,
         candidate: ContentDigest,
         expected: Option<ContentDigest>,
-    ) -> Result<syrox_engine::deployment::os::OsApplyRequest, String> {
+    ) -> Result<syrox_engine::deployment::services::OsApplyRequest, String> {
         let scope = match (&self.systemd_user_bus, self.systemd_system) {
             (Some(bus_socket), false) => syrox_engine::systemd::SystemdScope::User {
                 bus_socket: bus_socket.clone(),
@@ -132,7 +132,7 @@ impl ExecutionArguments {
             (None, true) => syrox_engine::systemd::SystemdScope::System,
             _ => return Err("select exactly one explicit systemd manager".into()),
         };
-        Ok(syrox_engine::deployment::os::OsApplyRequest {
+        Ok(syrox_engine::deployment::services::OsApplyRequest {
             installation: self
                 .installation
                 .clone()
@@ -212,7 +212,7 @@ fn execute(
                 .map(|loaded| loaded.profile.installation.as_path())
                 .or(installation.as_deref())
                 .ok_or("--installation or --profile is required")?;
-            let opened = syrox_engine::deployment::os::open_os_installation(
+            let opened = syrox_engine::deployment::services::open_os_installation(
                 installation,
                 cancel,
                 deadline(),
@@ -262,7 +262,7 @@ fn execute(
             json,
         } => {
             let store = Store::open(store).map_err(|error| error.to_string())?;
-            let summary = syrox_engine::deployment::os::inspect_os_generation(
+            let summary = syrox_engine::deployment::services::inspect_os_generation(
                 installation,
                 &store,
                 *pin,
@@ -280,7 +280,7 @@ fn execute(
             store,
         } => {
             let store = Store::open(store).map_err(|error| error.to_string())?;
-            let diff = syrox_engine::deployment::os::diff_os_generations(
+            let diff = syrox_engine::deployment::services::diff_os_generations(
                 installation,
                 &store,
                 *previous,
@@ -328,7 +328,7 @@ fn prepare(
         Some(&arguments.store),
     )
     .map_err(|error| error.to_string())?;
-    let installation = syrox_engine::deployment::os::initialize_os_installation(
+    let installation = syrox_engine::deployment::services::initialize_os_installation(
         &arguments.installation,
         cancel,
         deadline(),
@@ -345,7 +345,7 @@ fn prepare(
     )
     .map_err(|error| error.to_string())?;
     let store = Store::initialize(user.store()).map_err(|error| error.to_string())?;
-    let summary = syrox_engine::deployment::os::prepare_os_generation(
+    let summary = syrox_engine::deployment::services::prepare_os_generation(
         prepared,
         &OsPreparation {
             installation: &installation,

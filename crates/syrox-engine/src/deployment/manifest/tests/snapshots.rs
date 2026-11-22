@@ -1,6 +1,6 @@
 use super::super::encoding::{Origin, Process, ShellSessionManifest, command_key};
 use super::super::*;
-use crate::deployment::os::diff::{
+use crate::deployment::services::diff::{
     ChangeKind, Effect, GenerationChange, GenerationDiff, ResourceKind, diff_generations,
 };
 use std::fs;

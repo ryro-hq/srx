@@ -4,7 +4,7 @@ use std::process::ExitStatus;
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::deployment::os::{LauncherIdentity, shell_snapshot};
+use crate::deployment::services::{LauncherIdentity, shell_snapshot};
 use crate::execution::launcher::coordinator::{OwnerHandle, OwnerStart, start_owner};
 use crate::execution::launcher::service_coordinator::{ServiceGroup, ServiceRoleStart};
 use crate::platform::linux::boot::BootId;

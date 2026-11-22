@@ -10,7 +10,7 @@ pub(crate) use crate::execution::{resources as service_spec, transport};
 mod admission;
 pub(crate) mod coordinator;
 #[allow(unsafe_code)]
-pub(crate) mod os;
+pub(crate) mod services;
 pub(crate) mod owner;
 pub(crate) const RETENTION: &[u8] = b"syrox-owner-v1 retention";
 pub(crate) const PROCESSED: &[u8] = b"syrox-owner-v1 processed";

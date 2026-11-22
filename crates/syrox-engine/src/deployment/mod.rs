@@ -6,5 +6,5 @@
 //! settlement completes.
 
 pub mod manifest;
-pub mod os;
+pub mod services;
 pub mod shell;
