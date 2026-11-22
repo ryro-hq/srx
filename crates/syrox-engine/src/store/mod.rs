@@ -335,6 +335,7 @@ impl Store {
         let roots_parent = open_named_directory(root.fd(), "roots")?;
         let roots = open_named_directory(roots_parent.fd(), "retained")?;
         let private_parent = open_named_directory(root.fd(), ".syrox-store")?;
+        check_format(&private_parent, false)?;
         let coordination = open_named_directory(private_parent.fd(), "state")?;
         let lease = crate::platform::linux::fd::open_existing_regular(
             coordination.fd(),
@@ -362,13 +363,8 @@ impl Store {
     fn from_directory(root: &crate::platform::linux::fd::OpenedPath) -> Result<Self, StoreError> {
         require_directory(root)?;
         reject_unsupported_layout(root)?;
-        let objects_parent = ensure(root.fd(), "objects")?;
-        let objects = ensure(objects_parent.fd(), "sha256")?;
-        for shard in 0_u16..=255 {
-            ensure(objects.fd(), &format!("{shard:02x}"))?;
-        }
-        let roots_parent = ensure(root.fd(), "roots")?;
-        let roots = ensure(roots_parent.fd(), "retained")?;
+        // Check the format under the initialization lock before creating or
+        // repairing anything else, so a Store from an earlier srx stays as it was.
         let private_parent = ensure(root.fd(), ".syrox-store")?;
         let initialization =
             crate::platform::linux::fd::open_beneath(private_parent.fd(), Path::new("."), true)
@@ -377,6 +373,14 @@ impl Store {
             initialization.fd(),
             crate::platform::linux::fd::FlockMode::Exclusive,
         )?;
+        check_format(&private_parent, true)?;
+        let objects_parent = ensure(root.fd(), "objects")?;
+        let objects = ensure(objects_parent.fd(), "sha256")?;
+        for shard in 0_u16..=255 {
+            ensure(objects.fd(), &format!("{shard:02x}"))?;
+        }
+        let roots_parent = ensure(root.fd(), "roots")?;
+        let roots = ensure(roots_parent.fd(), "retained")?;
         let (coordination, coordination_created) =
             crate::platform::linux::fd::ensure_directory_beneath_with_status(
                 private_parent.fd(),
@@ -931,8 +935,10 @@ pub enum StoreError {
     InterestStoreMismatch,
     #[error("Store initialization requires a bounded absolute location without '..'")]
     InvalidLocation,
-    #[error("the Store uses an incompatible prelaunch layout; select a fresh Store")]
-    UnsupportedLayout,
+    #[error(
+        "the Store was written by an earlier pre-release srx format; remove the Store directory so srx can recreate it"
+    )]
+    EarlierFormat,
     #[error("the store is busy with an incompatible lease")]
     Busy,
     #[error("the permanent store lease inode is missing, replaced, or unsafe")]
@@ -1160,6 +1166,53 @@ fn ensure(
         .map_err(map_directory_error)
 }
 
+/// Name of the format marker inside `.syrox-store`.
+#[cfg(target_os = "linux")]
+pub(crate) const FORMAT_FILE: &str = "format";
+
+/// Require the Store format marker, or record it in a Store being created.
+///
+/// The marker is written under the initialization lock before the
+/// coordination state, so coordination state without a marker means an
+/// earlier pre-release srx wrote the Store. Its objects, roots and journals
+/// carry identities this srx no longer derives, so it is refused before any
+/// of them is read instead of failing later with digest mismatches.
+#[cfg(target_os = "linux")]
+fn check_format(
+    private: &crate::platform::linux::fd::OpenedPath,
+    initialize: bool,
+) -> Result<(), StoreError> {
+    use crate::platform::linux::fd::{self as linux_fd, LockIoError};
+    use std::io::Write as _;
+    let marker = formats::STORE_LINE.as_bytes();
+    let found = linux_fd::read_bounded_beneath(private.fd(), Path::new(FORMAT_FILE), marker.len())
+        .map_err(|error| match error {
+            LockIoError::Symlink => StoreError::SymbolicLink,
+            LockIoError::NonRegular | LockIoError::HardLinked => StoreError::UntrustedEntry,
+            LockIoError::TooLarge => StoreError::EarlierFormat,
+            LockIoError::Io(source) => StoreError::Io(source),
+        })?;
+    match found {
+        Some(bytes) if bytes == marker => return Ok(()),
+        // An empty marker is a creation interrupted before its write.
+        Some(bytes) if initialize && bytes.is_empty() => {}
+        None if initialize => {}
+        Some(_) | None => return Err(StoreError::EarlierFormat),
+    }
+    match linux_fd::open_beneath(private.fd(), Path::new("state"), true) {
+        Ok(_) => return Err(StoreError::EarlierFormat),
+        Err(linux_fd::OpenError::Other(error)) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(map_open_error(error)),
+    }
+    let (file, _) = linux_fd::initialize_regular(private.fd(), Path::new(FORMAT_FILE))?;
+    let mut file = file.into_file();
+    file.set_len(0)?;
+    file.write_all(marker)?;
+    file.sync_all()?;
+    linux_fd::sync_directory(private.fd())?;
+    Ok(())
+}
+
 #[cfg(target_os = "linux")]
 fn reject_unsupported_layout(
     root: &crate::platform::linux::fd::OpenedPath,
@@ -1173,7 +1226,7 @@ fn reject_unsupported_layout(
         ".syrox-store/views-v1",
     ] {
         match crate::platform::linux::fd::open_beneath(root.fd(), Path::new(path), true) {
-            Ok(_) => return Err(StoreError::UnsupportedLayout),
+            Ok(_) => return Err(StoreError::EarlierFormat),
             Err(crate::platform::linux::fd::OpenError::Other(error))
                 if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(map_open_error(error)),

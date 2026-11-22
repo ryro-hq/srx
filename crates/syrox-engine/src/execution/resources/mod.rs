@@ -88,7 +88,7 @@ impl ServiceSpec {
         let body = bytes
             .strip_prefix(HEADER)
             .ok_or(ServiceSpecError::Invalid(
-                "unsupported service body version",
+                "unsupported service body header",
             ))?;
         structural_budget(body)?;
         let spec: Self = serde_json::from_slice(body)?;

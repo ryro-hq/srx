@@ -57,7 +57,16 @@ impl Storage {
         let path = std::path::absolute(path)?;
         let root = linux_fd::open_top_directory(&path).map_err(open_error)?;
         private_directory(&root)?;
-        let create = initialize && read_optional(root.fd(), "installation", 128)?.is_none();
+        // Every journal below the identity carries identities derived by the
+        // writing srx; refuse an installation from an earlier format up front.
+        let identity = read_optional(root.fd(), "installation", 128)?;
+        if identity
+            .as_ref()
+            .is_some_and(|bytes| !bytes.starts_with(ID_HEADER.as_bytes()))
+        {
+            return Err(InstallationError::EarlierFormat);
+        }
+        let create = initialize && identity.is_none();
         let lock = if create {
             let (lock, created) =
                 linux_fd::initialize_regular(root.fd(), Path::new("authority.lock"))?;

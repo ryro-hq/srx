@@ -209,7 +209,7 @@ impl GenerationManifest {
         let json = bytes
             .strip_prefix(header)
             .ok_or(GenerationError::Invalid(
-                "unsupported generation version",
+                "unsupported generation header or earlier srx format",
             ))?;
         json_budget(json)?;
         let manifest: Self = serde_json::from_slice(json)?;

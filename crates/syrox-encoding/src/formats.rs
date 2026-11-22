@@ -124,6 +124,12 @@ registry! {
     }
 
     // syrox_engine::store
+    STORE = "syrox-store" {
+        boundary: Persisted,
+        owner: "syrox_engine::store",
+        summary: "Store format marker at `.syrox-store/format`; a Store without it was written by an earlier srx.",
+        forms { STORE_LINE = tag + "\n" },
+    }
     STORE_ROOT = "syrox-root" {
         boundary: Persisted,
         owner: "syrox_engine::store",
@@ -842,6 +848,7 @@ mod tests {
             SYSTEM_RESULT_LINE.as_bytes(),
             b"syrox-system-result\n"
         );
+        assert_eq!(STORE_LINE, "syrox-store\n");
         assert_eq!(STORE_ROOT_LINE, "syrox-root\n");
         assert_eq!(BUILD_PROGRAM_MAGIC.as_bytes(), b"SRXBUILD\x01");
         assert_eq!(

@@ -219,12 +219,55 @@ fn incompatible_layout_is_rejected_before_creating_shards_or_leases() {
         fs::create_dir_all(temp.0.join(old)).unwrap();
         assert!(matches!(
             Store::initialize(&temp.0),
-            Err(StoreError::UnsupportedLayout)
+            Err(StoreError::EarlierFormat)
         ));
         assert!(!temp.0.join("objects").exists());
         assert!(!temp.0.join("roots/retained").exists());
         assert!(!temp.0.join(".syrox-store/state").exists());
     }
+}
+
+#[test]
+fn stores_without_the_format_marker_are_refused_as_an_earlier_format() {
+    let fresh = TempDirectory::new();
+    Store::initialize(&fresh.0).unwrap();
+    assert_eq!(
+        fs::read(fresh.0.join(".syrox-store/format")).unwrap(),
+        b"syrox-store\n"
+    );
+    Store::open_existing(&fresh.0).unwrap();
+
+    // A Store initialized by a pre-reset srx has coordination state but no marker.
+    let earlier = TempDirectory::new();
+    fs::create_dir_all(earlier.0.join(".syrox-store/state")).unwrap();
+    let error = Store::initialize(&earlier.0).unwrap_err();
+    assert!(matches!(error, StoreError::EarlierFormat));
+    assert!(
+        error
+            .to_string()
+            .contains("remove the Store directory")
+    );
+    assert!(!earlier.0.join("objects").exists());
+    assert!(!earlier.0.join(".syrox-store/format").exists());
+
+    fs::remove_file(fresh.0.join(".syrox-store/format")).unwrap();
+    assert!(matches!(
+        Store::open_existing(&fresh.0),
+        Err(StoreError::EarlierFormat)
+    ));
+    assert!(matches!(
+        Store::open(&fresh.0),
+        Err(StoreError::EarlierFormat)
+    ));
+    fs::write(
+        fresh.0.join(".syrox-store/format"),
+        b"syrox-root\n",
+    )
+    .unwrap();
+    assert!(matches!(
+        Store::open(&fresh.0),
+        Err(StoreError::EarlierFormat)
+    ));
 }
 
 #[test]

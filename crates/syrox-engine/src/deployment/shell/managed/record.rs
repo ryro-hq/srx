@@ -105,7 +105,9 @@ pub(super) fn decode(bytes: &[u8], pin: ContentDigest) -> Result<SessionRecord, 
     }
     let body = bytes
         .strip_prefix(HEADER)
-        .ok_or(RecordError::Invalid("unsupported record header"))?;
+        .ok_or(RecordError::Invalid(
+            "unsupported header or earlier srx format",
+        ))?;
     // Search only the bounded prefix before any JSON parsing or allocation.
     let newline = body
         .iter()

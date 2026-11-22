@@ -38,7 +38,7 @@ impl Header {
         let bytes = packet
             .strip_prefix(OFFER)
             .ok_or(ServiceSpecError::Invalid(
-                "invalid service offer version",
+                "invalid service offer header",
             ))?;
         let header: Self = serde_json::from_slice(bytes)?;
         require(
@@ -140,7 +140,7 @@ fn decode_chunk(packet: &[u8], index: usize, length: usize) -> Result<&[u8]> {
     let frame = packet
         .strip_prefix(CHUNK)
         .ok_or(ServiceSpecError::Invalid(
-            "invalid service chunk version",
+            "invalid service chunk header",
         ))?;
     require(
         frame.len() == 4 + length,

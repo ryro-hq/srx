@@ -613,6 +613,35 @@ fn imported_output_reopens_from_pinned_result_without_fabricating_a_receipt() {
 }
 
 #[test]
+fn installation_from_an_earlier_format_is_refused_before_any_journal() {
+    let path = private();
+    let cancel = Cancellation::default();
+    let identity = b"syrox-os-installation-v1\n0123456789abcdef0123456789abcdef\n";
+    fs::write(path.path().join("installation"), identity).unwrap();
+    fs::set_permissions(
+        path.path().join("installation"),
+        std::os::unix::fs::PermissionsExt::from_mode(0o600),
+    )
+    .unwrap();
+    for result in [
+        GenerationInstallation::initialize(path.path(), &cancel, deadline()),
+        GenerationInstallation::open_existing(path.path(), &cancel, deadline()),
+    ] {
+        let error = result.unwrap_err();
+        assert!(
+            matches!(error, InstallationError::EarlierFormat),
+            "{error:?}"
+        );
+        assert!(error.to_string().contains("srx services init"));
+    }
+    assert_eq!(
+        fs::read(path.path().join("installation")).unwrap(),
+        identity
+    );
+    assert!(!path.path().join("authority.lock").exists());
+}
+
+#[test]
 fn changed_installation_identity_and_registry_exhaustion_preserve_evidence() {
     let path = private();
     let cancel = Cancellation::default();

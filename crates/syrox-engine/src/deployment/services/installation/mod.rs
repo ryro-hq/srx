@@ -37,6 +37,10 @@ const RECORD_HEADER: &[u8] = formats::SERVICES_CANDIDATE_LINE.as_bytes();
 pub(crate) enum InstallationError {
     #[error("invalid Services installation: {0}")]
     Invalid(&'static str),
+    #[error(
+        "Services installation was written by an earlier pre-release srx format; remove the installation directory and run `srx services init` again"
+    )]
+    EarlierFormat,
     #[error("Services candidate publication is uncertain: {0}")]
     Uncertain(&'static str),
     #[error("Services preparation cancelled")]

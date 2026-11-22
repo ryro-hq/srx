@@ -43,6 +43,7 @@ checks that the registry still produces the same bytes.
 | `syrox-input` | hash domain | `syrox_engine::project::lock` | - | Length-framed domain of one locked input's digest. |
 | `syrox-project` | hash domain | `syrox_engine::project::lock` | - | Length-framed domain of the locked project digest. |
 | `syrox-artifact-recipe` | identity | `syrox_engine::catalog::artifacts` | - | First element of the JSON array that identifies a catalog artifact recipe. |
+| `syrox-store` | persisted | `syrox_engine::store` | - | Store format marker at `.syrox-store/format`; a Store without it was written by an earlier srx. |
 | `syrox-root` | persisted | `syrox_engine::store` | - | Store root record listing the objects a named root retains. |
 | `syrox-chunked-artifact` | persisted | `syrox_engine::store::chunked` | - | Manifest of an artifact stored as fixed-size chunks. |
 | `syrox-interest` | persisted | `syrox_engine::store::retention` | - | Retention interest record that keeps roots alive across collection. |

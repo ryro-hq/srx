@@ -95,7 +95,7 @@ impl Record {
         let json = bytes
             .strip_prefix(HEADER)
             .ok_or(OwnershipError::Invalid(
-                "unsupported state version",
+                "unsupported state header or earlier srx format",
             ))?;
         let record: Self = serde_json::from_slice(json)
             .map_err(|_| OwnershipError::Invalid("invalid session state"))?;

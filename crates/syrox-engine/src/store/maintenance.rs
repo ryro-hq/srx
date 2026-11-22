@@ -448,15 +448,16 @@ fn validate_protected_layout(inner: &StoreInner, work: &mut WorkBudget) -> Resul
     // roots. Admit only known trusted directories, without traversing their data.
     let private = directory_names_bounded(
         &inner.private_parent,
-        5,
+        6,
         "private layout entries",
         work,
     )?;
     if !private.iter().any(|name| name == "state")
+        || !private.iter().any(|name| name == FORMAT_FILE)
         || private.iter().any(|name| {
             !matches!(
                 name.as_str(),
-                "state" | "builds" | "actions" | "views" | "interests"
+                "state" | "builds" | "actions" | "views" | "interests" | FORMAT_FILE
             )
         })
     {
@@ -464,7 +465,10 @@ fn validate_protected_layout(inner: &StoreInner, work: &mut WorkBudget) -> Resul
             path: ".syrox-store".into(),
         });
     }
-    for name in private {
+    for name in private
+        .into_iter()
+        .filter(|name| name != FORMAT_FILE)
+    {
         drop(open_named_directory(
             inner.private_parent.fd(),
             &name,
