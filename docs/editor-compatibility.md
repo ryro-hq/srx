@@ -6,11 +6,10 @@ of `main` or every build reporting the same version number. The baseline was
 checked with a GNU/Linux build of `srx` on Ubuntu 26.04.1 under WSL2, not with
 Windows binaries or the VS Code Remote extension.
 
-The baseline server is **`srx 0.1.0`** from
-[`68567abb9c751459d7c737cec6056a3dd17cbaa1`](https://github.com/ryro-hq/srx/tree/68567abb9c751459d7c737cec6056a3dd17cbaa1),
-with its bundled standard library. It implements the LSP 3.17 methods listed
-below over JSON-RPC 2.0 on stdin/stdout, not the full protocol. It uses UTF-16
-positions unless the client offers UTF-8.
+The baseline server is **`srx 0.1.0`** with its bundled standard library, based
+on [`4402d94`](https://github.com/ryro-hq/srx/tree/4402d94e960f360d2d73dcbe8d6a8ffb351d452d).
+It implements the LSP 3.17 methods listed below over JSON-RPC 2.0 on stdin/stdout,
+not the full protocol. It uses UTF-16 positions unless the client offers UTF-8.
 For extensions, it advertises `syroxVirtualSource` revision 1
 (`syrox-source:` URIs and `syrox/readSource`) and `syroxProjectStatus` revision 1.
 The [protocol fixture](../tests/fixtures/lsp-contract.json) records the descriptors
@@ -32,9 +31,10 @@ separately from the version reported by `srx --version`.
 
 ## Install
 
-After cloning `srx`, check out the pinned server commit. With the tools from the
-[CLI setup](../README.md#build-the-cli), run `cargo build --locked -p syrox --bin srx`
-to reproduce the language server build used in the checks. Put
+Use the `srx` checkout containing this guide and its matching test fixture.
+With the pinned Rust toolchain and native build tools (see
+[Get started](../README.md#get-started)), run
+`cargo build --locked -p syrox --bin srx` to build the language server. Put
 `target/debug/srx` on the editor process's `PATH` by adding its containing
 directory, or configure its absolute path as below. Keep the server and project
 in the same Linux environment. The language server does not need `syrox-worker`.
