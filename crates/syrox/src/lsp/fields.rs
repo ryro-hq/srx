@@ -33,39 +33,40 @@ impl Server {
             return None;
         }
         let mut index = tokens.partition_point(|token| token.span.end() <= offset);
-        let (start, end, prefix) = if let Some(token) = tokens
+        let word = if let Some(token) = tokens
             .get(index)
             .filter(|token| token.kind == Token::Ident && token.span.start() <= offset)
         {
-            (
-                token.span.start(),
-                token.span.end(),
-                &text[token.span.start() as usize..offset as usize],
-            )
+            CompletedWord {
+                start: token.span.start(),
+                end: token.span.end(),
+                prefix: &text[token.span.start() as usize..offset as usize],
+            }
         } else if index > 0
             && tokens[index - 1].kind == Token::Ident
             && tokens[index - 1].span.end() == offset
         {
             index -= 1;
-            (
-                tokens[index].span.start(),
-                offset,
-                &text[tokens[index].span.start() as usize..offset as usize],
-            )
+            CompletedWord {
+                start: tokens[index].span.start(),
+                end: offset,
+                prefix: &text[tokens[index].span.start() as usize..offset as usize],
+            }
         } else {
-            (offset, offset, "")
+            CompletedWord {
+                start: offset,
+                end: offset,
+                prefix: "",
+            }
         };
         if index == 0 || tokens[index - 1].kind != Token::Dot {
             return None;
         }
         let dot = index - 1;
         let ty = receiver_type(text, &tokens[..dot], analysis, id, offset)?;
-        self.field_candidates(
-            parsed, offset, analysis, id, &ty, start, end, prefix,
-        )
+        self.field_candidates(parsed, offset, analysis, id, &ty, word)
     }
 
-    #[allow(clippy::too_many_arguments)] // Keep source/lookup identity and replacement boundaries explicit.
     fn field_candidates(
         &self,
         parsed: &ParsedFile,
@@ -73,9 +74,11 @@ impl Server {
         analysis: &SemanticAnalysis,
         id: SourceId,
         ty: &Ty,
-        start: u32,
-        end: u32,
-        prefix: &str,
+        CompletedWord {
+            start,
+            end,
+            prefix,
+        }: CompletedWord<'_>,
     ) -> Option<Value> {
         let lines = LineIndex::new(parsed.source());
         let range = edit_range(&lines, start, end, self.encoding)?;
@@ -107,6 +110,14 @@ impl Server {
         items.truncate(256);
         Some(json!({"isIncomplete":incomplete,"items":items}))
     }
+}
+
+/// The identifier a member completion replaces and the text typed before the cursor.
+#[derive(Clone, Copy, Debug)]
+struct CompletedWord<'a> {
+    start: u32,
+    end: u32,
+    prefix: &'a str,
 }
 
 pub(super) fn receiver_type(
