@@ -1,16 +1,25 @@
 use super::types::raw_from_ty;
 use super::{BTreeMap, Checker, Context, Expression, ItemId, LocalId, Span, Ty};
 
+/// Declared signature of a generic callee whose type parameters a call infers.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct CallSignature<'a> {
+    pub(super) item: ItemId,
+    pub(super) parameters: &'a [Ty],
+    pub(super) result: &'a Ty,
+}
+
 impl Checker<'_> {
     // Inference is local and directed: result context first, then arguments in
     // source order. Expressions are checked exactly once, including affine moves.
     // Context, substitutions and argument positions are distinct inference inputs.
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn infer_call(
         &mut self,
-        item: ItemId,
-        parameters: &[Ty],
-        result: &Ty,
+        CallSignature {
+            item,
+            parameters,
+            result,
+        }: CallSignature<'_>,
         arguments: &[Expression],
         expected: Option<&Ty>,
         context: Context,

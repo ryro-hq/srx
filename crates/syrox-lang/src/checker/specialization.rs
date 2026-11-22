@@ -393,9 +393,11 @@ impl Checker<'_> {
         } else {
             supplied = self
                 .infer_call(
-                    item,
-                    &parameters,
-                    &Ty::Error,
+                    super::inference::CallSignature {
+                        item,
+                        parameters: &parameters,
+                        result: &Ty::Error,
+                    },
                     arguments,
                     None,
                     context,

@@ -611,9 +611,11 @@ impl Checker<'_> {
                 let parameters = self.variant_payload(&result, index);
                 return self
                     .infer_call(
-                        enumeration,
-                        &parameters,
-                        &result,
+                        super::inference::CallSignature {
+                            item: enumeration,
+                            parameters: &parameters,
+                            result: &result,
+                        },
                         arguments,
                         expected,
                         context,
@@ -712,9 +714,11 @@ impl Checker<'_> {
             self.record_arguments(item, arguments);
             if !self.function_parameters(item).is_empty() {
                 let (result, substitutions) = self.infer_call(
-                    item,
-                    &parameters,
-                    &result,
+                    super::inference::CallSignature {
+                        item,
+                        parameters: &parameters,
+                        result: &result,
+                    },
                     arguments,
                     expected,
                     context,
