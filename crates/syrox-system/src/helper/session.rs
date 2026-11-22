@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use syrox_encoding::formats;
 use syrox_system::{
     budget::BuilderLimits,
-    descriptor::{self, FlockMode, PeerCredentials},
+    descriptor::{self, FlockMode},
     ext4_tool::{self, Geometry, Operation},
     filesystem,
     loop_device::{LoopControl, ScratchLoop},
@@ -88,8 +88,7 @@ pub(super) fn serve(socket: File, policy: Policy, policy_sha256: [u8; 32]) -> io
         budget.request().scratch_bytes,
         budget.request().files,
     )?;
-    let formatter = policy.formatter.snapshot()?;
-    let checker = policy.checker.snapshot()?;
+    let tools = policy.snapshot_tools()?;
     let state = policy::trusted(&policy.state_directory, true)?;
     if !descriptor::flock(state.as_fd(), FlockMode::ExclusiveNonblocking)? {
         return Err(io::ErrorKind::WouldBlock.into());
@@ -122,15 +121,16 @@ pub(super) fn serve(socket: File, policy: Policy, policy_sha256: [u8; 32]) -> io
         "policy_sha256": policy_sha256, "peer": { "uid": peer.uid, "gid": peer.gid, "pid": peer.pid },
         "state_filesystem": capacity, "runtime": runtime }))?;
     let result = prepare(
-        &socket,
-        peer,
+        wire::Client {
+            socket: &socket,
+            peer,
+        },
         id,
         &authorization,
         &mut journal,
         &budget,
         geometry,
-        &formatter,
-        &checker,
+        &tools,
     );
     if let Err(error) = &result {
         // A failed record is itself uncertain. Never erase the original error,
@@ -148,17 +148,20 @@ pub(super) fn serve(socket: File, policy: Policy, policy_sha256: [u8; 32]) -> io
     result
 }
 
-#[allow(clippy::too_many_arguments)]
 fn prepare(
-    socket: &File,
-    peer: PeerCredentials,
+    wire::Client {
+        socket,
+        peer,
+    }: wire::Client<'_>,
     id: &str,
     authorization: &str,
     journal: &mut Journal,
     budget: &syrox_system::budget::AdmittedBudget,
     geometry: Geometry,
-    formatter: &descriptor::pinned_tool::PinnedTool,
-    checker: &descriptor::pinned_tool::PinnedTool,
+    policy::PinnedTools {
+        formatter,
+        checker,
+    }: &policy::PinnedTools,
 ) -> io::Result<()> {
     let deadline =
         Instant::now() + Duration::from_secs(u64::from(budget.request().duration_seconds));

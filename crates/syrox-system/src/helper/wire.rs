@@ -8,6 +8,13 @@ use std::time::Instant;
 use syrox_system::descriptor::{self, PeerCredentials, sealed};
 pub(super) use syrox_system::helper_protocol::Request;
 
+/// An accepted helper connection together with its authenticated credentials.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Client<'a> {
+    pub socket: &'a File,
+    pub peer: PeerCredentials,
+}
+
 pub(super) fn authenticate(socket: &File, policy: &Policy) -> io::Result<PeerCredentials> {
     for (option, expected) in [
         (libc::SO_DOMAIN, libc::AF_UNIX),

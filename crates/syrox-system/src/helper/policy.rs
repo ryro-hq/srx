@@ -34,7 +34,22 @@ pub(super) struct Tool {
     size_bytes: u64,
 }
 
+/// Formatter and checker pinned from the policy for one authorized operation.
+#[derive(Debug)]
+pub(super) struct PinnedTools {
+    pub formatter: PinnedTool,
+    pub checker: PinnedTool,
+}
+
 impl Policy {
+    /// Pins the formatter, then the checker, against their policy digests.
+    pub fn snapshot_tools(&self) -> io::Result<PinnedTools> {
+        Ok(PinnedTools {
+            formatter: self.formatter.snapshot()?,
+            checker: self.checker.snapshot()?,
+        })
+    }
+
     pub fn load(path: &Path) -> io::Result<(Self, [u8; 32])> {
         let file = trusted(path, false)?;
         let mut bytes = Vec::new();

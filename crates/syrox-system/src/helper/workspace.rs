@@ -104,8 +104,7 @@ pub(super) fn serve(
     if capacity.available_bytes < required || capacity.available_inodes < 64 {
         return Err(refused("helper state lacks workspace capacity"));
     }
-    let formatter = policy.formatter.snapshot()?;
-    let checker = policy.checker.snapshot()?;
+    let tools = policy.snapshot_tools()?;
     let mut authorization = Sha256::new();
     authorization.update(formats::PRIVATE_WORKSPACE_AUTHORIZATION_LINE);
     authorization.update(policy_sha256);
@@ -119,14 +118,15 @@ pub(super) fn serve(
     let mut journal = Journal::create(&state, &format!("op-{id}"))?;
     journal.record("authorized", serde_json::json!({"request":request,"authorization":authorization,"policy_sha256":policy_sha256,"helper_layout_sha256":layout.digest(),"peer":{"uid":peer.uid,"gid":peer.gid,"pid":peer.pid},"state_filesystem":capacity,"runtime":recovery::runtime()?}))?;
     let result = prepare(
-        socket,
-        peer,
+        wire::Client {
+            socket,
+            peer,
+        },
         request,
         &authorization,
         &layout,
         &mut journal,
-        &formatter,
-        &checker,
+        &tools,
     );
     if let Err(error) = &result {
         let _ = journal.record(
@@ -141,16 +141,19 @@ pub(super) fn serve(
     result
 }
 
-#[allow(clippy::too_many_arguments)]
 fn prepare(
-    socket: &File,
-    peer: PeerCredentials,
+    wire::Client {
+        socket,
+        peer,
+    }: wire::Client<'_>,
     request: &Request,
     authorization: &str,
     layout: &WorkspaceLayout,
     journal: &mut Journal,
-    formatter: &descriptor::pinned_tool::PinnedTool,
-    checker: &descriptor::pinned_tool::PinnedTool,
+    policy::PinnedTools {
+        formatter,
+        checker,
+    }: &policy::PinnedTools,
 ) -> io::Result<()> {
     let Request::PrepareWorkspace {
         id,
