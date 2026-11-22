@@ -76,7 +76,10 @@ pub(crate) enum OperationKind {
     Rollback,
 }
 impl OperationKind {
-    #[allow(clippy::trivially_copy_pass_by_ref)] // Serde skip predicate requires a reference.
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "serde skip_serializing_if passes a reference to the field"
+    )]
     pub(super) fn is_apply(&self) -> bool {
         *self == Self::Apply
     }

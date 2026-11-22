@@ -32,7 +32,10 @@ impl Drop for ReapedTestChild {
     }
 }
 
-#[allow(unsafe_code)] // Keep native gate case assertions and their retained fixtures in one cleanup scope.
+#[expect(
+    unsafe_code,
+    reason = "poll FFI waits on the live info socket of the gated native fixture"
+)]
 fn native_gate_case(case: u8) {
     let temporary = tempfile::tempdir().unwrap();
     let store = Store::initialize(&temporary.path().join("retention-store")).unwrap();

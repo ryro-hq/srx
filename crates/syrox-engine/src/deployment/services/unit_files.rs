@@ -768,7 +768,10 @@ mod digest {
 }
 mod optional_digest {
     use super::{ContentDigest, Deserialize, Serialize};
-    #[allow(clippy::ref_option)] // Serde with-module receives a reference to the complete field.
+    #[expect(
+        clippy::ref_option,
+        reason = "serde serialize_with passes a reference to the whole Option field"
+    )]
     pub(super) fn serialize<S: serde::Serializer>(
         value: &Option<ContentDigest>,
         serializer: S,

@@ -82,7 +82,10 @@ impl Drop for CancelOnDrop<'_> {
 }
 
 // This scope takes responsibility for canceling its private operation on every exit.
-#[allow(clippy::needless_pass_by_value)] // This scope takes responsibility for canceling its private operation on every exit.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the scope owns the cancellation so it cancels its private operation on every exit"
+)]
 fn with_task<T, E>(
     operation: Cancellation,
     task: impl FnOnce(&Cancellation) -> io::Result<()> + Send,

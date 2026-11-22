@@ -347,7 +347,10 @@ impl SessionJournal {
     /// cancellation and deadline for its bounded I/O and must not call this journal.
     /// It runs once; an error may mean that the peer received the gate. No state is
     /// reset and neither this method nor recovery retries the action.
-    #[allow(clippy::too_many_arguments)] // Journal admission needs explicit session, execution, manifest and bounded-I/O authority.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "session, attempt, pin and binding are checked independently under one journal lock, and the gate action shares its cancellation and deadline"
+    )]
     pub(crate) fn with_consumed_attempt<T>(
         &self,
         id: &SessionId,

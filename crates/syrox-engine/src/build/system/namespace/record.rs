@@ -67,7 +67,10 @@ impl Record {
 /// Dedicated single-threaded payload process only; exit after return/error.
 /// Caller guarantees authenticated namespace/resource/manager admission, as for
 /// `run_system_build_worker`. Policy installation closes all descriptors >=3.
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "unsafe fn: the payload installs process-wide confinement and closes fds >= 3"
+)]
 pub unsafe fn run_payload(
     args: &[std::ffi::OsString],
     cancellation: &Cancellation,

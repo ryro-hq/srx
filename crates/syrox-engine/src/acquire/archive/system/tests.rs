@@ -387,11 +387,14 @@ fn available_bytes(path: &Path) -> u64 {
     let directory = File::open(path).unwrap();
     let mut stat = std::mem::MaybeUninit::<libc::statvfs>::uninit();
     // SAFETY: live descriptor and writable exact ABI storage.
-    #[allow(unsafe_code)]
+    #[expect(
+        unsafe_code,
+        reason = "fstatvfs FFI measures free space of the test directory"
+    )]
     let status = unsafe { libc::fstatvfs(directory.as_raw_fd(), stat.as_mut_ptr()) };
     assert_eq!(status, 0, "{}", io::Error::last_os_error());
     // SAFETY: fstatvfs initialized the structure on success.
-    #[allow(unsafe_code)]
+    #[expect(unsafe_code, reason = "reads the statvfs that fstatvfs initialized")]
     let stat = unsafe { stat.assume_init() };
     stat.f_bavail.saturating_mul(stat.f_frsize)
 }
@@ -435,7 +438,10 @@ fn expanded_source_exceeding_one_gib_passes_in_a_memory_bounded_child() {
         ])
         .env("SRX_SYSTEM_ARCHIVE_CHILD", directory.path());
     // SAFETY: changes only this test child's resource limits before exec.
-    #[allow(unsafe_code)]
+    #[expect(
+        unsafe_code,
+        reason = "pre_exec setrlimit bounds only the test child's address space"
+    )]
     unsafe {
         command.pre_exec(|| {
             let limit = libc::rlimit {

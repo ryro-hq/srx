@@ -187,7 +187,10 @@ fn payload_envelope(status: std::process::ExitStatus) -> i32 {
     );
     i32::from(!status.success())
 }
-#[allow(clippy::needless_pass_by_value)] // map_err consumes the journal error; only its typed denial survives classification.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "used as a map_err fn; only the typed denial of the consumed error survives classification"
+)]
 fn admission_error(
     error: crate::deployment::services::activation::ActivationError,
 ) -> ServicesWorkerError {

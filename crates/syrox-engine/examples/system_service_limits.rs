@@ -54,7 +54,10 @@ fn action(executable: &Path) -> Result<SystemBuildAction> {
     Ok(SystemBuildAction::parse(&bytes, &admitted)?)
 }
 
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "getrlimit FFI observes the probe process's own resource limits"
+)]
 fn process_limit(resource: libc::__rlimit_resource_t) -> io::Result<[u64; 2]> {
     let mut limit = libc::rlimit {
         rlim_cur: 0,
@@ -130,7 +133,10 @@ fn child(report: &Path) -> Result<()> {
     Err("coordinator did not stop the probe before its runtime ceiling".into())
 }
 
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "getuid/geteuid/getgid/getegid FFI observes the probe process's own credentials"
+)]
 fn matching_nonroot_identity() -> bool {
     // SAFETY: fixed observations of the current process's credentials.
     let identity = unsafe {

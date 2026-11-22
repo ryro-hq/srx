@@ -224,7 +224,10 @@ pub(crate) struct AuthorizedOutput {
 }
 
 // Consume the operation barrier: returned views retain only granular interests.
-#[allow(clippy::needless_pass_by_value)] // Retain the admitted object while validating and publishing its descriptor-relative view.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the admitted object lease is retained while validating and publishing its descriptor-relative view"
+)]
 pub(crate) fn materialize_verified(
     lease: OperationLease,
     output: AuthorizedOutput,

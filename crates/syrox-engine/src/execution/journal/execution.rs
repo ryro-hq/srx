@@ -301,7 +301,10 @@ impl ExecutionGuard<'_> {
     /// A wire claim alone cannot call this: the receiver must authenticate the
     /// guardian's proof and independently observe that exact guardian's exit.
     // Settlement authority is consumed, never lent for reuse by another finish.
-    #[allow(clippy::needless_pass_by_value)] // Serde skip predicates receive a reference even for copyable identity fields.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "settlement proof is consumed so it is never lent for reuse by another finish"
+    )]
     pub(crate) fn finish(
         mut self,
         proof: ObservedCommandExecutionSettlement,
@@ -476,7 +479,10 @@ pub(super) fn validate_records(state: &record::Record) -> Result<(), OwnershipEr
 }
 
 // serde's skip_serializing_if callback receives a reference.
-#[allow(clippy::trivially_copy_pass_by_ref)] // Serde skip predicates receive a reference even for copyable identity fields.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde skip_serializing_if passes a reference to the field"
+)]
 fn zero(value: &u64) -> bool {
     *value == 0
 }

@@ -35,9 +35,15 @@ use syrox_encoding::formats;
 use crate::cancellation::Cancellation;
 use thiserror::Error;
 
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "the D-Bus client uses socket, connect, send, recvmsg, poll and credential FFI"
+)]
 mod bus;
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "sd_notify transport uses sendmsg/recvmsg with SCM_RIGHTS, pipe2, poll and kill FFI"
+)]
 mod notify;
 pub use notify::{SystemdNotificationsProcessed, SystemdNotifier, SystemdNotifyEndpoint};
 mod build;

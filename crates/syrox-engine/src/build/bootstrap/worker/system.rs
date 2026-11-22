@@ -26,7 +26,10 @@ use std::{
 /// error. Caller independently authenticates action/budget, role observations,
 /// immutable input mounts, manager admission and namespace/custody lifecycle.
 /// Process-wide policy can be partly installed on failure and closes all fd>=3.
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "unsafe fn: installs process-wide confinement policy and closes fds >= 3"
+)]
 pub(crate) unsafe fn run(
     action: &SystemBuildAction,
     observation: &WorkspaceObservation,

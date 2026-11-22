@@ -531,7 +531,10 @@ mod tests {
 
     // The leader must exit first: custody transfers to the isolated subreaper,
     // whose AdoptedMember guard explicitly kills and waitpid-reaps this child.
-    #[allow(clippy::zombie_processes)] // This fixture deliberately proves an orphaned group member outlives its frontend; the group observer reaps settlement.
+    #[expect(
+        clippy::zombie_processes,
+        reason = "the orphaned group member deliberately outlives its frontend; the group observer reaps it"
+    )]
     fn orphaning_leader(name: &str) {
         let member = fixture(name, "orphan-member")
             .env(

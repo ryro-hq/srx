@@ -67,7 +67,10 @@ pub(crate) struct GithubLocator {
 
 impl GithubLocator {
     // Git ref names are case-sensitive, including the reserved `.lock` suffix.
-    #[allow(clippy::case_sensitive_file_extension_comparisons)] // Repository archive suffixes are protocol literals and case-sensitive by contract.
+    #[expect(
+        clippy::case_sensitive_file_extension_comparisons,
+        reason = "repository archive suffixes are protocol literals and case-sensitive by contract"
+    )]
     pub(crate) fn parse(value: &str) -> Result<Self, GithubError> {
         let tail = value
             .strip_prefix("github:")

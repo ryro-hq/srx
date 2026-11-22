@@ -1,4 +1,7 @@
-#![allow(unsafe_code)] // Dedicated child establishes its own controlling terminal.
+#![expect(
+    unsafe_code,
+    reason = "a dedicated child establishes its own controlling terminal with raw libc calls"
+)]
 use super::*;
 use crate::platform::linux::fd::terminal::establish_controlling_terminal;
 use std::fs::File;

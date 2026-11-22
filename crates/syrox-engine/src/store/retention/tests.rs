@@ -142,7 +142,10 @@ fn union_retains_each_closure_and_accepts_reopened_store_identity() {
 }
 
 #[test]
-#[allow(clippy::used_underscore_binding)] // Fault injection into the retained private writer.
+#[expect(
+    clippy::used_underscore_binding,
+    reason = "fault injection writes through the retained private writer stored in an underscore field"
+)]
 fn malformed_live_interest_or_budget_never_sweeps_unrelated_objects() {
     let temporary = tempfile::tempdir().unwrap();
     let store = Store::open(temporary.path()).unwrap();

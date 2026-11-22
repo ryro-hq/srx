@@ -415,7 +415,13 @@ mod tests {
         ));
     }
 
-    #[allow(clippy::useless_conversion)] // libc ancillary lengths differ on GNU/musl.
+    #[cfg_attr(
+        target_env = "gnu",
+        expect(
+            clippy::useless_conversion,
+            reason = "glibc msg_controllen is already usize; musl uses socklen_t, so the conversion stays"
+        )
+    )]
     fn receive(socket: &UnixDatagram) -> (Vec<u8>, OwnedFd) {
         let mut data = [0_u8; 256];
         let mut control = [0_usize; 8];
@@ -467,7 +473,10 @@ mod tests {
 
     #[test]
     #[ignore = "internal fixture invoked only by the authorized manager gate"]
-    #[allow(clippy::zombie_processes)] // This fixture proves ownership after SIGKILL of the parent.
+    #[expect(
+        clippy::zombie_processes,
+        reason = "the fixture proves ownership after SIGKILL of its parent, so it never waits for the child"
+    )]
     fn manager_fixture() {
         let path =
             std::env::var_os("SYROX_NOTIFY_LEASE_FIXTURE").expect("manager fixture authorization");

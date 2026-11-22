@@ -71,7 +71,10 @@ fn batched_transfer_to_a_distinct_process_retains_inputs_through_parent_gc() {
     command.env(CHILD_CONTEXT, &context);
     // SAFETY: after fork, only fixed descriptor syscalls run before exec. All
     // unrelated parent handles are CLOEXEC, so they cannot fake child retention.
-    #[allow(unsafe_code)]
+    #[expect(
+        unsafe_code,
+        reason = "pre_exec close_range, dup2 and fcntl place the transfer socket in the test child"
+    )]
     unsafe {
         command.pre_exec(move || {
             if libc::syscall(libc::SYS_close_range, 3_u32, u32::MAX, 4_u32) < 0
@@ -175,7 +178,10 @@ fn transport_child() {
     };
     // SAFETY: the parent exec contract gives this entry exclusive ownership of
     // exactly one inherited fd at CHILD_FD. No other child test owns this role.
-    #[allow(unsafe_code)]
+    #[expect(
+        unsafe_code,
+        reason = "the child test adopts the single inherited transfer socket fd"
+    )]
     let socket = unsafe { OwnedFd::from_raw_fd(CHILD_FD) };
     let cancel = Cancellation::default();
     let deadline = Instant::now() + Duration::from_secs(30);

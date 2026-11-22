@@ -1,4 +1,7 @@
-#![allow(unsafe_code)] // Audited pre-exec syscalls and syscall-only clone child.
+#![expect(
+    unsafe_code,
+    reason = "audited pre-exec syscalls and a syscall-only clone child"
+)]
 
 use super::*;
 use std::os::fd::{FromRawFd as _, OwnedFd};

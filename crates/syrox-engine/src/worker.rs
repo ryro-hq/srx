@@ -24,7 +24,10 @@ use std::path::{Path, PathBuf};
 /// Caller authenticates the action, budget, helper observation, immutable input
 /// mounts and namespace lifecycle. Policy installation closes descriptors >=3.
 #[cfg(target_arch = "x86_64")]
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "unsafe fn: the system build payload installs process-wide confinement and closes fds >= 3"
+)]
 pub unsafe fn run_system_build_worker(
     action: &crate::build::system::SystemBuildAction,
     observation: &crate::system::workspace::WorkspaceObservation,
@@ -52,7 +55,10 @@ pub fn run_build_worker(source_directory: &str, action: &str) -> Result<(), Buil
 ///
 /// # Safety
 /// The caller must be a dedicated single-threaded process and exit after return.
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "unsafe fn: the managed build worker installs process-wide confinement policy"
+)]
 pub unsafe fn run_managed_build_worker(
     source_directory: &str,
     action: &str,

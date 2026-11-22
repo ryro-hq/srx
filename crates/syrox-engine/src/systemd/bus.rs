@@ -406,7 +406,10 @@ impl Bus {
         Ok(message)
     }
     // Consuming requests prevents accidental mutation replay by the caller.
-    #[allow(clippy::needless_pass_by_value)] // Consuming requests prevents accidental mutation replay by the caller.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "consuming the request prevents the caller from replaying a mutation message"
+    )]
     pub fn call(&mut self, message: Message, budget: &Budget<'_>) -> Result<Reply, SystemdError> {
         if !self.healthy {
             return Err(disconnected());

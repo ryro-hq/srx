@@ -7,7 +7,10 @@
     clippy::unwrap_used,
     reason = "qualification probe: a failed step aborts the run"
 )]
-#![allow(unsafe_code)]
+#![expect(
+    unsafe_code,
+    reason = "probe drives fcntl, poll and rlimit FFI on its own descriptors and process"
+)]
 
 use sha2::{Digest as _, Sha256};
 use std::{

@@ -96,7 +96,10 @@ fn invocation(text: &str) -> Result<[u8; 16], BuildError> {
 /// Must run in a dedicated single-threaded process which exits after return.
 /// Namespace preparation changes process credentials/namespaces even on errors.
 /// The caller installs signal-backed cancellation before entering this function.
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "unsafe fn: namespace preparation changes process credentials and namespaces"
+)]
 pub unsafe fn run_managed_build_entry(
     args: &[OsString],
     cancel: &Cancellation,
@@ -254,7 +257,10 @@ mod tests {
         }
     }
     #[test]
-    #[allow(unsafe_code)]
+    #[expect(
+        unsafe_code,
+        reason = "calls the unsafe managed build entry, which returns on cancellation before any process-global change"
+    )]
     fn cancellation_precedes_arguments_environment_and_filesystem() {
         let cancel = Cancellation::default();
         cancel.cancel();

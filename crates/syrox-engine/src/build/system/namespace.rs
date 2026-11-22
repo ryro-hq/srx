@@ -167,7 +167,10 @@ impl<'a> SystemBuildNamespaceResources<'a> {
     /// Caller retains helper control in the original coordinator. Never access
     /// or drop other inherited Rust descriptor owners after this call, including
     /// errors: terminate via process exit. Custody stays live until settlement.
-    #[allow(unsafe_code)]
+    #[expect(
+        unsafe_code,
+        reason = "unsafe fn: closes inherited fds and changes namespaces of the dedicated worker"
+    )]
     pub unsafe fn prepare_namespace(
         self,
         cancellation: &Cancellation,
@@ -297,7 +300,10 @@ impl NamespaceResources for SystemBuildNamespaceResources<'_> {
             self.record.to_string(),
         ]
     }
-    #[allow(unsafe_code)]
+    #[expect(
+        unsafe_code,
+        reason = "calls the unsafe workspace attach inside the freshly cloned private namespace"
+    )]
     fn install_workspace(
         &self,
         root: &Path,

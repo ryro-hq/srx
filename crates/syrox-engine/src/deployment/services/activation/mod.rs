@@ -139,7 +139,10 @@ impl ActivationJournal {
     /// Final read of the selected operation and the existing authorization after
     /// live manager observations. It neither renews authority nor claims an
     /// atomic snapshot shared with the manager.
-    #[allow(clippy::too_many_arguments)] // Explicit operation, immutable binding, nonce, epoch and invocation authority.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "operation, resource, pin, authorization, epoch and invocation are independent record fields checked against one journal state"
+    )]
     pub(crate) fn preservation_current(
         &self,
         operation: &str,
@@ -245,7 +248,6 @@ impl ActivationJournal {
             deadline,
         )
     }
-    #[allow(clippy::too_many_arguments)] // Selection provenance, CAS and bounded journal I/O remain explicit.
     fn begin_pin_kind(
         &self,
         candidate: ContentDigest,
@@ -432,7 +434,10 @@ impl ActivationJournal {
             Ok(candidate)
         })
     }
-    #[allow(clippy::too_many_arguments)] // Explicit authority, identity and bounded-I/O context.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "operation, resource, effect kind and expected/target digests are independent fields of one planned effect record"
+    )]
     pub(crate) fn plan_effect(
         &self,
         operation: &str,
@@ -608,7 +613,6 @@ impl ActivationJournal {
     /// does not query the manager or turn these fields into proof of execution.
     /// Callers must compare real structured adapter evidence independently.
     /// Started means confirmed exec only; Stopped does not permit root cleanup.
-    #[allow(clippy::too_many_arguments)] // Explicit authority, identity and bounded-I/O context.
     pub(crate) fn record_observed(
         &self,
         operation: &str,
@@ -792,7 +796,10 @@ impl ActivationJournal {
     }
     /// Caller must authenticate unit/MainPID/InvocationID using the manager.
     /// This journal compares that evidence and consumes it durably, not validates IPC.
-    #[allow(clippy::too_many_arguments)] // Explicit authority, identity and bounded-I/O context.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "test-only admission entry mirrors admit_inventory_start without a captured launcher"
+    )]
     #[cfg(test)]
     pub(crate) fn admit_start(
         &self,
@@ -815,7 +822,10 @@ impl ActivationJournal {
             deadline,
         )
     }
-    #[allow(clippy::too_many_arguments)] // Same authenticated admission fields; adds a non-forgeable local process capture.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "same independent admission fields as admit_inventory_start plus the non-forgeable captured launcher"
+    )]
     pub(crate) fn admit_captured_start(
         &self,
         resource: &str,
@@ -839,7 +849,10 @@ impl ActivationJournal {
             deadline,
         )
     }
-    #[allow(clippy::too_many_arguments)] // Admission is one journal transaction over the complete binding and kernel record.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "admission checks resource, pin, unit, invocation, epoch and launcher record against one journal transaction"
+    )]
     fn admit_inventory_start(
         &self,
         resource: &str,
@@ -928,7 +941,10 @@ impl ActivationJournal {
             action,
         )
     }
-    #[allow(clippy::needless_pass_by_value)] // Consume the single-use token even when gate delivery fails.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the single-use start token is consumed even when gate delivery fails"
+    )]
     fn consume_start<T>(
         &self,
         admission: StartAdmission,

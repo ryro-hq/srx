@@ -32,7 +32,7 @@ pub(crate) mod journal;
 pub mod maintenance;
 pub mod managed;
 pub(crate) mod policy;
-#[allow(unsafe_code)]
+#[expect(unsafe_code, reason = "build profiling reads getrusage FFI")]
 pub(crate) mod profile;
 mod program;
 pub(crate) mod publication;

@@ -291,7 +291,10 @@ fn shared_leases_coexist_and_exclusive_is_nonblocking() {
 }
 
 #[test]
-#[allow(clippy::used_underscore_binding)] // Inspect the RAII-only maintenance guard.
+#[expect(
+    clippy::used_underscore_binding,
+    reason = "the maintenance guard keeps its lock in a RAII-only `_lock` field that this test inspects"
+)]
 fn inherited_descriptor_cannot_extend_a_released_store_lease() {
     let directory = tempfile::tempdir().unwrap();
     let store = Store::open(directory.path()).unwrap();

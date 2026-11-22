@@ -24,7 +24,10 @@ pub enum ShellCommandExit {
 /// # Safety
 /// Call only in a dedicated single-threaded worker which exits after return.
 /// This operation forks and changes process signal and job-control state.
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "unsafe fn: forks and changes process signal and job-control state"
+)]
 pub unsafe fn run_shell_command(
     args: &[OsString],
     cancel: &Cancellation,

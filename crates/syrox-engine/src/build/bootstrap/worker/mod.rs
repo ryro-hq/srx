@@ -35,7 +35,10 @@ pub(crate) fn run(source_directory: &str, action: &str) -> Result<(), BuildError
 ///
 /// # Safety
 /// The caller must be a dedicated single-threaded process and exit after return.
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "unsafe fn: installs process-wide managed build confinement policy"
+)]
 pub(crate) unsafe fn run_managed(source_directory: &str, action: &str) -> Result<(), BuildError> {
     crate::execution::native::build_policy::validate_environment()?;
     run_profile(

@@ -195,7 +195,6 @@ fn scan(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)] // Two pinned parents plus independent bounded traversal state.
 fn copy(
     source: &Directory,
     name: &OsStr,

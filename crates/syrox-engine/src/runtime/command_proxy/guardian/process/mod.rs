@@ -1,4 +1,7 @@
-#![allow(unsafe_code)]
+#![expect(
+    unsafe_code,
+    reason = "the guardian forks, waits, signals process groups and masks signals with libc"
+)]
 use super::{ForegroundRelayIo, child, custody::Custody, local::LocalChannel, wire::Event};
 use crate::execution::transport::{PacketChannel, Peer};
 use crate::platform::linux::fd::terminal::{

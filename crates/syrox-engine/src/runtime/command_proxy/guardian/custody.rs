@@ -1,4 +1,7 @@
-#![allow(unsafe_code)]
+#![expect(
+    unsafe_code,
+    reason = "terminal custody queries tcgetpgrp, getsid, tcgetsid and ioctl FFI"
+)]
 use super::TerminalSnapshot;
 use crate::platform::linux::fd::terminal::TerminalAttributes;
 use std::io;

@@ -127,7 +127,10 @@ impl PreparedManagedBuildNamespace<'_> {
 /// # Safety
 /// Only a dedicated single-threaded worker may call this function. It changes
 /// the calling thread's user namespace and must not return to general app work.
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "unsafe fn: changes the calling thread's user namespace"
+)]
 pub unsafe fn prepare_managed_build_namespace<'a>(
     published: &'a ManagedBuildRetentionPublished,
     cancellation: &Cancellation,

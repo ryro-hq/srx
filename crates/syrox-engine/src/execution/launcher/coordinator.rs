@@ -230,7 +230,10 @@ struct OwnerAttempt {
     main_pid: u32,
 }
 
-#[allow(clippy::too_many_arguments)] // Explicit borrowed authorities of one startup transaction.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "journal/session, manager/unit, retention and binding slot are passed on in different combinations within one startup transaction"
+)]
 fn start_attempt(
     start: &OwnerStart<'_>,
     journal: &SessionJournal,

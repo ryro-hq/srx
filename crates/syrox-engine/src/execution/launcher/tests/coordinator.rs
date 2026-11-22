@@ -236,7 +236,10 @@ fn assert_done(completion: &SystemdJobCompletion) {
 }
 
 #[test]
-#[allow(unsafe_code)] // Constructs one adversarial FIFO in a private test directory.
+#[expect(
+    unsafe_code,
+    reason = "mkfifo FFI constructs one adversarial FIFO in a private test directory"
+)]
 fn candidate_snapshot_rejects_symlink_directory_and_fifo_without_blocking() {
     let directory = tempfile::tempdir().unwrap();
     private(&directory.path().join("ipc"));

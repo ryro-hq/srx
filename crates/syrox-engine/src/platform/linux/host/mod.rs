@@ -3,7 +3,10 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 #[cfg(target_os = "linux")]
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "host capability probes use openat2, landlock and seccomp syscalls and fstatfs, adopting returned fds"
+)]
 #[path = "linux.rs"]
 mod linux;
 

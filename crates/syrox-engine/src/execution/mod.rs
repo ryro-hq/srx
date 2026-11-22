@@ -14,11 +14,17 @@ pub(crate) mod error;
 pub(crate) mod journal;
 pub(crate) mod resources;
 pub(crate) mod service_evidence;
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "packet transport uses socketpair, sendmsg/recvmsg with SCM_RIGHTS, sockopt and poll FFI"
+)]
 pub(crate) mod transport;
 
 pub(crate) mod launcher;
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "the native runtime forks, clones, waits, masks signals and adopts raw fds"
+)]
 pub(crate) mod native;
 pub mod restart;
 pub use restart::{ProcessRestart, RestartLimits, RestartPolicyError};

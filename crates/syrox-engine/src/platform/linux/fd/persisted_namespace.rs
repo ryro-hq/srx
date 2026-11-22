@@ -1,4 +1,7 @@
-#![allow(unsafe_code)] // uname only: bounded kernel ABI architecture observation.
+#![expect(
+    unsafe_code,
+    reason = "uname FFI is the only unsafe: a bounded kernel ABI architecture observation"
+)]
 use super::{BorrowedFd, OpenedPath, OwnedFd};
 use super::{
     metadata, open_beneath, open_top_directory, pidfd_exited, pidfd_open, proc_self_pid,

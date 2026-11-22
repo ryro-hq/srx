@@ -603,7 +603,10 @@ fn blob_corruption_and_cancellation_do_not_yield_a_usable_receiver() {
 }
 
 #[test]
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "fcntl FFI clears close-on-exec on test-owned descriptor clones"
+)]
 fn directly_received_roles_are_normalized_to_close_on_exec() {
     let fixture = imported(&[true], 1);
     let inputs = fixture.prepare().unwrap();
