@@ -7,8 +7,13 @@
 //!
 //! Readers return `None` instead of panicking when a field does not fit, so
 //! each caller maps the failure to its own domain error.
+//!
+//! [`formats`] registers every tag that names a persisted, exchanged or hashed
+//! encoding, so each crate writes and accepts the same bytes.
 
 use std::fmt::Write as _;
+
+pub mod formats;
 
 /// Encode bytes as lowercase hexadecimal, two characters per byte.
 pub fn hex(bytes: &[u8]) -> String {

@@ -1,6 +1,6 @@
 [package]
 name = "syrox-encoding"
-description = "Byte encodings shared by Syrox crates: lowercase hex and fixed-width integer fields"
+description = "Byte encodings shared by Syrox crates: lowercase hex, fixed-width integer fields and the format tag registry"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
