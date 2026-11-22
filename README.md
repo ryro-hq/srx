@@ -206,7 +206,7 @@ srx services logs nginx --profile web --follow
 srx services stop --profile web
 ```
 
-See [installation profiles](docs/os-profiles.md) for ownership, rollback,
+See [installation profiles](docs/services-profiles.md) for ownership, rollback,
 recovery and Linux requirements, and [artifact selection](docs/artifacts.md)
 for automatic consumption of explicitly authorized local bundles.
 

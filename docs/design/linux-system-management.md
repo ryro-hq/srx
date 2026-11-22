@@ -345,7 +345,7 @@ O SRX já fornece partes importantes da fundação:
 
 O `Os` atual contém pacotes e serviços. Ele opera sobre um Linux existente e não
 representa uma instalação completa com kernel, boot e discos. Os contratos atuais
-estão descritos em [perfis de instalação](../os-profiles.md) e
+estão descritos em [perfis de instalação](../services-profiles.md) e
 [seleção de artefatos](../artifacts.md).
 
 Os perfis atuais também exigem uma identidade de execução sem root. Essa restrição

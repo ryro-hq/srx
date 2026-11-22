@@ -65,7 +65,7 @@ fn project(binary: &Path, root: &Path, kind: &str, text: &str) {
 }
 
 #[test]
-fn os_prepares_reopens_and_diffs_after_project_and_launcher_are_removed() {
+fn services_prepares_reopens_and_diffs_after_project_and_launcher_are_removed() {
     let root = tempfile::tempdir().unwrap();
     let binary = fixture(root.path());
     project(&binary, root.path(), "Services", "first");
@@ -249,7 +249,7 @@ fn inspection_never_initializes_missing_state_or_store() {
 }
 
 #[test]
-fn os_worker_rejects_invalid_arguments_before_opening_installation_or_store() {
+fn services_worker_rejects_invalid_arguments_before_opening_installation_or_store() {
     let root = tempfile::tempdir().unwrap();
     let installation = root.path().join("missing-installation");
     let store = root.path().join("missing-store");
@@ -289,7 +289,7 @@ fn apply_arguments() -> Vec<&'static str> {
 }
 
 #[test]
-fn os_apply_requires_explicit_manager_and_previous_generation() {
+fn services_apply_requires_explicit_manager_and_previous_generation() {
     let root = tempfile::tempdir().unwrap();
     let binary = Path::new(env!("CARGO_BIN_EXE_srx"));
     for options in [
@@ -324,7 +324,7 @@ fn os_apply_requires_explicit_manager_and_previous_generation() {
 }
 
 #[test]
-fn os_apply_rejects_invalid_timeouts_and_missing_credentials_during_parsing() {
+fn services_apply_rejects_invalid_timeouts_and_missing_credentials_during_parsing() {
     let root = tempfile::tempdir().unwrap();
     let binary = Path::new(env!("CARGO_BIN_EXE_srx"));
     for (flag, value) in [
@@ -366,7 +366,7 @@ fn os_apply_rejects_invalid_timeouts_and_missing_credentials_during_parsing() {
 }
 
 #[test]
-fn os_apply_refuses_credential_changes_before_creating_state() {
+fn services_apply_refuses_credential_changes_before_creating_state() {
     let root = tempfile::tempdir().unwrap();
     let installation = root.path().join("installation");
     let store = root.path().join("store");
@@ -407,7 +407,7 @@ fn os_apply_refuses_credential_changes_before_creating_state() {
 }
 
 #[test]
-fn os_status_does_not_initialize_missing_installation() {
+fn services_status_does_not_initialize_missing_installation() {
     let root = tempfile::tempdir().unwrap();
     let output = run(
         Path::new(env!("CARGO_BIN_EXE_srx")),
@@ -426,7 +426,7 @@ fn os_status_does_not_initialize_missing_installation() {
 }
 
 #[test]
-fn os_status_reads_unselected_journal_without_store_or_project() {
+fn services_status_reads_unselected_journal_without_store_or_project() {
     let root = tempfile::tempdir().unwrap();
     let binary = fixture(root.path());
     project(
@@ -490,7 +490,7 @@ fn recovery_arguments() -> Vec<&'static str> {
 }
 
 #[test]
-fn os_recover_requires_manager_credentials_and_valid_operation_without_cas_flags() {
+fn services_recover_requires_manager_credentials_and_valid_operation_without_cas_flags() {
     let root = tempfile::tempdir().unwrap();
     let binary = Path::new(env!("CARGO_BIN_EXE_srx"));
     let mut cases = vec![recovery_arguments()];
@@ -561,7 +561,7 @@ fn os_recover_requires_manager_credentials_and_valid_operation_without_cas_flags
 }
 
 #[test]
-fn os_recover_refuses_changed_credentials_before_state_or_manager_access() {
+fn services_recover_refuses_changed_credentials_before_state_or_manager_access() {
     let root = tempfile::tempdir().unwrap();
     let paths = ["installation", "store", "units", "work"].map(|name| root.path().join(name));
     let output = run(
@@ -594,7 +594,7 @@ fn os_recover_refuses_changed_credentials_before_state_or_manager_access() {
 }
 
 #[test]
-fn os_abandon_requires_canonical_operation_and_installation() {
+fn services_abandon_requires_canonical_operation_and_installation() {
     let root = tempfile::tempdir().unwrap();
     let binary = Path::new(env!("CARGO_BIN_EXE_srx"));
     for operation in [
@@ -632,7 +632,7 @@ fn os_abandon_requires_canonical_operation_and_installation() {
 }
 
 #[test]
-fn os_abandon_never_initializes_missing_installation() {
+fn services_abandon_never_initializes_missing_installation() {
     let root = tempfile::tempdir().unwrap();
     let output = run(
         Path::new(env!("CARGO_BIN_EXE_srx")),
@@ -652,7 +652,7 @@ fn os_abandon_never_initializes_missing_installation() {
 }
 
 #[test]
-fn os_rollback_requires_expected_and_explicit_manager_and_forbids_initial() {
+fn services_rollback_requires_expected_and_explicit_manager_and_forbids_initial() {
     let root = tempfile::tempdir().unwrap();
     let binary = Path::new(env!("CARGO_BIN_EXE_srx"));
     let expected = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -689,7 +689,7 @@ fn os_rollback_requires_expected_and_explicit_manager_and_forbids_initial() {
 }
 
 #[test]
-fn os_rollback_uses_apply_credential_preflight_without_creating_state() {
+fn services_rollback_uses_apply_credential_preflight_without_creating_state() {
     let root = tempfile::tempdir().unwrap();
     let mut arguments = apply_arguments();
     arguments[1] = "rollback";

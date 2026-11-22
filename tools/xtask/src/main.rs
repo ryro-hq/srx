@@ -145,7 +145,7 @@ fn suite(name: &str) -> Result {
                     "--test",
                     "language_reference",
                     "--test",
-                    "os_profiles",
+                    "services_profiles",
                     "--test",
                     "system",
                     "--test",

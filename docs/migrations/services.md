@@ -70,7 +70,7 @@ Use the existing profile directly; do not rerun `init` or move its state.
 Installation identities, ownership, retained generations, journals and launcher
 protocols keep their existing formats. Recorded status and list do not need a
 migrated project or a refreshed lock. Recovery continues to use the explicit
-manager and identity checks described in [installation profiles](../os-profiles.md).
+manager and identity checks described in [installation profiles](../services-profiles.md).
 
 Previously published artifacts keep their content identities. New builds remain
 subject to the current authenticated inputs and produce their corresponding
@@ -79,9 +79,11 @@ identities; this migration does not rewrite old artifacts or journals.
 ## Engine callers and authority
 
 Rust callers must replace `PlanConsumerKind::Os` with
-`PlanConsumerKind::Services`. The existing `deployment::os` module, `OsProfile`
-and other `Os`-prefixed engine handles remain at their current Rust paths in
-this increment. Their persistence and execution protocols have not been renamed.
+`PlanConsumerKind::Services`. The engine module is now `deployment::services` and its handles use the
+`Services` prefix (`ServicesProfile`, `ServicesApplyRequest`, ...). Their
+persistence and execution protocols have not been renamed: `syrox-os-*` format
+tags and the `__os-service` worker mode stay byte-identical so existing
+installations and units keep working.
 
 Services still require the existing matching non-root execution identity.
 Systemd system scope continues to require its existing delegated authority.
