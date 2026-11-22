@@ -51,7 +51,6 @@ impl SessionRecord {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Metadata {
-    version: u32,
     boot: BootId,
     configuration: String,
     cwd: String,
@@ -78,7 +77,6 @@ pub(super) fn encode_with_state(
 ) -> Result<Vec<u8>, RecordError> {
     validate_snapshot(snapshot)?;
     let metadata = Metadata {
-        version: 2,
         boot: boot.clone(),
         configuration: path_text(configuration)?.into(),
         cwd: path_text(cwd)?.into(),
@@ -107,9 +105,7 @@ pub(super) fn decode(bytes: &[u8], pin: ContentDigest) -> Result<SessionRecord, 
     }
     let body = bytes
         .strip_prefix(HEADER)
-        .ok_or(RecordError::Invalid(
-            "unsupported record domain or version",
-        ))?;
+        .ok_or(RecordError::Invalid("unsupported record header"))?;
     // Search only the bounded prefix before any JSON parsing or allocation.
     let newline = body
         .iter()
@@ -158,11 +154,6 @@ fn validate_snapshot(snapshot: &[u8]) -> Result<(), RecordError> {
     Ok(())
 }
 fn validate_metadata(metadata: &Metadata) -> Result<(), RecordError> {
-    if metadata.version != 2 {
-        return Err(RecordError::Invalid(
-            "unsupported metadata version",
-        ));
-    }
     path_text(Path::new(&metadata.configuration))?;
     if let Some(state) = &metadata.state {
         let state = Path::new(state);
@@ -263,15 +254,16 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_duplicate_noncanonical_versions_and_truncation() {
+    fn rejects_unknown_duplicate_noncanonical_pre_reset_and_truncated_records() {
         let snapshot = snapshot();
-        let metadata = r#"{"version":2,"boot":"01234567-89ab-cdef-0123-456789abcdef","configuration":"/config","cwd":"/work"}"#;
+        let metadata = r#"{"boot":"01234567-89ab-cdef-0123-456789abcdef","configuration":"/config","cwd":"/work"}"#;
         for invalid in [
-            metadata.replace("\"version\":2", "\"version\":3"),
-            metadata.replace("\"version\":2", "\"version\":2,\"version\":2"),
-            metadata.replace("\"version\":2", "\"version\":2,\"extra\":true"),
+            // Pre-reset metadata carried a JSON version; the tag now does.
+            metadata.replace("{\"boot\"", "{\"version\":2,\"boot\""),
+            metadata.replace("\"cwd\":\"/work\"", "\"cwd\":\"/work\",\"cwd\":\"/work\""),
+            metadata.replace("\"cwd\":\"/work\"", "\"cwd\":\"/work\",\"extra\":true"),
             format!("{metadata} "),
-            r#"{"configuration":"/config","version":2,"boot":"01234567-89ab-cdef-0123-456789abcdef","cwd":"/work"}"#.into(),
+            r#"{"configuration":"/config","boot":"01234567-89ab-cdef-0123-456789abcdef","cwd":"/work"}"#.into(),
         ] {
             assert!(decode_untrusted(&envelope(&invalid, &snapshot)).is_err());
         }
@@ -314,7 +306,6 @@ mod tests {
                 "{path:?}"
             );
             let metadata = Metadata {
-                version: 2,
                 state: None,
                 boot: boot(),
                 configuration: path.into(),
@@ -346,7 +337,7 @@ mod tests {
                 .is_err()
             );
             let metadata = format!(
-                r#"{{"version":2,"boot":"01234567-89ab-cdef-0123-456789abcdef","configuration":"/config","cwd":"{cwd}"}}"#
+                r#"{{"boot":"01234567-89ab-cdef-0123-456789abcdef","configuration":"/config","cwd":"{cwd}"}}"#
             );
             assert!(decode_untrusted(&envelope(&metadata, &snapshot)).is_err());
         }
@@ -376,7 +367,7 @@ mod tests {
         );
         assert!(
             decode_untrusted(&envelope(
-                r#"{"version":2,"boot":"01234567-89ab-cdef-0123-456789abcdef","configuration":"/config","cwd":"/work"}"#,
+                r#"{"boot":"01234567-89ab-cdef-0123-456789abcdef","configuration":"/config","cwd":"/work"}"#,
                 os.as_bytes()
             ))
             .is_err()

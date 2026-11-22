@@ -130,7 +130,6 @@ impl SystemBuildInputs {
         let retention_pin = hash_record(&retention, cancellation)?;
         descriptors.push(retention.into());
         let manifest = Manifest {
-            version: 1,
             action: self.action.digest().to_string(),
             reserved: reserved_descriptors,
             slots: count,

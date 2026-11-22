@@ -74,7 +74,6 @@ struct SourceManifest {
 }
 #[derive(Serialize)]
 struct Manifest<'a> {
-    version: u8,
     format: &'static str,
     specification: &'a DiskSpec,
     image_sha256: String,
@@ -197,7 +196,6 @@ pub fn build_raw(
     }
     let image = staging.finish(ContentDigest::from_sha256_hash(written.sha256))?;
     let metadata = Manifest {
-        version: 1,
         format: "gpt",
         specification,
         image_sha256: image.manifest().content_digest().to_string(),

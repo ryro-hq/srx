@@ -29,7 +29,6 @@ pub(crate) struct EntryMetadata {
 #[serde(deny_unknown_fields)]
 struct WireMetadata {
     domain: String,
-    version: u32,
     context: String,
     execution: String,
     retention: String,
@@ -77,7 +76,6 @@ impl EntryMetadata {
     pub(crate) fn encode(&self) -> io::Result<String> {
         let value = WireMetadata {
             domain: formats::COMMAND_EXECUTION.tag.into(),
-            version: 2,
             context: String::from_utf8(self.context.canonical_bytes()?).map_err(|_| invalid())?,
             execution: self.execution.to_string(),
             retention: self.retention.to_string(),
@@ -97,7 +95,7 @@ impl EntryMetadata {
             return Err(invalid());
         }
         let value: WireMetadata = serde_json::from_str(text).map_err(|_| invalid())?;
-        if value.domain != formats::COMMAND_EXECUTION.tag || value.version != 2 {
+        if value.domain != formats::COMMAND_EXECUTION.tag {
             return Err(invalid());
         }
         let parsed = Self {
@@ -505,8 +503,10 @@ mod tests {
         }
         let text = metadata(&[]).unwrap().encode().unwrap();
         assert!(EntryMetadata::decode(&(text.clone() + "\n")).is_err());
+        // Pre-reset metadata carried a JSON version after the domain.
         assert!(
-            EntryMetadata::decode(&text.replacen("\"version\":2", "\"version\":1", 1)).is_err()
+            EntryMetadata::decode(&text.replacen("\"context\"", "\"version\":2,\"context\"", 1))
+                .is_err()
         );
         assert!(EntryMetadata::decode(&" ".repeat(MAX_METADATA_BYTES + 1)).is_err());
     }

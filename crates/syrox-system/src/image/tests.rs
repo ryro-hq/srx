@@ -88,7 +88,6 @@ fn merging_tracks_producers_and_is_independent_of_input_order_and_policy_ceiling
     let forward = compose(&[first.clone(), second.clone()]).unwrap();
     let backward = compose(&[second, first]).unwrap();
     assert_eq!(forward, backward);
-    assert_eq!(forward.version(), 1);
     assert_eq!(forward.content_bytes(), 4);
     assert_eq!(forward.entries()["/bin"].origins.len(), 2);
     assert_eq!(forward.fingerprint(), backward.fingerprint());
@@ -433,7 +432,8 @@ fn persisted_trees_are_canonical_and_all_invariants_are_revalidated() {
     ] {
         let mut modified = fields.clone();
         match bad {
-            "version" => modified["version"] = 2.into(),
+            // Pre-reset trees carried a JSON version; the tag now does.
+            "version" => modified["version"] = 1.into(),
             "content_bytes" => modified["content_bytes"] = 100.into(),
             "ownership" => {
                 modified["entries"]["/tool"]["entry"]["metadata"]["uid"] = u32::MAX.into();

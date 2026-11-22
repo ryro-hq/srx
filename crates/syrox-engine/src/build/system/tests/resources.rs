@@ -446,7 +446,7 @@ fn wide_chunked_view_keeps_its_producer_limits_without_expanding_unchunked_input
 }
 
 #[test]
-fn canonical_resource_metadata_has_an_independent_fixed_identity_and_strict_versions() {
+fn canonical_resource_metadata_has_an_independent_fixed_identity_and_strict_fields() {
     let fixture = fixture(12);
     let inputs = fixture.prepare().unwrap();
     assert_eq!(
@@ -455,9 +455,9 @@ fn canonical_resource_metadata_has_an_independent_fixed_identity_and_strict_vers
     );
     // Independently assembled using Python hashlib/struct and the documented
     // ordered JSON schema; no real interest or worker authority is represented.
-    let bytes = b"syrox-system-input-resources\n{\"version\":1,\"action\":\"10be61616bd863239feec1d5332ae60c7fdd99af6add3164ac87d9547189f2ce\",\"reserved\":40,\"slots\":1,\"inputs\":[],\"retention\":\"828408e40d4fe651488b14696b60b613c9683ab9862e03f4e72aec7c1fda7635\",\"retention_device\":123,\"retention_inode\":456}";
-    assert_eq!(bytes.len(), 278);
-    let pin: ContentDigest = "fd8bbe9305dd5f81ab41141d475708507fff5ecd5a530d716c87dd4606ee2084"
+    let bytes = b"syrox-system-input-resources\n{\"action\":\"10be61616bd863239feec1d5332ae60c7fdd99af6add3164ac87d9547189f2ce\",\"reserved\":40,\"slots\":1,\"inputs\":[],\"retention\":\"828408e40d4fe651488b14696b60b613c9683ab9862e03f4e72aec7c1fda7635\",\"retention_device\":123,\"retention_inode\":456}";
+    assert_eq!(bytes.len(), 266);
+    let pin: ContentDigest = "f30f0ad4988e5d404b3b9d8f219894552d6476cf9ecedddf67d40349ddc3e624"
         .parse()
         .unwrap();
     assert_eq!(ContentDigest::sha256(bytes), pin);
@@ -467,7 +467,7 @@ fn canonical_resource_metadata_has_an_independent_fixed_identity_and_strict_vers
         1
     );
     let text = std::str::from_utf8(bytes).unwrap();
-    for bad in [text.replace("\"version\":1", "\"version\":2"), text.replace("\"slots\":1", "\"slots\":0"), text.replace("\"slots\":1", "\"slots\":1,\"slots\":1"), text.replace("\"slots\":1", "\"slots\":1,\"extra\":true"), text.replace("\"reserved\":40", "\"reserved\":31"), format!("{text}\n"), text.replace("\"inputs\":[]", "\"inputs\":[{\"storage\":\"blob\",\"artifact_slots\":1,\"maximum_bytes\":18446744073709551615,\"maximum_files\":1}]")] {
+    for bad in [text.replace("{\"action\"", "{\"version\":1,\"action\""), text.replace("\"slots\":1", "\"slots\":0"), text.replace("\"slots\":1", "\"slots\":1,\"slots\":1"), text.replace("\"slots\":1", "\"slots\":1,\"extra\":true"), text.replace("\"reserved\":40", "\"reserved\":31"), format!("{text}\n"), text.replace("\"inputs\":[]", "\"inputs\":[{\"storage\":\"blob\",\"artifact_slots\":1,\"maximum_bytes\":18446744073709551615,\"maximum_files\":1}]")] {
         assert!(SystemBuildInputResources::expected_descriptor_count(inputs.action(), ContentDigest::sha256(bad.as_bytes()), bad.as_bytes(), 40).is_err());
     }
     let resources = inputs

@@ -111,7 +111,7 @@ fn data_hashes_and_parameters_survive_gc_and_rebuild_identically() {
         metadata["hash_manifest_sha256"],
         hash_pin.to_string()
     );
-    assert_eq!(metadata["version"], 1);
+    assert!(metadata.get("version").is_none());
     assert_eq!(metadata["superblock"], false);
     assert_eq!(metadata["hash_start_block"], 0);
     assert_eq!(metadata["salt"], "23".repeat(32));

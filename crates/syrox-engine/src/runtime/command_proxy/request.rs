@@ -22,7 +22,6 @@ pub(crate) const MAX_REQUEST_BYTES: usize =
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WireRequest {
-    version: u32,
     alias: String,
     arguments: Vec<Vec<u8>>,
     cwd: Vec<u8>,
@@ -101,7 +100,6 @@ impl ProxyRequest {
     pub(crate) fn canonical_bytes(&self) -> io::Result<Vec<u8>> {
         self.validate()?;
         let wire = WireRequest {
-            version: 1,
             alias: self.alias.clone(),
             arguments: self
                 .arguments
@@ -129,9 +127,6 @@ impl ProxyRequest {
             .strip_prefix(formats::SHELL_COMMAND_REQUEST_LINE.as_bytes())
             .ok_or_else(invalid)?;
         let wire: WireRequest = serde_json::from_slice(body).map_err(|_| invalid())?;
-        if wire.version != 1 {
-            return Err(invalid());
-        }
         let request = Self::new(
             wire.alias,
             wire.arguments
@@ -453,14 +448,15 @@ mod tests {
         let text = String::from_utf8(bytes.clone()).unwrap();
         assert!(
             ProxyRequest::decode(
-                text.replace("\"version\":1", "\"version\":1,\"extra\":0")
+                text.replace("{\"alias\"", "{\"extra\":0,\"alias\"")
                     .as_bytes()
             )
             .is_err()
         );
+        // Pre-reset requests carried a JSON version; the tag now does.
         assert!(
             ProxyRequest::decode(
-                text.replace("\"version\":1", "\"version\":2")
+                text.replace("{\"alias\"", "{\"version\":1,\"alias\"")
                     .as_bytes()
             )
             .is_err()

@@ -72,7 +72,6 @@ pub(crate) struct CandidateEntry {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Record {
-    version: u32,
     installation: String,
     generation: String,
     phase: CandidatePhase,
@@ -90,8 +89,7 @@ impl Record {
                 "unsupported candidate record",
             ))?;
         let record: Self = serde_json::from_slice(json)?;
-        if record.version != 1
-            || record.installation != installation
+        if record.installation != installation
             || record.generation != pin.to_string()
             || record.bytes()? != bytes
         {
@@ -340,7 +338,6 @@ impl GenerationInstallation {
     ) -> Result<(crate::platform::linux::fd::OpenedPath, Record)> {
         let directory = self.storage.candidate(pin, true)?;
         let mut record = Record {
-            version: 1,
             installation: self.id.clone(),
             generation: pin.to_string(),
             phase: CandidatePhase::Preparing,

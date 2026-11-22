@@ -47,7 +47,6 @@ struct Resource {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Record {
-    version: u32,
     installation: String,
     generation: String,
     resource: Resource,
@@ -64,7 +63,6 @@ pub(crate) struct ServicesLaunchBinding(Record);
 impl ServicesLaunchBinding {
     pub(crate) fn new(input: LaunchBindingInput) -> Result<Self> {
         let binding = Self(Record {
-            version: 3,
             installation: input.installation,
             generation: input.generation.to_string(),
             resource: Resource {
@@ -114,8 +112,8 @@ impl ServicesLaunchBinding {
     }
     fn validate(&self) -> Result<()> {
         let record = &self.0;
-        if record.version != 3 || !installation_id(&record.installation) {
-            return Err(invalid("invalid binding identity or version"));
+        if !installation_id(&record.installation) {
+            return Err(invalid("invalid binding identity"));
         }
         digest(&record.generation)?;
         digest(&record.spec)?;

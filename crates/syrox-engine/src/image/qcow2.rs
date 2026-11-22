@@ -60,7 +60,6 @@ impl BuiltQcow2 {
 
 #[derive(Serialize)]
 struct Manifest {
-    version: u8,
     format: &'static str,
     qcow2_version: u8,
     cluster_bytes: u64,
@@ -145,7 +144,6 @@ pub fn build_qcow2(
     }
     let image = staging.finish(ContentDigest::from_sha256_hash(written.sha256))?;
     let metadata = Manifest {
-        version: 1,
         format: "qcow2",
         qcow2_version: 3,
         cluster_bytes: CLUSTER_BYTES,

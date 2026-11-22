@@ -137,7 +137,6 @@ pub(super) struct Attempt {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ActivationSnapshot {
-    pub(super) version: u32,
     pub installation: String,
     pub desired: Option<String>,
     pub active_operation: Option<String>,
@@ -163,7 +162,6 @@ impl ActivationSnapshot {
     }
     pub(super) fn empty(installation: String) -> Self {
         Self {
-            version: 1,
             installation,
             desired: None,
             active_operation: None,
@@ -323,7 +321,7 @@ impl ActivationSnapshot {
         super::manager_change::validate(self)
     }
     fn validate_registry(&self) -> Result<()> {
-        if self.version != 1 || !identifier(&self.installation) {
+        if !identifier(&self.installation) {
             return Err(invalid("invalid activation identity"));
         }
         if self.operations.len() > MAX_OPERATIONS

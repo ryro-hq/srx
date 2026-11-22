@@ -566,7 +566,6 @@ fn imported_output_reopens_from_pinned_result_without_fabricating_a_receipt() {
         .write(directory.fd(), "manifest", &bytes)
         .unwrap();
     let mut record = Record {
-        version: 1,
         installation: installation.id().into(),
         generation: pin.to_string(),
         phase: CandidatePhase::Preparing,

@@ -10,7 +10,6 @@ pub(super) const MINIMUM_RESERVE: u32 = 32;
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Manifest {
-    pub version: u32,
     pub action: String,
     pub reserved: u32,
     pub slots: u32,
@@ -94,8 +93,7 @@ impl Manifest {
             .retention
             .parse()
             .map_err(|_| BuildError::InvalidRequest)?;
-        if value.version != 1
-            || value.action != action.digest().to_string()
+        if value.action != action.digest().to_string()
             || value.reserved != reserved
             || value.inputs.len() != action.selected_inputs().len()
             || value.slots != count

@@ -114,11 +114,11 @@ checks that the registry still produces the same bytes.
 | `syrox-observed-build-unit` | hash domain | `syrox_engine::systemd::build` | - | Observation of a managed build unit. |
 | `syrox-observed-shell-service` | hash domain | `syrox_engine::systemd::service` | - | Observation of a Shell service unit. |
 | `syrox-loaded-services-unit` | hash domain | `syrox_engine::systemd::loaded` | - | Observation of a loaded Services unit. |
-| `syrox-command-execution` | wire | `syrox_engine::runtime::command_proxy::launch_contract` | - | Domain of command execution metadata; the JSON `version` field (2) carries the version. |
+| `syrox-command-execution` | wire | `syrox_engine::runtime::command_proxy::launch_contract` | - | Domain of command execution metadata, written as its JSON `domain` field. |
 | `syrox-command-root-arguments` | hash domain | `syrox_engine::runtime::command_proxy::launch_contract` | - | Pin of a command root's arguments. |
 | `syrox-shell-command-request` | wire | `syrox_engine::runtime::command_proxy::request` | - | Shell command request sent to the command broker. |
 | `syrox-command-guardian` | wire | `syrox_engine::runtime::command_proxy::guardian` | - | Command guardian event frame. |
-| `syrox-command-monitor` | wire | `syrox_engine::execution::command_evidence` | - | Domain of command monitor introductions; the JSON `version` field (1) carries the version. |
+| `syrox-command-monitor` | wire | `syrox_engine::execution::command_evidence` | - | Domain of command monitor introductions, written as their JSON `domain` field. |
 | `syrox-command-monitor-ack` | wire | `syrox_engine::execution::command_evidence` | - | Acknowledgment of a command monitor introduction, written as `tag digest`. |
 | `syrox-session-state` | persisted | `syrox_engine::execution::journal` | - | Execution session journal state. |
 | `syrox-service-role` | hash domain | `syrox_engine::execution::journal::roles` | - | Stable pin of a service role. |

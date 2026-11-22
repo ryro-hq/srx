@@ -73,7 +73,6 @@ impl BuiltVerity {
 
 #[derive(Serialize)]
 struct Manifest {
-    version: u8,
     algorithm: &'static str,
     data_block_bytes: u32,
     hash_block_bytes: u32,
@@ -217,7 +216,6 @@ pub fn build_verity(
         content.finalize().into(),
     ))?;
     let metadata = Manifest {
-        version: 1,
         algorithm: "sha256",
         data_block_bytes: 4096,
         hash_block_bytes: 4096,

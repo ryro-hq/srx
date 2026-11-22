@@ -113,14 +113,9 @@ fn binding_rejects_pin_domain_truncation_noncanonical_and_unknown_fields() {
 }
 
 #[test]
-fn binding_validates_versions_names_digest_and_epoch_without_losing_process_grammar() {
+fn binding_validates_names_digest_and_epoch_without_losing_process_grammar() {
     let binding = ServicesLaunchBinding::new(input()).unwrap();
     let mut bad = binding.0.clone();
-    bad.version = 2;
-    rejects_record(&bad);
-    bad.version = 4;
-    rejects_record(&bad);
-    bad = binding.0.clone();
     bad.launcher.protocol = 2;
     rejects_record(&bad);
     bad = binding.0.clone();

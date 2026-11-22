@@ -9,7 +9,8 @@
 //!
 //! Tags are byte-exact. Changing one here changes every record, message and
 //! digest that uses it, so a tag changes only together with a deliberate format
-//! version bump. Companion constants hold the exact terminated forms written
+//! version bump. A tagged record carries no second version inside its body:
+//! the tag alone identifies the format. Companion constants hold the exact terminated forms written
 //! by their owners (for example the header line with its `\n`), so call sites
 //! never rebuild them by hand.
 
@@ -555,7 +556,7 @@ registry! {
     COMMAND_EXECUTION = "syrox-command-execution" {
         boundary: Wire,
         owner: "syrox_engine::runtime::command_proxy::launch_contract",
-        summary: "Domain of command execution metadata; the JSON `version` field (2) carries the version.",
+        summary: "Domain of command execution metadata, written as its JSON `domain` field.",
     }
     COMMAND_ROOT_ARGUMENTS = "syrox-command-root-arguments" {
         boundary: HashDomain,
@@ -580,7 +581,7 @@ registry! {
     COMMAND_MONITOR = "syrox-command-monitor" {
         boundary: Wire,
         owner: "syrox_engine::execution::command_evidence",
-        summary: "Domain of command monitor introductions; the JSON `version` field (1) carries the version.",
+        summary: "Domain of command monitor introductions, written as their JSON `domain` field.",
     }
     COMMAND_MONITOR_ACK = "syrox-command-monitor-ack" {
         boundary: Wire,

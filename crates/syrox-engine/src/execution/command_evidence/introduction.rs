@@ -15,7 +15,6 @@ use crate::{cancellation::Cancellation, store::ContentDigest};
 #[serde(deny_unknown_fields)]
 pub(crate) struct MonitorAnnouncement {
     domain: String,
-    version: u32,
     sequence: u64,
     session: String,
     execution: String,
@@ -36,7 +35,6 @@ impl MonitorAnnouncement {
         }
         Ok(Self {
             domain: formats::COMMAND_MONITOR.tag.into(),
-            version: 1,
             sequence: 0,
             session: expected.session.clone(),
             execution: expected.execution.clone(),

@@ -90,7 +90,6 @@ pub struct ComposedEntry {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SystemTree {
-    version: u32,
     entries: BTreeMap<String, ComposedEntry>,
     content_bytes: u64,
 }
@@ -120,14 +119,11 @@ pub enum ImageError {
     Budget(&'static str),
     #[error("symlink at {0:?} escapes the image root, is cyclic, or has an invalid target")]
     Symlink(String),
-    #[error("system tree manifest is malformed, noncanonical or uses an unsupported version")]
+    #[error("system tree manifest is malformed, noncanonical or has an unsupported header")]
     Manifest,
 }
 
 impl SystemTree {
-    pub const fn version(&self) -> u32 {
-        self.version
-    }
     pub fn entries(&self) -> &BTreeMap<String, ComposedEntry> {
         &self.entries
     }
@@ -135,7 +131,7 @@ impl SystemTree {
         self.content_bytes
     }
 
-    /// Canonical, versioned metadata. File contents remain in authenticated
+    /// Canonical, tagged metadata. File contents remain in authenticated
     /// components. This encoding also defines the tree's SHA-256 identity.
     pub fn canonical_bytes(&self) -> Vec<u8> {
         let mut bytes = formats::SYSTEM_TREE_LINE.as_bytes().to_vec();
@@ -149,7 +145,6 @@ impl SystemTree {
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct EncodedTree {
-            version: u32,
             entries: BTreeMap<String, ComposedEntry>,
             content_bytes: u64,
         }
@@ -162,7 +157,7 @@ impl SystemTree {
                 .ok_or(ImageError::Manifest)?,
         )
         .map_err(|_| ImageError::Manifest)?;
-        if fields.version != 1 || fields.entries.len() > MAX_ENTRIES {
+        if fields.entries.len() > MAX_ENTRIES {
             return Err(ImageError::Manifest);
         }
         let mut components = BTreeMap::<String, Vec<ComponentEntry>>::new();
@@ -334,7 +329,6 @@ impl SystemTree {
             },
         }))?;
         let tree = Self {
-            version: 1,
             entries,
             content_bytes,
         };

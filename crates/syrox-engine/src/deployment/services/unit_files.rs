@@ -48,7 +48,6 @@ struct Intent {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Ledger {
-    version: u32,
     installation: String,
     #[serde(with = "digest_map")]
     units: BTreeMap<String, ContentDigest>,
@@ -179,7 +178,6 @@ impl UnitFiles {
         let _guard = selected.lock(cancel, deadline)?;
         if created {
             selected.save(&Ledger {
-                version: 1,
                 installation: installation.into(),
                 units: BTreeMap::new(),
                 pending: None,
@@ -563,8 +561,7 @@ impl UnitFiles {
             .ok_or_else(|| invalid("unsupported ownership ledger"))?;
         let ledger: Ledger =
             serde_json::from_slice(body).map_err(|_| invalid("invalid ownership ledger"))?;
-        if ledger.version != 1
-            || ledger.installation != self.installation
+        if ledger.installation != self.installation
             || ledger.units.len() > MAX_UNITS
             || encode(&ledger)? != bytes
         {
