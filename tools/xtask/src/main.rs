@@ -14,6 +14,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, ExitCode},
 };
+mod formats;
 mod policy;
 mod release;
 mod structure;
@@ -92,6 +93,7 @@ fn check() -> Result {
         ],
     )?;
     structure::run(Path::new("."))?;
+    formats::check(Path::new("."))?;
     language_format(false)?;
     run(
         "cargo",
@@ -201,6 +203,7 @@ fn execute() -> Result {
     match args.as_slice() {
         ["check"] => check(),
         ["structure"] => { structure::run(Path::new("."))?; Ok(()) },
+        ["formats"] => { formats::write(Path::new("."))?; Ok(()) },
         ["fmt"] => { run("cargo", &["fmt", "--all"])?; language_format(true) }
         ["test", "--suite", name] => suite(name),
         ["security", "exceptions"] => policy::exceptions(),
@@ -213,6 +216,6 @@ fn execute() -> Result {
         ["release", "catalog", directory] => release::catalog(Path::new(directory)),
         ["release", "checksums", directory] => release::checksums(Path::new(directory)),
         ["security", "audit"] => run("cargo", &["deny", "--locked", "check"]),
-        _ => Err("use cargo xtask check | fmt | test --suite portable|native|acceptance | security audit".into()),
+        _ => Err("use cargo xtask check | fmt | formats | test --suite portable|native|acceptance | security audit".into()),
     }
 }

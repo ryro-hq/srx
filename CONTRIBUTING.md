@@ -6,6 +6,8 @@ Report security vulnerabilities privately using [SECURITY.md](SECURITY.md).
 Use the toolchain in `rust-toolchain.toml`. Start with `cargo xtask check`.
 The [testing guide](docs/testing.md) explains portable and VM checks. Checks do not
 rewrite maintained sources or locks; `cargo xtask fmt` formats sources explicitly.
+Tags of persisted, wire and hashed formats live in `syrox_encoding::formats`;
+see the [format reference](docs/formats.md) before adding or bumping one.
 
 Use Conventional Commits with a lowercase scope, for example
 `fix(config): retain YAML comments` or `feat(catalog)!: require exact versions`.
