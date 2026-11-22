@@ -5,11 +5,10 @@
 //! interest; it must remain retained until the process settles.
 
 use super::*;
-use std::fmt::Write as _;
 use std::fs::File;
 use std::io::Write as _;
 use std::os::unix::fs::PermissionsExt as _;
-use syrox_encoding::formats;
+use syrox_encoding::{formats, record};
 
 const HEADER: &str = formats::INTEREST_LINE;
 const MAX_INTEREST_BYTES: u64 = MAX_ROOT_BYTES * 2;
@@ -256,14 +255,14 @@ fn validate_sets(references: &[ContentDigest], views: &[ContentDigest]) -> Resul
 }
 
 fn encode(references: &[ContentDigest], views: &[ContentDigest]) -> Vec<u8> {
-    let mut text = HEADER.to_owned();
+    let mut record = record::Writer::new(&formats::INTEREST).with_separator('=');
     for digest in references {
-        writeln!(text, "object={digest}").expect("writing to a String cannot fail");
+        record.field("object", digest);
     }
     for digest in views {
-        writeln!(text, "view={digest}").expect("writing to a String cannot fail");
+        record.field("view", digest);
     }
-    text.into_bytes()
+    record.into_bytes()
 }
 
 fn decode(bytes: &[u8]) -> Result<(Vec<ContentDigest>, Vec<ContentDigest>), StoreError> {

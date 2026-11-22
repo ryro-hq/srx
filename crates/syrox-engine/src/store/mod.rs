@@ -14,6 +14,8 @@ use std::io::{self, Read};
 use std::path::Path;
 use std::sync::Arc;
 use syrox_encoding::formats;
+#[cfg(target_os = "linux")]
+use syrox_encoding::record;
 
 #[cfg(test)]
 thread_local! {
@@ -51,8 +53,6 @@ pub const MAX_RECOVERY_ENTRIES: u64 = 1_000_000;
 pub const MAX_RECOVERY_CANDIDATES: u64 = 1_000_000;
 pub const MAX_RECOVERY_WORK: u64 = 2_000_000;
 
-#[cfg(target_os = "linux")]
-const ROOT_HEADER: &str = formats::STORE_ROOT_LINE;
 #[cfg(target_os = "linux")]
 const OBJECT_TEMP_PREFIX: &str = ".syrox-store.tmp.";
 #[cfg(target_os = "linux")]
@@ -1092,23 +1092,19 @@ fn charge(value: u64, limit: u64, resource: &'static str) -> Result<(), StoreErr
 
 #[cfg(target_os = "linux")]
 fn encode_root(name: &RootName, digests: &[ContentDigest]) -> Result<Vec<u8>, StoreError> {
-    let expected = ROOT_HEADER.len() + 5 + name.as_str().len() + 1 + digests.len() * 72;
+    let expected =
+        formats::STORE_ROOT_LINE.len() + 5 + name.as_str().len() + 1 + digests.len() * 72;
     if expected as u64 > MAX_ROOT_BYTES {
         return Err(StoreError::LimitExceeded {
             resource: "root bytes",
         });
     }
-    let mut bytes = Vec::with_capacity(expected);
-    bytes.extend_from_slice(ROOT_HEADER.as_bytes());
-    bytes.extend_from_slice(b"name=");
-    bytes.extend_from_slice(name.as_str().as_bytes());
-    bytes.push(b'\n');
+    let mut record = record::Writer::new(&formats::STORE_ROOT).with_separator('=');
+    record.field("name", name);
     for digest in digests {
-        bytes.extend_from_slice(b"sha256=");
-        bytes.extend_from_slice(digest.to_string().as_bytes());
-        bytes.push(b'\n');
+        record.field("sha256", digest);
     }
-    Ok(bytes)
+    Ok(record.into_bytes())
 }
 
 #[cfg(target_os = "linux")]
@@ -1117,52 +1113,40 @@ fn parse_root(
     bytes: &[u8],
     reference_limit: u64,
 ) -> Result<Vec<ContentDigest>, StoreError> {
-    if !bytes.is_ascii() || !bytes.ends_with(b"\n") {
-        return Err(StoreError::CorruptRoot {
-            name: filename.clone(),
-        });
-    }
-    let text = std::str::from_utf8(bytes).map_err(|_| StoreError::CorruptRoot {
+    let corrupt = || StoreError::CorruptRoot {
         name: filename.clone(),
-    })?;
-    let mut lines = text.lines();
-    if lines.next() != Some(ROOT_HEADER.trim_end())
-        || lines.next() != Some(&format!("name={filename}"))
-    {
-        return Err(StoreError::CorruptRoot {
-            name: filename.clone(),
-        });
+    };
+    if !bytes.is_ascii() || !bytes.ends_with(b"\n") {
+        return Err(corrupt());
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| corrupt())?;
+    let mut lines = record::Reader::new(text, &formats::STORE_ROOT)
+        .map_err(|_| corrupt())?
+        .with_separator('=');
+    if lines.field("name") != Ok(filename.as_str()) {
+        return Err(corrupt());
     }
     let mut digests = Vec::new();
-    for line in lines {
+    while let Some(value) = lines.next_field("sha256") {
         charge(
             digests.len() as u64 + 1,
             reference_limit,
             "root references",
         )?;
-        let digest = line
-            .strip_prefix("sha256=")
-            .ok_or_else(|| StoreError::CorruptRoot {
-                name: filename.clone(),
-            })?
-            .parse()
-            .map_err(|_| StoreError::CorruptRoot {
-                name: filename.clone(),
-            })?;
+        let digest = value
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .ok_or_else(corrupt)?;
         if digests
             .last()
             .is_some_and(|previous| *previous >= digest)
         {
-            return Err(StoreError::CorruptRoot {
-                name: filename.clone(),
-            });
+            return Err(corrupt());
         }
         digests.push(digest);
     }
     if encode_root(filename, &digests)? != bytes {
-        return Err(StoreError::CorruptRoot {
-            name: filename.clone(),
-        });
+        return Err(corrupt());
     }
     Ok(digests)
 }
