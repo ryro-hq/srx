@@ -254,10 +254,14 @@ pub(crate) fn run(
                     &mut process,
                     &execution,
                     &metadata,
-                    &root_info,
-                    monitor.peer(),
-                    receiver,
-                    &mut observed,
+                    RootChannel {
+                        info: &root_info,
+                        monitor: monitor.peer(),
+                    },
+                    GuardianSettlement {
+                        receiver,
+                        observed: &mut observed,
+                    },
                     guardian.as_fd(),
                     cancel,
                 )
@@ -334,15 +338,31 @@ pub(crate) fn run(
     }
 }
 
-#[allow(clippy::too_many_arguments)] // Keep authenticated entry, foreground supervision and independent terminal cleanup in one ownership scope.
+/// Root event channel and the authenticated monitor peer whose packets it accepts.
+#[derive(Clone, Copy)]
+struct RootChannel<'a> {
+    info: &'a PacketChannel,
+    monitor: Peer,
+}
+
+/// Guardian settlement receiver and the slot retaining its authenticated proof.
+struct GuardianSettlement<'a> {
+    receiver: &'a mut SettlementReceiver,
+    observed: &'a mut Option<ObservedCommandExecutionSettlement>,
+}
+
 fn foreground(
     process: &mut Process<'_>,
     execution: &ExecutionGuard<'_>,
     metadata: &EntryMetadata,
-    info: &PacketChannel,
-    monitor: Peer,
-    receiver: &mut SettlementReceiver,
-    observed: &mut Option<ObservedCommandExecutionSettlement>,
+    RootChannel {
+        info,
+        monitor,
+    }: RootChannel<'_>,
+    GuardianSettlement {
+        receiver,
+        observed,
+    }: GuardianSettlement<'_>,
     guardian: BorrowedFd<'_>,
     cancel: &Cancellation,
 ) -> io::Result<ExitStatus> {
