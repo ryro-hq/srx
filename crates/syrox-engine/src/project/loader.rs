@@ -284,8 +284,10 @@ fn load_open_project_graph(
     let children = load_child_edges(
         &mut sources,
         &locators,
-        path,
-        &project,
+        ProjectRoot {
+            path,
+            project: &project,
+        },
         configuration,
         budget,
         graph,
@@ -342,6 +344,14 @@ fn load_local_inputs(
     Ok(loaded)
 }
 
+/// A project directory's diagnostic path together with its opened handle.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy)]
+struct ProjectRoot<'a> {
+    path: &'a Path,
+    project: &'a OpenedPath,
+}
+
 #[cfg(target_os = "linux")]
 struct LoadedChildren {
     edges: Vec<ProjectEdge>,
@@ -349,12 +359,13 @@ struct LoadedChildren {
 }
 
 #[cfg(target_os = "linux")]
-#[allow(clippy::too_many_arguments)] // Carry source, dependency, traversal-budget and diagnostic ownership explicitly through loading.
 fn load_child_edges(
     sources: &mut SourceSet,
     locators: &[InputLocator],
-    path: &Path,
-    project: &OpenedPath,
+    ProjectRoot {
+        path,
+        project,
+    }: ProjectRoot<'_>,
     configuration: &CheckConfiguration,
     budget: &mut LoadBudget,
     graph: &mut GraphLoad,
