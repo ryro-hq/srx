@@ -792,7 +792,7 @@ mod tests {
             assert!(BuildProgram::decode(&bytes[..end]).is_err());
         }
         let mut invalid = bytes.clone();
-        invalid[8] = 1;
+        invalid[8] = 2;
         assert!(BuildProgram::decode(&invalid).is_err());
         invalid = bytes.clone();
         invalid[9] = 255;

@@ -331,7 +331,7 @@ fn wrong_digest_truncated_and_tampered_bundles_do_not_admit_results() {
     let mut corrupted = fixture.bytes.clone();
     let last = corrupted.len() - 1;
     corrupted[last] ^= 0xff;
-    let header = b"syrox-runtime-bundle-v1\n".len();
+    let header = b"syrox-runtime-bundle\n".len();
     let manifest_length = u32::from_le_bytes(
         fixture.bytes[header..header + 4]
             .try_into()
@@ -389,7 +389,7 @@ fn cancellation_during_artifact_transport_is_neutral_and_does_not_publish() {
     let store = Store::initialize(destination.path()).unwrap();
     let root = RootName::new("cancelled_transport").unwrap();
     let cancellation = Cancellation::default();
-    let header = b"syrox-runtime-bundle-v1\n".len();
+    let header = b"syrox-runtime-bundle\n".len();
     let manifest_size = u32::from_le_bytes(
         fixture.bytes[header..header + 4]
             .try_into()

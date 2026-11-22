@@ -182,7 +182,7 @@ impl Observation {
         );
         let json: serde_json::Value = serde_json::from_slice(
             record
-                .strip_prefix(b"syrox-session-state-v2\n")
+                .strip_prefix(b"syrox-session-state\n")
                 .unwrap(),
         )
         .unwrap();

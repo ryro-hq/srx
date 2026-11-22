@@ -223,9 +223,10 @@ mod tests {
             assert!(encode(0, &event).is_err());
         }
         let bytes = encode(0, &Event::RelayReady).unwrap();
-        let old = String::from_utf8(bytes)
-            .unwrap()
-            .replace("guardian-v2", "guardian-v1");
+        let old = String::from_utf8(bytes).unwrap().replace(
+            "syrox-command-guardian",
+            "syrox-command-guardian-v2",
+        );
         assert!(decode(old.as_bytes(), 0).is_err());
         assert_eq!(
             super::descriptor_count(&Event::Prepared {

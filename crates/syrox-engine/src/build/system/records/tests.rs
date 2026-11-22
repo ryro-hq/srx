@@ -77,10 +77,10 @@ fn canonical_record_round_trips_and_never_enters_the_ordinary_action_parser() {
 #[test]
 fn canonical_system_record_has_an_independently_assembled_wire_identity() {
     let action = action();
-    assert_eq!(action.encode().len(), 701);
+    assert_eq!(action.encode().len(), 692);
     assert_eq!(
         action.digest().to_string(),
-        "43904a35825c0461f17d81a6977e396881ffa11959b2d0258d7315ced63e6cb2"
+        "e6e6850162239d2e4c4b16f735a2bc5e929514939e39436e243afe7ed0fc750c"
     );
 }
 
@@ -177,10 +177,10 @@ fn malformed_noncanonical_and_unsupported_records_are_refused() {
     let text = String::from_utf8(action.encode()).unwrap();
     for malformed in [
         text.replace(
-            "syrox-system-build-action-v1",
+            "syrox-system-build-action",
             "syrox-system-build-action-v2",
         ),
-        text.replace(PROFILE, "syrox-managed-program-x86_64-v2"),
+        text.replace(PROFILE, "syrox-managed-program-x86_64"),
         text.replace("\"source_limit\":1024", "\"source_limit\":0"),
         text.replace(
             "\"source_limit\":1024",
@@ -192,7 +192,7 @@ fn malformed_noncanonical_and_unsupported_records_are_refused() {
         ),
         text.replace("subreaper-echild", "none"),
         text.replace(
-            "syrox-system-worker-outputs-v1",
+            "syrox-system-worker-outputs",
             "syrox-build-output-v1",
         ),
         text.replace(

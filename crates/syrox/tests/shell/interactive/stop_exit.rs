@@ -424,7 +424,7 @@ fn verify_execution(root: &Path) {
     let bytes = bounded(path, 1024 * 1024);
     let json: serde_json::Value = serde_json::from_slice(
         bytes
-            .strip_prefix(b"syrox-session-state-v2\n")
+            .strip_prefix(b"syrox-session-state\n")
             .unwrap(),
     )
     .unwrap();

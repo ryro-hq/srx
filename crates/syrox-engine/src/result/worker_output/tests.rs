@@ -82,14 +82,14 @@ fn version_one_packet_and_budget_binding_have_fixed_wire_identities() {
     // Independently assembled using the documented LE integer/record framing.
     let limits = budget(4096, 10);
     let bytes = packet(&limits, 17);
-    assert_eq!(bytes.len(), 303);
+    assert_eq!(bytes.len(), 300);
     assert_eq!(
         ContentDigest::sha256(&bytes).to_string(),
-        "9985771dade5fd6896d66114cc2ee169f0ab44da1b8ac5faec5197d2341040b2"
+        "dd1cc363ac4f4a0e49d214db7a4f74864c6ec63c181a99558da7409b5fa5d859"
     );
     assert_eq!(
         budget_pin(&limits).to_string(),
-        "ba4541f59af8088a4b8efa9fdbfbfc9d8db13607120f23d4ea77476347612013"
+        "accff28b6752649f1163d7ec8595686584eb9006063204e88a940fa7f9078097"
     );
 }
 

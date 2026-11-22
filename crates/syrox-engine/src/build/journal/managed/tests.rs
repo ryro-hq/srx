@@ -845,7 +845,7 @@ fn managed_preparation_rejects_foreign_and_noncanonical_shared_attempts() {
             .unwrap()
             .encode()
             .into_bytes(),
-        b"syrox-build-attempt-v1\naction broken\ntimeout 30\n".to_vec(),
+        b"syrox-build-attempt\naction broken\ntimeout 30\n".to_vec(),
     ] {
         let (_temporary, _store, operation, context) = fixture();
         write(&operation.directory, "action", &bytes).unwrap();

@@ -44,12 +44,12 @@ fn action(executable: &Path) -> Result<SystemBuildAction> {
     }
     // Struct-ordered canonical metadata; this Directory program is not run.
     let wire = format!(
-        "{{\"profile\":\"syrox-system-managed-x86_64-v1\",\"source\":\"{}\",\"source_limit\":1024,\"worker\":\"{}\",\"directory\":\"source-1\",\"inputs\":[],\"program\":\"5352584255494c440201000201000000030000006f7574010000000201050000006275696c64\",\"budget\":{},\"policy\":\"{policy}\",\"output_protocol\":\"syrox-system-worker-outputs-v1\",\"settlement\":\"subreaper-echild\"}}",
+        "{{\"profile\":\"syrox-system-managed-x86_64\",\"source\":\"{}\",\"source_limit\":1024,\"worker\":\"{}\",\"directory\":\"source-1\",\"inputs\":[],\"program\":\"5352584255494c440201000201000000030000006f7574010000000201050000006275696c64\",\"budget\":{},\"policy\":\"{policy}\",\"output_protocol\":\"syrox-system-worker-outputs\",\"settlement\":\"subreaper-echild\"}}",
         ContentDigest::sha256(b"metadata-only native service-limits probe"),
         ContentDigest::sha256(&fs::read(executable)?),
         serde_json::to_string(&request)?,
     );
-    let mut bytes = b"syrox-system-build-action-v1\n".to_vec();
+    let mut bytes = b"syrox-system-build-action\n".to_vec();
     bytes.extend(wire.bytes());
     Ok(SystemBuildAction::parse(&bytes, &admitted)?)
 }

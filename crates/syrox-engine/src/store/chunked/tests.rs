@@ -62,14 +62,14 @@ fn chunked_manifest_has_a_fixed_wire_identity() {
         chunks: vec![content],
     };
     let mut expected =
-        b"syrox-chunked-artifact-v1\n\x00\x00\x40\x00\x03\x00\x00\x00\x00\x00\x00\x00".to_vec();
+        b"syrox-chunked-artifact\n\x00\x00\x40\x00\x03\x00\x00\x00\x00\x00\x00\x00".to_vec();
     expected.extend_from_slice(content.as_bytes());
     expected.extend_from_slice(&[1, 0, 0, 0]);
     expected.extend_from_slice(content.as_bytes());
     assert_eq!(manifest.canonical_bytes(), expected);
     assert_eq!(
         ContentDigest::sha256(&expected).to_string(),
-        "a8620b3a02fb5fafe38f57d5ccd7670c5edcd6c1034480e95e41cd1db5da359e"
+        "eefafa26e0e0c89f260fd3b7346cf1940694b56396ae1418b6fd3b5e4ed460b0"
     );
     assert_eq!(
         ChunkedArtifactManifest::decode(&expected, 3).unwrap(),

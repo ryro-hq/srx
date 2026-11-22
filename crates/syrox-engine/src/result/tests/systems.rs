@@ -163,7 +163,7 @@ fn system_bundle_and_view_round_trip_preserve_chunks_and_import_origin() {
     assert!(legacy.is_empty());
     let mut bundle = Vec::new();
     export_system_bundle(&source, &root, pin, &mut bundle, &budget, &cancel).unwrap();
-    assert!(bundle.starts_with(b"syrox-system-bundle-v2\n"));
+    assert!(bundle.starts_with(b"syrox-system-bundle\n"));
     let second = tempfile::tempdir().unwrap();
     let destination = Store::initialize(second.path()).unwrap();
     assert!(
@@ -348,7 +348,7 @@ fn system_bundle_rejects_missing_extra_changed_and_unauthorized_objects_without_
     let mut corrupt = bundle.clone();
     *corrupt.last_mut().unwrap() ^= 1;
     let mut wrong_count = bundle.clone();
-    let offset = b"syrox-system-bundle-v2\n".len() + 4 + manifest.encode().unwrap().len();
+    let offset = b"syrox-system-bundle\n".len() + 4 + manifest.encode().unwrap().len();
     wrong_count[offset] ^= 1;
     for changed in [
         &bundle[..bundle.len() - 1],
@@ -415,7 +415,7 @@ fn system_result_and_bundle_have_fixed_wire_identities() {
     let pin = manifest.digest().unwrap();
     assert_eq!(
         pin.to_string(),
-        "f38771fafe53c920546479898dfc44ab3bdbdf710119d245923c5af93d1d97bf"
+        "65c0ee1281a8098983fde876042d526edbaa28c12e1db1c80d9ed418ac464a76"
     );
     let root = RootName::new("system_wire_identity").unwrap();
     let cancellation = Cancellation::default();
@@ -440,7 +440,7 @@ fn system_result_and_bundle_have_fixed_wire_identities() {
     .unwrap();
     assert_eq!(
         ContentDigest::sha256(&bundle).to_string(),
-        "2f9b1a68506c6e73f56d920ba85561d9c8a2b6f9e7beaa66ca84af786dde6b42"
+        "85de19e785eabd8e6c63d447f3969c3a40c88c1e3bab5d18ebbed84d1f3110b2"
     );
 }
 

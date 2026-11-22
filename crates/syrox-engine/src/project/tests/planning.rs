@@ -299,7 +299,7 @@ fn recipe_build_projection_preserves_package_generality_and_public_selection() {
     );
     assert!(
         plan.to_string()
-            .contains("build \"internal-app\" protocol program-v2")
+            .contains("build \"internal-app\" protocol program")
     );
     // An ordinary project struct with the same spelling does not request a build.
     let lookalike = package_plan(

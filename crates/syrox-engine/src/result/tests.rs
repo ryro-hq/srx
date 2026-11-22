@@ -545,6 +545,6 @@ fn package_result_and_bundle_have_fixed_wire_identities() {
     crate::bundle::export_bundle(&store, &root, pin, &mut bundle, &cancellation).unwrap();
     assert_eq!(
         ContentDigest::sha256(&bundle).to_string(),
-        "2da15ea27db81e7c4a50209ba53eb09f0eda44e4107930a7b72cf81f06a8ea0b"
+        "b449c4697ec35b3c999fa1b8f9d79ff20d84b79022fed62738f5e072158d54ec"
     );
 }

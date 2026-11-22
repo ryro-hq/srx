@@ -98,7 +98,7 @@ fn data_hashes_and_parameters_survive_gc_and_rebuild_identically() {
         .into_bytes();
     let metadata: serde_json::Value = serde_json::from_slice(
         bytes
-            .strip_prefix(b"syrox-verity-image-v1\n")
+            .strip_prefix(b"syrox-verity-image\n")
             .unwrap(),
     )
     .unwrap();

@@ -109,7 +109,7 @@ fn body_rejects_wrong_pin_extra_bytes_duplicate_fields_and_unsupported_versions(
     let text = String::from_utf8(bytes).unwrap();
     for invalid in [
         format!("{text}\n"),
-        text.replace("syrox-service-body-v1", "syrox-service-body-v2"),
+        text.replace("syrox-service-body", "syrox-service-body-v2"),
         text.replace("\"slot\":0", "\"slot\":0,\"slot\":0"),
         text.replace("\"slot\":0", "\"slot\":0,\"unknown\":0"),
     ] {
@@ -174,7 +174,7 @@ fn runtime_contract_is_shared_and_large_arguments_are_not_silently_cut_to_packet
 #[test]
 fn decoder_bounds_structure_and_total_body_before_deserializing() {
     let bytes = format!(
-        "syrox-service-body-v1\n{}0{}",
+        "syrox-service-body\n{}0{}",
         "[".repeat(9),
         "]".repeat(9)
     );

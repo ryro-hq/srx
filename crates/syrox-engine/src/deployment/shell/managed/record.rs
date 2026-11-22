@@ -217,7 +217,7 @@ mod tests {
     fn snapshot() -> Vec<u8> {
         format!(
             concat!(
-                "syrox-shell-session-v2\n",
+                "syrox-shell-session\n",
                 "{{\"launcher\":{{\"digest\":\"{}\",\"protocol\":1}},",
                 "\"outputs\":{{}},\"provenance\":{{}},\"services\":[],\"selections\":[],",
                 "\"commands\":{{}},\"exposures\":{{}},\"configs\":{{}},\"processes\":{{}}}}"
@@ -286,7 +286,7 @@ mod tests {
             assert!(decode_untrusted(&bytes[..end]).is_err());
         }
         let changed = String::from_utf8(bytes).unwrap().replace(
-            "syrox-shell-operation-v2",
+            "syrox-shell-operation",
             "syrox-shell-operation-v1",
         );
         assert!(decode_untrusted(changed.as_bytes()).is_err());
@@ -364,7 +364,7 @@ mod tests {
         );
         let os = String::from_utf8(snapshot)
             .unwrap()
-            .replace("syrox-shell-session-v2", "syrox-generation-v2");
+            .replace("syrox-shell-session", "syrox-generation");
         assert!(
             encode(
                 &boot(),
@@ -449,7 +449,7 @@ mod tests {
             ),
             text.replace(&format!("\"boot\":\"{}\",", boot().as_str()), ""),
             text.replace(
-                "syrox-shell-operation-v2",
+                "syrox-shell-operation",
                 "syrox-shell-operation-v1",
             ),
         ] {

@@ -294,7 +294,7 @@ fn malformed_fragment_or_batch_cannot_reach_an_acceptance() {
                 .receive(packet_peer(), 0, deadline, &cancel)
                 .unwrap();
             let binding = ContentDigest::sha256(&ready.bytes);
-            let mut header = b"syrox-system-input-manifest-v1\n".to_vec();
+            let mut header = b"syrox-system-input-manifest\n".to_vec();
             header.extend(binding.as_bytes());
             if invalid == 0 {
                 header.extend(
@@ -316,7 +316,7 @@ fn malformed_fragment_or_batch_cannot_reach_an_acceptance() {
                 sender
                     .send(&header, &[], deadline, &cancel)
                     .unwrap();
-                let mut batch = b"syrox-system-input-batch-v1\n".to_vec();
+                let mut batch = b"syrox-system-input-batch\n".to_vec();
                 batch.extend(binding.as_bytes());
                 batch.extend(4_u32.to_le_bytes());
                 batch.extend(1_u32.to_le_bytes());

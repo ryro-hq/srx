@@ -313,7 +313,7 @@ fn authentic_manifest_is_required_before_any_descriptor_offer_is_accepted() {
     for key in ["slots", "reserved", "retention_inode"] {
         let old = wire[key].clone();
         wire[key] = serde_json::Value::from(u32::MAX);
-        let mut bytes = b"syrox-system-input-resources-v1\n".to_vec();
+        let mut bytes = b"syrox-system-input-resources\n".to_vec();
         bytes.extend(serde_json::to_vec(&wire).unwrap());
         assert!(
             SystemBuildInputResources::expected_descriptor_count(
@@ -451,13 +451,13 @@ fn canonical_resource_metadata_has_an_independent_fixed_identity_and_strict_vers
     let inputs = fixture.prepare().unwrap();
     assert_eq!(
         inputs.action().digest().to_string(),
-        "4d7998286b6114de2de1aba813270ba903f50dc33ed3d2bc90dd8e7386b5ac95"
+        "10be61616bd863239feec1d5332ae60c7fdd99af6add3164ac87d9547189f2ce"
     );
     // Independently assembled using Python hashlib/struct and the documented
     // ordered JSON schema; no real interest or worker authority is represented.
-    let bytes = b"syrox-system-input-resources-v1\n{\"version\":1,\"action\":\"4d7998286b6114de2de1aba813270ba903f50dc33ed3d2bc90dd8e7386b5ac95\",\"reserved\":40,\"slots\":1,\"inputs\":[],\"retention\":\"828408e40d4fe651488b14696b60b613c9683ab9862e03f4e72aec7c1fda7635\",\"retention_device\":123,\"retention_inode\":456}";
-    assert_eq!(bytes.len(), 281);
-    let pin: ContentDigest = "e2c3488f82e03dd9fd6c8c8253ec566dc6202bb9e38b4d0b65e511282062a132"
+    let bytes = b"syrox-system-input-resources\n{\"version\":1,\"action\":\"10be61616bd863239feec1d5332ae60c7fdd99af6add3164ac87d9547189f2ce\",\"reserved\":40,\"slots\":1,\"inputs\":[],\"retention\":\"828408e40d4fe651488b14696b60b613c9683ab9862e03f4e72aec7c1fda7635\",\"retention_device\":123,\"retention_inode\":456}";
+    assert_eq!(bytes.len(), 278);
+    let pin: ContentDigest = "fd8bbe9305dd5f81ab41141d475708507fff5ecd5a530d716c87dd4606ee2084"
         .parse()
         .unwrap();
     assert_eq!(ContentDigest::sha256(bytes), pin);

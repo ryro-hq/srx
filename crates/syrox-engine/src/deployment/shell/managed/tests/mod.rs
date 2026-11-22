@@ -138,7 +138,7 @@ fn operation_manifest_authenticates_snapshot_configuration_and_working_directory
         );
     }
     let body = first
-        .strip_prefix(b"syrox-shell-operation-v2\n")
+        .strip_prefix(b"syrox-shell-operation\n")
         .unwrap();
     let newline = body
         .iter()

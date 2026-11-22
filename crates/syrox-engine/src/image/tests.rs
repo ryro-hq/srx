@@ -146,11 +146,11 @@ fn package_to_chunked_initramfs_retains_tree_provenance_and_input_closure_across
         .into_bytes();
     let provenance: serde_json::Value = serde_json::from_slice(
         manifest_bytes
-            .strip_prefix(b"syrox-system-image-v1\n")
+            .strip_prefix(b"syrox-system-image\n")
             .unwrap(),
     )
     .unwrap();
-    assert_eq!(provenance["format"], "syrox-initramfs-v1");
+    assert_eq!(provenance["format"], "syrox-initramfs");
     assert_eq!(
         provenance["components"][0]["origin"]["kind"],
         "imported"
@@ -324,8 +324,8 @@ fn late_source_corruption_leaves_collectible_chunks_without_image_or_chunk_manif
                 .unwrap()
                 .read(&mut prefix)
                 .unwrap();
-            assert!(!prefix[..count].starts_with(b"syrox-system-image-v1\n"));
-            assert!(!prefix[..count].starts_with(b"syrox-chunked-artifact-v1\n"));
+            assert!(!prefix[..count].starts_with(b"syrox-system-image\n"));
+            assert!(!prefix[..count].starts_with(b"syrox-chunked-artifact\n"));
             if prefix[..count].starts_with(b"070701") {
                 chunks.push(path);
             }

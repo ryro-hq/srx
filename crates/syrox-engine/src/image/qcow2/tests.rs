@@ -133,7 +133,7 @@ fn qcow2_retains_complete_raw_gpt_provenance_and_partition_closures_after_gc() {
         .into_bytes();
     let json: serde_json::Value = serde_json::from_slice(
         bytes
-            .strip_prefix(b"syrox-qcow2-image-v1\n")
+            .strip_prefix(b"syrox-qcow2-image\n")
             .unwrap(),
     )
     .unwrap();

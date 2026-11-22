@@ -58,7 +58,7 @@ fn named_receipt_retains_and_materializes_independent_outputs() {
         .with_outputs(&action, BTreeMap::from([("dev".into(), named)]))
         .unwrap();
     let encoded = receipt.encode();
-    assert!(encoded.starts_with(b"syrox-build-result-v4\n"));
+    assert!(encoded.starts_with(b"syrox-build-result\n"));
     assert_eq!(Receipt::parse(&encoded).unwrap(), receipt);
     assert_eq!(receipt.references().len(), 6);
     let lease = store.operation().unwrap();

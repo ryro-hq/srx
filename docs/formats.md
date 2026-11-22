@@ -44,32 +44,32 @@ checks that the registry still produces the same bytes.
 | `syrox-std` | hash domain | `syrox_engine::project::lock` | - | Length-framed domain of the standard library digest bound by a lock. |
 | `syrox-input` | hash domain | `syrox_engine::project::lock` | - | Length-framed domain of one locked input's digest. |
 | `syrox-project` | hash domain | `syrox_engine::project::lock` | - | Length-framed domain of the locked project digest. |
-| `syrox-artifact-recipe-v1` | identity | `syrox_engine::catalog::artifacts` | - | First element of the JSON array that identifies a catalog artifact recipe. |
+| `syrox-artifact-recipe` | identity | `syrox_engine::catalog::artifacts` | - | First element of the JSON array that identifies a catalog artifact recipe. |
 | `syrox-root` | persisted | `syrox_engine::store` | - | Store root record listing the objects a named root retains. |
-| `syrox-chunked-artifact-v1` | persisted | `syrox_engine::store::chunked` | - | Manifest of an artifact stored as fixed-size chunks. |
-| `syrox-interest-v1` | persisted | `syrox_engine::store::retention` | - | Retention interest record that keeps roots alive across collection. |
-| `syrox-durable-interest-v1` | persisted | `syrox_engine::store::retention::durable` | - | Durable retention interest that survives the process that created it. |
-| `syrox-durable-store-anchor-v1` | hash domain | `syrox_engine::store::retention::durable` | - | Digest of the Store directory identities a durable interest was opened against. |
+| `syrox-chunked-artifact` | persisted | `syrox_engine::store::chunked` | - | Manifest of an artifact stored as fixed-size chunks. |
+| `syrox-interest` | persisted | `syrox_engine::store::retention` | - | Retention interest record that keeps roots alive across collection. |
+| `syrox-durable-interest` | persisted | `syrox_engine::store::retention::durable` | - | Durable retention interest that survives the process that created it. |
+| `syrox-durable-store-anchor` | hash domain | `syrox_engine::store::retention::durable` | - | Digest of the Store directory identities a durable interest was opened against. |
 | `syrox-package-result` | persisted | `syrox_engine::result` | - | Result manifest of an ordinary package build, capped at 1 MiB. |
 | `syrox-system-result` | persisted | `syrox_engine::result` | - | Result manifest of a system build, with its admitted budget and chunked outputs. |
 | `syrox-artifact` | persisted | `syrox_engine::result::artifact` | - | Single-file artifact encoding stored as a result output. |
-| `syrox-system-worker-outputs-v1` | wire | `syrox_engine::result::worker_output` | - | System worker output transfer; the bare tag is also the output protocol named by system build actions. |
-| `syrox-system-output-budget-v1` | hash domain | `syrox_engine::result::worker_output` | - | Binding of system worker outputs to the admitted budget. |
-| `syrox-runtime-bundle-v1` | persisted | `syrox_engine::bundle` | - | Exported runtime bundle: a result and its object closure. |
-| `syrox-system-bundle-v2` | persisted | `syrox_engine::bundle::system` | - | Exported system result with its complete chunk closure. |
-| `syrox-system-image-v1` | identity | `syrox_engine::image` | - | Initramfs image provenance manifest; its digest identifies the image. |
-| `syrox-initramfs-v1` | identity | `syrox_engine::image` | - | Archive format named inside the system image manifest. |
-| `syrox-raw-image-v1` | identity | `syrox_engine::image::raw` | - | Raw GPT disk image provenance manifest. |
-| `syrox-qcow2-image-v1` | identity | `syrox_engine::image::qcow2` | - | qcow2 disk image metadata manifest. |
-| `syrox-verity-image-v1` | identity | `syrox_engine::image::verity` | - | dm-verity image parameter manifest. |
-| `SRXBUILD` | identity | `syrox_engine::build::program` | - | Binary build program encoding; the magic is followed by version byte 0x02. |
-| `syrox-host-program-x86_64-v3` | identity | `syrox_engine::build` | - | Execution profile of host bootstrap build programs, named in build actions. |
-| `syrox-managed-program-x86_64-v2` | identity | `syrox_engine::build` | - | Execution profile of managed build programs, named in build actions. |
-| `syrox-build-action-v5` | identity | `syrox_engine::build::records` | - | Build action record; its digest keys the build cache. |
-| `syrox-build-result-v4` | persisted | `syrox_engine::build::records` | - | Build receipt binding an action to its published outputs. |
+| `syrox-system-worker-outputs` | wire | `syrox_engine::result::worker_output` | - | System worker output transfer; the bare tag is also the output protocol named by system build actions. |
+| `syrox-system-output-budget` | hash domain | `syrox_engine::result::worker_output` | - | Binding of system worker outputs to the admitted budget. |
+| `syrox-runtime-bundle` | persisted | `syrox_engine::bundle` | - | Exported runtime bundle: a result and its object closure. |
+| `syrox-system-bundle` | persisted | `syrox_engine::bundle::system` | - | Exported system result with its complete chunk closure. |
+| `syrox-system-image` | identity | `syrox_engine::image` | - | Initramfs image provenance manifest; its digest identifies the image. |
+| `syrox-initramfs` | identity | `syrox_engine::image` | - | Archive format named inside the system image manifest. |
+| `syrox-raw-image` | identity | `syrox_engine::image::raw` | - | Raw GPT disk image provenance manifest. |
+| `syrox-qcow2-image` | identity | `syrox_engine::image::qcow2` | - | qcow2 disk image metadata manifest. |
+| `syrox-verity-image` | identity | `syrox_engine::image::verity` | - | dm-verity image parameter manifest. |
+| `SRXBUILD` | identity | `syrox_engine::build::program` | - | Binary build program encoding; the magic is followed by version byte 0x01. |
+| `syrox-host-program-x86_64` | identity | `syrox_engine::build` | - | Execution profile of host bootstrap build programs, named in build actions. |
+| `syrox-managed-program-x86_64` | identity | `syrox_engine::build` | - | Execution profile of managed build programs, named in build actions. |
+| `syrox-build-action` | identity | `syrox_engine::build::records` | - | Build action record; its digest keys the build cache. |
+| `syrox-build-result` | persisted | `syrox_engine::build::records` | - | Build receipt binding an action to its published outputs. |
 | `syrox-build-index` | persisted | `syrox_engine::build::cache` | - | Action index entry listing cached receipts for one action. |
 | `syrox-build-closing` | persisted | `syrox_engine::build::shared` | - | Journal marker that a shared build is closing. |
-| `syrox-build-attempt-v1` | persisted | `syrox_engine::build::journal` | - | Build journal attempt record: action and timeout. |
+| `syrox-build-attempt` | persisted | `syrox_engine::build::journal` | - | Build journal attempt record: action and timeout. |
 | `syrox-build-authorized` | persisted | `syrox_engine::build::journal` | - | Build journal marker that an attempt was authorized. |
 | `syrox-build-revoked` | persisted | `syrox_engine::build::journal` | - | Build journal marker that an authorization was revoked. |
 | `syrox-build-cleaned` | persisted | `syrox_engine::build::journal` | - | Build journal marker that attempt resources were cleaned. |
@@ -79,65 +79,65 @@ checks that the registry still produces the same bytes.
 | `syrox-build-origin` | persisted | `syrox_engine::build::bootstrap::linux` | - | Origin of a bootstrap build: lock, package, domain and path. |
 | `syrox-host-toolchain` | identity | `syrox_engine::build::bootstrap::linux::inventory` | - | Host toolchain inventory whose digest pins bootstrap builds. |
 | `syrox-output-group` | persisted | `syrox_engine::build::bootstrap::group` | - | Framed group of named bootstrap outputs. |
-| `syrox-managed-build-hello-v1` | wire | `syrox_engine::build::managed::handshake` | - | Managed build worker hello. |
-| `syrox-managed-build-resources-v1` | wire | `syrox_engine::build::managed::transfer` | - | Managed build resource offer. |
-| `syrox-managed-build-resource-batch-v1` | wire | `syrox_engine::build::managed::transfer` | - | Managed build resource descriptor batch. |
-| `syrox-managed-build-namespace-processed-v2` | wire | `syrox_engine::build::managed::namespace_protocol` | - | Managed build namespace preparation report. |
-| `syrox-managed-build-commit-v1` | wire | `syrox_engine::build::managed::namespace_protocol::execution` | - | Coordinator commit that lets a managed build start. |
-| `syrox-managed-build-exit-v1` | wire | `syrox_engine::build::managed::namespace_protocol::execution` | - | Managed build exit report. |
-| `syrox-managed-build-exit-observed-v1` | wire | `syrox_engine::build::managed::namespace_protocol::execution` | - | Coordinator acknowledgment of an observed managed build exit. |
-| `syrox-managed-build-retention-processed-v1` | wire | `syrox_engine::build::managed::retention_protocol` | - | Managed build retention preparation report. |
-| `syrox-managed-build-retention-observed-v1` | wire | `syrox_engine::build::managed::retention_protocol` | - | Coordinator observation of managed build retention. |
-| `syrox-system-managed-x86_64-v1` | identity | `syrox_engine::build::system::records` | - | Execution profile named by system build actions. |
-| `syrox-system-build-action-v1` | identity | `syrox_engine::build::system::records` | - | System build action record; its digest identifies the action. |
-| `syrox-system-build-payload-v1` | persisted | `syrox_engine::build::system::namespace` | - | System build namespace payload record. |
-| `syrox-system-input-resources-v1` | wire | `syrox_engine::build::system::resources` | - | Canonical system build input resource record. |
-| `syrox-system-input-ready-v1` | wire | `syrox_engine::build::system::input_transfer` | - | System input receiver readiness. |
-| `syrox-system-input-manifest-v1` | wire | `syrox_engine::build::system::input_transfer` | - | System input metadata fragment. |
-| `syrox-system-input-batch-v1` | wire | `syrox_engine::build::system::input_transfer` | - | System input descriptor batch. |
-| `syrox-system-input-accepted-v1` | wire | `syrox_engine::build::system::input_transfer` | - | System input batch acceptance. |
-| `syrox-generation-v2` | persisted | `syrox_engine::deployment::manifest` | - | Deployment generation manifest. |
-| `syrox-shell-session-v2` | persisted | `syrox_engine::deployment::manifest` | - | Shell session generation manifest. |
-| `syrox-shell-command-index-v1` | hash domain | `syrox_engine::deployment::manifest::commands` | - | Shell command exposure index; only its digest leaves the coordinator. |
-| `syrox-shell-operation-v2` | persisted | `syrox_engine::deployment::shell::managed::record` | - | Managed Shell operation record with its session snapshot. |
+| `syrox-managed-build-hello` | wire | `syrox_engine::build::managed::handshake` | - | Managed build worker hello. |
+| `syrox-managed-build-resources` | wire | `syrox_engine::build::managed::transfer` | - | Managed build resource offer. |
+| `syrox-managed-build-resource-batch` | wire | `syrox_engine::build::managed::transfer` | - | Managed build resource descriptor batch. |
+| `syrox-managed-build-namespace-processed` | wire | `syrox_engine::build::managed::namespace_protocol` | - | Managed build namespace preparation report. |
+| `syrox-managed-build-commit` | wire | `syrox_engine::build::managed::namespace_protocol::execution` | - | Coordinator commit that lets a managed build start. |
+| `syrox-managed-build-exit` | wire | `syrox_engine::build::managed::namespace_protocol::execution` | - | Managed build exit report. |
+| `syrox-managed-build-exit-observed` | wire | `syrox_engine::build::managed::namespace_protocol::execution` | - | Coordinator acknowledgment of an observed managed build exit. |
+| `syrox-managed-build-retention-processed` | wire | `syrox_engine::build::managed::retention_protocol` | - | Managed build retention preparation report. |
+| `syrox-managed-build-retention-observed` | wire | `syrox_engine::build::managed::retention_protocol` | - | Coordinator observation of managed build retention. |
+| `syrox-system-managed-x86_64` | identity | `syrox_engine::build::system::records` | - | Execution profile named by system build actions. |
+| `syrox-system-build-action` | identity | `syrox_engine::build::system::records` | - | System build action record; its digest identifies the action. |
+| `syrox-system-build-payload` | persisted | `syrox_engine::build::system::namespace` | - | System build namespace payload record. |
+| `syrox-system-input-resources` | wire | `syrox_engine::build::system::resources` | - | Canonical system build input resource record. |
+| `syrox-system-input-ready` | wire | `syrox_engine::build::system::input_transfer` | - | System input receiver readiness. |
+| `syrox-system-input-manifest` | wire | `syrox_engine::build::system::input_transfer` | - | System input metadata fragment. |
+| `syrox-system-input-batch` | wire | `syrox_engine::build::system::input_transfer` | - | System input descriptor batch. |
+| `syrox-system-input-accepted` | wire | `syrox_engine::build::system::input_transfer` | - | System input batch acceptance. |
+| `syrox-generation` | persisted | `syrox_engine::deployment::manifest` | - | Deployment generation manifest. |
+| `syrox-shell-session` | persisted | `syrox_engine::deployment::manifest` | - | Shell session generation manifest. |
+| `syrox-shell-command-index` | hash domain | `syrox_engine::deployment::manifest::commands` | - | Shell command exposure index; only its digest leaves the coordinator. |
+| `syrox-shell-operation` | persisted | `syrox_engine::deployment::shell::managed::record` | - | Managed Shell operation record with its session snapshot. |
 | `syrox-services-installation` | persisted | `syrox_engine::deployment::services::installation` | - | Services installation identity file. |
 | `syrox-services-candidate` | persisted | `syrox_engine::deployment::services::installation` | - | Services installation candidate record. |
-| `syrox-generation-root-v1` | hash domain | `syrox_engine::deployment::services::installation` | - | Digest that names the Store root of one generation role. |
+| `syrox-generation-root` | hash domain | `syrox_engine::deployment::services::installation` | - | Digest that names the Store root of one generation role. |
 | `syrox-services-activation` | persisted | `syrox_engine::deployment::services::activation` | - | Services activation record. |
 | `syrox-services-launch` | persisted | `syrox_engine::deployment::services::launch_binding` | - | Binding of a Services invocation to its generation, process and context. |
 | `syrox-services-scope` | identity | `syrox_engine::deployment::services::launch_binding` | - | Prefix of the scope key derived from a Services manager context, written as `tag:digest`. |
 | `syrox-services-reload-target` | hash domain | `syrox_engine::deployment::services::apply::manager` | - | Identity of the desired rendered unit batch. |
-| `syrox-unit-ownership-v1` | persisted | `syrox_engine::deployment::services::unit_files` | - | Ledger of unit files published by Services. |
+| `syrox-unit-ownership` | persisted | `syrox_engine::deployment::services::unit_files` | - | Ledger of unit files published by Services. |
 | `syrox-services-unit` | persisted | `syrox_engine::deployment::services::unit_files` | - | Comment marker on the first line of every unit file rendered by Services. |
-| `syrox-systemd-v1` | identity | `syrox_engine::systemd::contract` | - | Identifier of the systemd interface contract. |
-| `syrox-systemd-manager-v1` | hash domain | `syrox_engine::systemd` | - | Fingerprint of a systemd manager: scope, bus GUID and owner. |
-| `syrox-observed-build-unit-v1` | hash domain | `syrox_engine::systemd::build` | - | Observation of a managed build unit. |
-| `syrox-observed-shell-service-v1` | hash domain | `syrox_engine::systemd::service` | - | Observation of a Shell service unit. |
+| `syrox-systemd` | identity | `syrox_engine::systemd::contract` | - | Identifier of the systemd interface contract. |
+| `syrox-systemd-manager` | hash domain | `syrox_engine::systemd` | - | Fingerprint of a systemd manager: scope, bus GUID and owner. |
+| `syrox-observed-build-unit` | hash domain | `syrox_engine::systemd::build` | - | Observation of a managed build unit. |
+| `syrox-observed-shell-service` | hash domain | `syrox_engine::systemd::service` | - | Observation of a Shell service unit. |
 | `syrox-loaded-services-unit` | hash domain | `syrox_engine::systemd::loaded` | - | Observation of a loaded Services unit. |
 | `syrox-command-execution` | wire | `syrox_engine::runtime::command_proxy::launch_contract` | - | Domain of command execution metadata; the JSON `version` field (2) carries the version. |
-| `syrox-command-root-arguments-v1` | hash domain | `syrox_engine::runtime::command_proxy::launch_contract` | - | Pin of a command root's arguments. |
-| `syrox-shell-command-request-v1` | wire | `syrox_engine::runtime::command_proxy::request` | - | Shell command request sent to the command broker. |
-| `syrox-command-guardian-v2` | wire | `syrox_engine::runtime::command_proxy::guardian` | - | Command guardian event frame. |
+| `syrox-command-root-arguments` | hash domain | `syrox_engine::runtime::command_proxy::launch_contract` | - | Pin of a command root's arguments. |
+| `syrox-shell-command-request` | wire | `syrox_engine::runtime::command_proxy::request` | - | Shell command request sent to the command broker. |
+| `syrox-command-guardian` | wire | `syrox_engine::runtime::command_proxy::guardian` | - | Command guardian event frame. |
 | `syrox-command-monitor` | wire | `syrox_engine::execution::command_evidence` | - | Domain of command monitor introductions; the JSON `version` field (1) carries the version. |
-| `syrox-command-monitor-ack-v1` | wire | `syrox_engine::execution::command_evidence` | - | Acknowledgment of a command monitor introduction, written as `tag digest`. |
-| `syrox-session-state-v2` | persisted | `syrox_engine::execution::journal` | - | Execution session journal state. |
-| `syrox-service-role-v1` | hash domain | `syrox_engine::execution::journal::roles` | - | Stable pin of a service role. |
-| `syrox-service-body-v1` | wire | `syrox_engine::execution::resources` | - | Managed service specification body. |
-| `syrox-service-offer-v1` | wire | `syrox_engine::execution::resources::transfer` | - | Service resource transfer offer. |
-| `syrox-service-chunk-v1` | wire | `syrox_engine::execution::resources::transfer` | - | Service resource transfer chunk. |
-| `syrox-service-resources-v1` | wire | `syrox_engine::execution::resources::transfer` | - | Service resource descriptors message; the bare tag without terminator. |
-| `syrox-owner-v1` | wire | `syrox_engine::execution::launcher` | - | Owner coordinator messages, written as `tag verb`. |
-| `syrox-service-v2` | wire | `syrox_engine::execution::launcher::service` | - | Managed service launcher messages, written as `tag verb`. |
-| `syrox-terminal-attributes-v1` | hash domain | `syrox_engine::platform::linux::fd::terminal` | - | Fingerprint of meaningful terminal attribute fields. |
-| `syrox-system-tree-v1` | identity | `syrox_system::image` | - | Canonical system tree metadata; the encoding defines the tree's SHA-256 identity. |
-| `syrox-system-inventory-v1` | hash domain | `syrox_system::inventory` | - | Fingerprint of a system inventory observation. |
-| `syrox-filesystem-observation-v1` | hash domain | `syrox_system::filesystem` | - | Fingerprint of one filesystem observation, including capacity and usage. |
-| `syrox-builder-limits-v1` | hash domain | `syrox_system::budget` | - | Fingerprint of the builder resource ceilings. |
-| `syrox-system-workspace-layout-v1` | hash domain | `syrox_system::workspace` | - | Identity of a scratch/output workspace geometry. |
-| `syrox-private-scratch-activation-v1` | persisted | `syrox_system::helper_activation` | - | Comment marker on the first line of the helper socket and service units. |
-| `syrox-private-scratch-authorization-v1` | hash domain | `syrox_system::helper::session` | - | Authorization digest of a private scratch request. |
-| `syrox-private-scratch-journal-v1` | hash domain | `syrox_system::helper::recovery::evidence` | - | Digest over the private scratch journal records. |
-| `syrox-private-scratch-recovery-plan-v1` | hash domain | `syrox_system::helper::recovery` | - | Digest of a private scratch recovery plan. |
-| `syrox-private-workspace-authorization-v1` | hash domain | `syrox_system::helper::workspace` | - | Authorization digest of a private workspace request. |
-| `syrox-private-workspace-recovery-plan-v1` | hash domain | `syrox_system::helper::recovery::workspace` | - | Digest of a private workspace recovery plan. |
-| `syrox-release-v1` | identity | `syrox::cli::commands::install_self` | - | Installed release manifest; its digest names the release. |
+| `syrox-command-monitor-ack` | wire | `syrox_engine::execution::command_evidence` | - | Acknowledgment of a command monitor introduction, written as `tag digest`. |
+| `syrox-session-state` | persisted | `syrox_engine::execution::journal` | - | Execution session journal state. |
+| `syrox-service-role` | hash domain | `syrox_engine::execution::journal::roles` | - | Stable pin of a service role. |
+| `syrox-service-body` | wire | `syrox_engine::execution::resources` | - | Managed service specification body. |
+| `syrox-service-offer` | wire | `syrox_engine::execution::resources::transfer` | - | Service resource transfer offer. |
+| `syrox-service-chunk` | wire | `syrox_engine::execution::resources::transfer` | - | Service resource transfer chunk. |
+| `syrox-service-resources` | wire | `syrox_engine::execution::resources::transfer` | - | Service resource descriptors message; the bare tag without terminator. |
+| `syrox-owner` | wire | `syrox_engine::execution::launcher` | - | Owner coordinator messages, written as `tag verb`. |
+| `syrox-service` | wire | `syrox_engine::execution::launcher::service` | - | Managed service launcher messages, written as `tag verb`. |
+| `syrox-terminal-attributes` | hash domain | `syrox_engine::platform::linux::fd::terminal` | - | Fingerprint of meaningful terminal attribute fields. |
+| `syrox-system-tree` | identity | `syrox_system::image` | - | Canonical system tree metadata; the encoding defines the tree's SHA-256 identity. |
+| `syrox-system-inventory` | hash domain | `syrox_system::inventory` | - | Fingerprint of a system inventory observation. |
+| `syrox-filesystem-observation` | hash domain | `syrox_system::filesystem` | - | Fingerprint of one filesystem observation, including capacity and usage. |
+| `syrox-builder-limits` | hash domain | `syrox_system::budget` | - | Fingerprint of the builder resource ceilings. |
+| `syrox-system-workspace-layout` | hash domain | `syrox_system::workspace` | - | Identity of a scratch/output workspace geometry. |
+| `syrox-private-scratch-activation` | persisted | `syrox_system::helper_activation` | - | Comment marker on the first line of the helper socket and service units. |
+| `syrox-private-scratch-authorization` | hash domain | `syrox_system::helper::session` | - | Authorization digest of a private scratch request. |
+| `syrox-private-scratch-journal` | hash domain | `syrox_system::helper::recovery::evidence` | - | Digest over the private scratch journal records. |
+| `syrox-private-scratch-recovery-plan` | hash domain | `syrox_system::helper::recovery` | - | Digest of a private scratch recovery plan. |
+| `syrox-private-workspace-authorization` | hash domain | `syrox_system::helper::workspace` | - | Authorization digest of a private workspace request. |
+| `syrox-private-workspace-recovery-plan` | hash domain | `syrox_system::helper::recovery::workspace` | - | Digest of a private workspace recovery plan. |
+| `syrox-release` | identity | `syrox::cli::commands::install_self` | - | Installed release manifest; its digest names the release. |

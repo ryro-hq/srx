@@ -134,7 +134,7 @@ fn canonical_roundtrip_pins_bytes_and_rejects_noncanonical_unknown_or_malformed_
     let text = String::from_utf8(bytes).unwrap();
     for changed in [
         format!("{text}\n"),
-        text.replace("syrox-generation-v2", "syrox-generation-v1"),
+        text.replace("syrox-generation", "syrox-generation-v1"),
         text.replace("\"protocol\":1", "\"protocol\":1,\"protocol\":1"),
         text.replace(
             "\"protocol\":1",
@@ -492,7 +492,7 @@ fn many_processes_share_configuration_change_without_affecting_an_independent_se
 #[test]
 fn decode_checks_structure_before_allocation_and_configuration_entry_count_is_bounded() {
     let bytes = format!(
-        "syrox-generation-v2\n{}0{}",
+        "syrox-generation\n{}0{}",
         "[".repeat(17),
         "]".repeat(17)
     );
@@ -531,7 +531,7 @@ fn shell_snapshot_borrows_preparation_and_is_distinct_from_services_generation()
     let (temp, shell) = prepared("Shell");
     fs::remove_file(temp.path().join("main.srx")).unwrap();
     let (bytes, pin) = shell_snapshot(&shell, launcher()).unwrap();
-    assert!(bytes.starts_with(b"syrox-shell-session-v2\n"));
+    assert!(bytes.starts_with(b"syrox-shell-session\n"));
     assert_eq!(ContentDigest::sha256(&bytes), pin);
     let decoded = ShellSessionManifest::decode_bounded(&bytes, pin).unwrap();
     assert_eq!(decoded.canonical_bytes().unwrap(), bytes);
@@ -558,11 +558,11 @@ fn shell_snapshot_borrows_preparation_and_is_distinct_from_services_generation()
     // representation; only the explicit destination wire domain differs.
     assert_eq!(
         bytes
-            .strip_prefix(b"syrox-shell-session-v2\n")
+            .strip_prefix(b"syrox-shell-session\n")
             .unwrap(),
         generation
             .canonical_bytes()
-            .strip_prefix(b"syrox-generation-v2\n")
+            .strip_prefix(b"syrox-generation\n")
             .unwrap()
     );
 }
@@ -579,9 +579,9 @@ fn shell_snapshot_preserves_output_origins_commands_and_process_identity() {
     );
     assert_eq!(
         bytes
-            .strip_prefix(b"syrox-shell-session-v2\n")
+            .strip_prefix(b"syrox-shell-session\n")
             .unwrap(),
-        os.strip_prefix(b"syrox-generation-v2\n").unwrap()
+        os.strip_prefix(b"syrox-generation\n").unwrap()
     );
     let mut changed = manifest;
     changed
@@ -609,7 +609,7 @@ fn shell_decode_enforces_pin_canonical_shape_graph_and_bounds() {
     let text = String::from_utf8(bytes).unwrap();
     for changed in [
         format!("{text}\n"),
-        text.replace("syrox-shell-session-v2", "syrox-shell-session-v1"),
+        text.replace("syrox-shell-session", "syrox-shell-session-v1"),
         text.replace("\"protocol\":1", "\"protocol\":1,\"protocol\":1"),
         text.replace(
             "\"protocol\":1",
@@ -631,7 +631,7 @@ fn shell_decode_enforces_pin_canonical_shape_graph_and_bounds() {
         ShellSessionManifest::decode_bounded(&excessive, ContentDigest::sha256(b"unused")).is_err()
     );
     let deep = format!(
-        "syrox-shell-session-v2\n{}0{}",
+        "syrox-shell-session\n{}0{}",
         "[".repeat(17),
         "]".repeat(17)
     );

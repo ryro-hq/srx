@@ -365,8 +365,8 @@ fn current_result_index_ignores_prelaunch_receipt_in_the_same_store() {
     let old = String::from_utf8(current.into_bytes())
         .unwrap()
         .replacen(
-            "syrox-build-result-v4\n",
             "syrox-build-result\n",
+            "syrox-build-result-v3\n",
             1,
         )
         .replacen("inputs 0\n", "", 1);

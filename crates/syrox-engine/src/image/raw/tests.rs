@@ -148,7 +148,7 @@ fn raw_stream_metadata_inputs_and_chunks_survive_gc_and_rebuild_identically() {
         .into_bytes();
     let json: serde_json::Value = serde_json::from_slice(
         metadata
-            .strip_prefix(b"syrox-raw-image-v1\n")
+            .strip_prefix(b"syrox-raw-image\n")
             .unwrap(),
     )
     .unwrap();

@@ -26,7 +26,7 @@ impl PlanBuild {
         &self.package
     }
     pub const fn protocol(&self) -> &'static str {
-        "program-v2"
+        "program"
     }
     pub fn source_directory(&self) -> &str {
         &self.source_directory

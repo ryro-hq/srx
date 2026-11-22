@@ -647,7 +647,7 @@ fn references_require_explicit_members_without_local_catalog_fallback() {
     let fixture = Fixture::new();
     let local = success(fixture.run(&["info", ".#friendly"]));
     assert!(local.contains("package internal-id"));
-    assert!(local.contains("backend syrox-host-program-x86_64-v3"));
+    assert!(local.contains("backend syrox-host-program-x86_64"));
     failure(fixture.run(&["info"]), "select a public member");
     assert!(!fixture.store.exists());
     fs::create_dir(fixture.project.join("friendly")).unwrap();

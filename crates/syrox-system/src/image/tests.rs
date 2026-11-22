@@ -419,7 +419,7 @@ fn persisted_trees_are_canonical_and_all_invariants_are_revalidated() {
     ));
     let fields: serde_json::Value = serde_json::from_slice(
         bytes
-            .strip_prefix(b"syrox-system-tree-v1\n")
+            .strip_prefix(b"syrox-system-tree\n")
             .unwrap(),
     )
     .unwrap();
@@ -448,7 +448,7 @@ fn persisted_trees_are_canonical_and_all_invariants_are_revalidated() {
                     serde_json::json!(["a".repeat(64), "b".repeat(64)]);
             }
         }
-        let mut encoded = b"syrox-system-tree-v1\n".to_vec();
+        let mut encoded = b"syrox-system-tree\n".to_vec();
         serde_json::to_writer(&mut encoded, &modified).unwrap();
         assert!(
             SystemTree::parse(&encoded, &budget(10, 1024)).is_err(),

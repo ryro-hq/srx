@@ -126,7 +126,7 @@ registry! {
     }
 
     // syrox_engine::catalog
-    ARTIFACT_RECIPE = "syrox-artifact-recipe-v1" {
+    ARTIFACT_RECIPE = "syrox-artifact-recipe" {
         boundary: Identity,
         owner: "syrox_engine::catalog::artifacts",
         summary: "First element of the JSON array that identifies a catalog artifact recipe.",
@@ -139,25 +139,25 @@ registry! {
         summary: "Store root record listing the objects a named root retains.",
         forms { STORE_ROOT_LINE = tag + "\n" },
     }
-    CHUNKED_ARTIFACT = "syrox-chunked-artifact-v1" {
+    CHUNKED_ARTIFACT = "syrox-chunked-artifact" {
         boundary: Persisted,
         owner: "syrox_engine::store::chunked",
         summary: "Manifest of an artifact stored as fixed-size chunks.",
         forms { CHUNKED_ARTIFACT_LINE = tag + "\n" },
     }
-    INTEREST = "syrox-interest-v1" {
+    INTEREST = "syrox-interest" {
         boundary: Persisted,
         owner: "syrox_engine::store::retention",
         summary: "Retention interest record that keeps roots alive across collection.",
         forms { INTEREST_LINE = tag + "\n" },
     }
-    DURABLE_INTEREST = "syrox-durable-interest-v1" {
+    DURABLE_INTEREST = "syrox-durable-interest" {
         boundary: Persisted,
         owner: "syrox_engine::store::retention::durable",
         summary: "Durable retention interest that survives the process that created it.",
         forms { DURABLE_INTEREST_LINE = tag + "\n" },
     }
-    DURABLE_STORE_ANCHOR = "syrox-durable-store-anchor-v1" {
+    DURABLE_STORE_ANCHOR = "syrox-durable-store-anchor" {
         boundary: HashDomain,
         owner: "syrox_engine::store::retention::durable",
         summary: "Digest of the Store directory identities a durable interest was opened against.",
@@ -183,13 +183,13 @@ registry! {
         summary: "Single-file artifact encoding stored as a result output.",
         forms { ARTIFACT_LINE = tag + "\n" },
     }
-    SYSTEM_WORKER_OUTPUTS = "syrox-system-worker-outputs-v1" {
+    SYSTEM_WORKER_OUTPUTS = "syrox-system-worker-outputs" {
         boundary: Wire,
         owner: "syrox_engine::result::worker_output",
         summary: "System worker output transfer; the bare tag is also the output protocol named by system build actions.",
         forms { SYSTEM_WORKER_OUTPUTS_LINE = tag + "\n" },
     }
-    SYSTEM_OUTPUT_BUDGET = "syrox-system-output-budget-v1" {
+    SYSTEM_OUTPUT_BUDGET = "syrox-system-output-budget" {
         boundary: HashDomain,
         owner: "syrox_engine::result::worker_output",
         summary: "Binding of system worker outputs to the admitted budget.",
@@ -197,13 +197,13 @@ registry! {
     }
 
     // syrox_engine::bundle
-    RUNTIME_BUNDLE = "syrox-runtime-bundle-v1" {
+    RUNTIME_BUNDLE = "syrox-runtime-bundle" {
         boundary: Persisted,
         owner: "syrox_engine::bundle",
         summary: "Exported runtime bundle: a result and its object closure.",
         forms { RUNTIME_BUNDLE_LINE = tag + "\n" },
     }
-    SYSTEM_BUNDLE = "syrox-system-bundle-v2" {
+    SYSTEM_BUNDLE = "syrox-system-bundle" {
         boundary: Persisted,
         owner: "syrox_engine::bundle::system",
         summary: "Exported system result with its complete chunk closure.",
@@ -211,30 +211,30 @@ registry! {
     }
 
     // syrox_engine::image
-    SYSTEM_IMAGE = "syrox-system-image-v1" {
+    SYSTEM_IMAGE = "syrox-system-image" {
         boundary: Identity,
         owner: "syrox_engine::image",
         summary: "Initramfs image provenance manifest; its digest identifies the image.",
         forms { SYSTEM_IMAGE_LINE = tag + "\n" },
     }
-    INITRAMFS = "syrox-initramfs-v1" {
+    INITRAMFS = "syrox-initramfs" {
         boundary: Identity,
         owner: "syrox_engine::image",
         summary: "Archive format named inside the system image manifest.",
     }
-    RAW_IMAGE = "syrox-raw-image-v1" {
+    RAW_IMAGE = "syrox-raw-image" {
         boundary: Identity,
         owner: "syrox_engine::image::raw",
         summary: "Raw GPT disk image provenance manifest.",
         forms { RAW_IMAGE_LINE = tag + "\n" },
     }
-    QCOW2_IMAGE = "syrox-qcow2-image-v1" {
+    QCOW2_IMAGE = "syrox-qcow2-image" {
         boundary: Identity,
         owner: "syrox_engine::image::qcow2",
         summary: "qcow2 disk image metadata manifest.",
         forms { QCOW2_IMAGE_LINE = tag + "\n" },
     }
-    VERITY_IMAGE = "syrox-verity-image-v1" {
+    VERITY_IMAGE = "syrox-verity-image" {
         boundary: Identity,
         owner: "syrox_engine::image::verity",
         summary: "dm-verity image parameter manifest.",
@@ -245,25 +245,25 @@ registry! {
     BUILD_PROGRAM = "SRXBUILD" {
         boundary: Identity,
         owner: "syrox_engine::build::program",
-        summary: "Binary build program encoding; the magic is followed by version byte 0x02.",
-        forms { BUILD_PROGRAM_MAGIC = tag + "\x02" },
+        summary: "Binary build program encoding; the magic is followed by version byte 0x01.",
+        forms { BUILD_PROGRAM_MAGIC = tag + "\x01" },
     }
-    HOST_PROGRAM_PROFILE = "syrox-host-program-x86_64-v3" {
+    HOST_PROGRAM_PROFILE = "syrox-host-program-x86_64" {
         boundary: Identity,
         owner: "syrox_engine::build",
         summary: "Execution profile of host bootstrap build programs, named in build actions.",
     }
-    MANAGED_PROGRAM_PROFILE = "syrox-managed-program-x86_64-v2" {
+    MANAGED_PROGRAM_PROFILE = "syrox-managed-program-x86_64" {
         boundary: Identity,
         owner: "syrox_engine::build",
         summary: "Execution profile of managed build programs, named in build actions.",
     }
-    BUILD_ACTION = "syrox-build-action-v5" {
+    BUILD_ACTION = "syrox-build-action" {
         boundary: Identity,
         owner: "syrox_engine::build::records",
         summary: "Build action record; its digest keys the build cache.",
     }
-    BUILD_RESULT = "syrox-build-result-v4" {
+    BUILD_RESULT = "syrox-build-result" {
         boundary: Persisted,
         owner: "syrox_engine::build::records",
         summary: "Build receipt binding an action to its published outputs.",
@@ -280,7 +280,7 @@ registry! {
         summary: "Journal marker that a shared build is closing.",
         forms { BUILD_CLOSING_LINE = tag + "\n" },
     }
-    BUILD_ATTEMPT = "syrox-build-attempt-v1" {
+    BUILD_ATTEMPT = "syrox-build-attempt" {
         boundary: Persisted,
         owner: "syrox_engine::build::journal",
         summary: "Build journal attempt record: action and timeout.",
@@ -339,102 +339,102 @@ registry! {
         summary: "Framed group of named bootstrap outputs.",
         forms { OUTPUT_GROUP_LINE = tag + "\n" },
     }
-    MANAGED_BUILD_HELLO = "syrox-managed-build-hello-v1" {
+    MANAGED_BUILD_HELLO = "syrox-managed-build-hello" {
         boundary: Wire,
         owner: "syrox_engine::build::managed::handshake",
         summary: "Managed build worker hello.",
         forms { MANAGED_BUILD_HELLO_LINE = tag + "\n" },
     }
-    MANAGED_BUILD_RESOURCES = "syrox-managed-build-resources-v1" {
+    MANAGED_BUILD_RESOURCES = "syrox-managed-build-resources" {
         boundary: Wire,
         owner: "syrox_engine::build::managed::transfer",
         summary: "Managed build resource offer.",
         forms { MANAGED_BUILD_RESOURCES_LINE = tag + "\n" },
     }
-    MANAGED_BUILD_RESOURCE_BATCH = "syrox-managed-build-resource-batch-v1" {
+    MANAGED_BUILD_RESOURCE_BATCH = "syrox-managed-build-resource-batch" {
         boundary: Wire,
         owner: "syrox_engine::build::managed::transfer",
         summary: "Managed build resource descriptor batch.",
         forms { MANAGED_BUILD_RESOURCE_BATCH_LINE = tag + "\n" },
     }
-    MANAGED_BUILD_NAMESPACE_PROCESSED = "syrox-managed-build-namespace-processed-v2" {
+    MANAGED_BUILD_NAMESPACE_PROCESSED = "syrox-managed-build-namespace-processed" {
         boundary: Wire,
         owner: "syrox_engine::build::managed::namespace_protocol",
         summary: "Managed build namespace preparation report.",
         forms { MANAGED_BUILD_NAMESPACE_PROCESSED_LINE = tag + "\n" },
     }
-    MANAGED_BUILD_COMMIT = "syrox-managed-build-commit-v1" {
+    MANAGED_BUILD_COMMIT = "syrox-managed-build-commit" {
         boundary: Wire,
         owner: "syrox_engine::build::managed::namespace_protocol::execution",
         summary: "Coordinator commit that lets a managed build start.",
         forms { MANAGED_BUILD_COMMIT_LINE = tag + "\n" },
     }
-    MANAGED_BUILD_EXIT = "syrox-managed-build-exit-v1" {
+    MANAGED_BUILD_EXIT = "syrox-managed-build-exit" {
         boundary: Wire,
         owner: "syrox_engine::build::managed::namespace_protocol::execution",
         summary: "Managed build exit report.",
         forms { MANAGED_BUILD_EXIT_LINE = tag + "\n" },
     }
-    MANAGED_BUILD_EXIT_OBSERVED = "syrox-managed-build-exit-observed-v1" {
+    MANAGED_BUILD_EXIT_OBSERVED = "syrox-managed-build-exit-observed" {
         boundary: Wire,
         owner: "syrox_engine::build::managed::namespace_protocol::execution",
         summary: "Coordinator acknowledgment of an observed managed build exit.",
         forms { MANAGED_BUILD_EXIT_OBSERVED_LINE = tag + "\n" },
     }
-    MANAGED_BUILD_RETENTION_PROCESSED = "syrox-managed-build-retention-processed-v1" {
+    MANAGED_BUILD_RETENTION_PROCESSED = "syrox-managed-build-retention-processed" {
         boundary: Wire,
         owner: "syrox_engine::build::managed::retention_protocol",
         summary: "Managed build retention preparation report.",
         forms { MANAGED_BUILD_RETENTION_PROCESSED_LINE = tag + "\n" },
     }
-    MANAGED_BUILD_RETENTION_OBSERVED = "syrox-managed-build-retention-observed-v1" {
+    MANAGED_BUILD_RETENTION_OBSERVED = "syrox-managed-build-retention-observed" {
         boundary: Wire,
         owner: "syrox_engine::build::managed::retention_protocol",
         summary: "Coordinator observation of managed build retention.",
         forms { MANAGED_BUILD_RETENTION_OBSERVED_LINE = tag + "\n" },
     }
-    SYSTEM_MANAGED_PROFILE = "syrox-system-managed-x86_64-v1" {
+    SYSTEM_MANAGED_PROFILE = "syrox-system-managed-x86_64" {
         boundary: Identity,
         owner: "syrox_engine::build::system::records",
         summary: "Execution profile named by system build actions.",
     }
-    SYSTEM_BUILD_ACTION = "syrox-system-build-action-v1" {
+    SYSTEM_BUILD_ACTION = "syrox-system-build-action" {
         boundary: Identity,
         owner: "syrox_engine::build::system::records",
         summary: "System build action record; its digest identifies the action.",
         forms { SYSTEM_BUILD_ACTION_LINE = tag + "\n" },
     }
-    SYSTEM_BUILD_PAYLOAD = "syrox-system-build-payload-v1" {
+    SYSTEM_BUILD_PAYLOAD = "syrox-system-build-payload" {
         boundary: Persisted,
         owner: "syrox_engine::build::system::namespace",
         summary: "System build namespace payload record.",
         forms { SYSTEM_BUILD_PAYLOAD_LINE = tag + "\n" },
     }
-    SYSTEM_INPUT_RESOURCES = "syrox-system-input-resources-v1" {
+    SYSTEM_INPUT_RESOURCES = "syrox-system-input-resources" {
         boundary: Wire,
         owner: "syrox_engine::build::system::resources",
         summary: "Canonical system build input resource record.",
         forms { SYSTEM_INPUT_RESOURCES_LINE = tag + "\n" },
     }
-    SYSTEM_INPUT_READY = "syrox-system-input-ready-v1" {
+    SYSTEM_INPUT_READY = "syrox-system-input-ready" {
         boundary: Wire,
         owner: "syrox_engine::build::system::input_transfer",
         summary: "System input receiver readiness.",
         forms { SYSTEM_INPUT_READY_LINE = tag + "\n" },
     }
-    SYSTEM_INPUT_MANIFEST = "syrox-system-input-manifest-v1" {
+    SYSTEM_INPUT_MANIFEST = "syrox-system-input-manifest" {
         boundary: Wire,
         owner: "syrox_engine::build::system::input_transfer",
         summary: "System input metadata fragment.",
         forms { SYSTEM_INPUT_MANIFEST_LINE = tag + "\n" },
     }
-    SYSTEM_INPUT_BATCH = "syrox-system-input-batch-v1" {
+    SYSTEM_INPUT_BATCH = "syrox-system-input-batch" {
         boundary: Wire,
         owner: "syrox_engine::build::system::input_transfer",
         summary: "System input descriptor batch.",
         forms { SYSTEM_INPUT_BATCH_LINE = tag + "\n" },
     }
-    SYSTEM_INPUT_ACCEPTED = "syrox-system-input-accepted-v1" {
+    SYSTEM_INPUT_ACCEPTED = "syrox-system-input-accepted" {
         boundary: Wire,
         owner: "syrox_engine::build::system::input_transfer",
         summary: "System input batch acceptance.",
@@ -442,25 +442,25 @@ registry! {
     }
 
     // syrox_engine::deployment
-    GENERATION = "syrox-generation-v2" {
+    GENERATION = "syrox-generation" {
         boundary: Persisted,
         owner: "syrox_engine::deployment::manifest",
         summary: "Deployment generation manifest.",
         forms { GENERATION_LINE = tag + "\n" },
     }
-    SHELL_SESSION = "syrox-shell-session-v2" {
+    SHELL_SESSION = "syrox-shell-session" {
         boundary: Persisted,
         owner: "syrox_engine::deployment::manifest",
         summary: "Shell session generation manifest.",
         forms { SHELL_SESSION_LINE = tag + "\n" },
     }
-    SHELL_COMMAND_INDEX = "syrox-shell-command-index-v1" {
+    SHELL_COMMAND_INDEX = "syrox-shell-command-index" {
         boundary: HashDomain,
         owner: "syrox_engine::deployment::manifest::commands",
         summary: "Shell command exposure index; only its digest leaves the coordinator.",
         forms { SHELL_COMMAND_INDEX_LINE = tag + "\n" },
     }
-    SHELL_OPERATION = "syrox-shell-operation-v2" {
+    SHELL_OPERATION = "syrox-shell-operation" {
         boundary: Persisted,
         owner: "syrox_engine::deployment::shell::managed::record",
         summary: "Managed Shell operation record with its session snapshot.",
@@ -478,7 +478,7 @@ registry! {
         summary: "Services installation candidate record.",
         forms { SERVICES_CANDIDATE_LINE = tag + "\n" },
     }
-    GENERATION_ROOT = "syrox-generation-root-v1" {
+    GENERATION_ROOT = "syrox-generation-root" {
         boundary: HashDomain,
         owner: "syrox_engine::deployment::services::installation",
         summary: "Digest that names the Store root of one generation role.",
@@ -507,7 +507,7 @@ registry! {
         summary: "Identity of the desired rendered unit batch.",
         forms { SERVICES_RELOAD_TARGET_LINE = tag + "\n" },
     }
-    UNIT_OWNERSHIP = "syrox-unit-ownership-v1" {
+    UNIT_OWNERSHIP = "syrox-unit-ownership" {
         boundary: Persisted,
         owner: "syrox_engine::deployment::services::unit_files",
         summary: "Ledger of unit files published by Services.",
@@ -521,24 +521,24 @@ registry! {
     }
 
     // syrox_engine::systemd
-    SYSTEMD_CONTRACT = "syrox-systemd-v1" {
+    SYSTEMD_CONTRACT = "syrox-systemd" {
         boundary: Identity,
         owner: "syrox_engine::systemd::contract",
         summary: "Identifier of the systemd interface contract.",
     }
-    SYSTEMD_MANAGER = "syrox-systemd-manager-v1" {
+    SYSTEMD_MANAGER = "syrox-systemd-manager" {
         boundary: HashDomain,
         owner: "syrox_engine::systemd",
         summary: "Fingerprint of a systemd manager: scope, bus GUID and owner.",
         forms { SYSTEMD_MANAGER_LINE = tag + "\n" },
     }
-    OBSERVED_BUILD_UNIT = "syrox-observed-build-unit-v1" {
+    OBSERVED_BUILD_UNIT = "syrox-observed-build-unit" {
         boundary: HashDomain,
         owner: "syrox_engine::systemd::build",
         summary: "Observation of a managed build unit.",
         forms { OBSERVED_BUILD_UNIT_LINE = tag + "\n" },
     }
-    OBSERVED_SHELL_SERVICE = "syrox-observed-shell-service-v1" {
+    OBSERVED_SHELL_SERVICE = "syrox-observed-shell-service" {
         boundary: HashDomain,
         owner: "syrox_engine::systemd::service",
         summary: "Observation of a Shell service unit.",
@@ -557,19 +557,19 @@ registry! {
         owner: "syrox_engine::runtime::command_proxy::launch_contract",
         summary: "Domain of command execution metadata; the JSON `version` field (2) carries the version.",
     }
-    COMMAND_ROOT_ARGUMENTS = "syrox-command-root-arguments-v1" {
+    COMMAND_ROOT_ARGUMENTS = "syrox-command-root-arguments" {
         boundary: HashDomain,
         owner: "syrox_engine::runtime::command_proxy::launch_contract",
         summary: "Pin of a command root's arguments.",
         forms { COMMAND_ROOT_ARGUMENTS_LINE = tag + "\n" },
     }
-    SHELL_COMMAND_REQUEST = "syrox-shell-command-request-v1" {
+    SHELL_COMMAND_REQUEST = "syrox-shell-command-request" {
         boundary: Wire,
         owner: "syrox_engine::runtime::command_proxy::request",
         summary: "Shell command request sent to the command broker.",
         forms { SHELL_COMMAND_REQUEST_LINE = tag + "\n" },
     }
-    COMMAND_GUARDIAN = "syrox-command-guardian-v2" {
+    COMMAND_GUARDIAN = "syrox-command-guardian" {
         boundary: Wire,
         owner: "syrox_engine::runtime::command_proxy::guardian",
         summary: "Command guardian event frame.",
@@ -582,47 +582,47 @@ registry! {
         owner: "syrox_engine::execution::command_evidence",
         summary: "Domain of command monitor introductions; the JSON `version` field (1) carries the version.",
     }
-    COMMAND_MONITOR_ACK = "syrox-command-monitor-ack-v1" {
+    COMMAND_MONITOR_ACK = "syrox-command-monitor-ack" {
         boundary: Wire,
         owner: "syrox_engine::execution::command_evidence",
         summary: "Acknowledgment of a command monitor introduction, written as `tag digest`.",
     }
-    SESSION_STATE = "syrox-session-state-v2" {
+    SESSION_STATE = "syrox-session-state" {
         boundary: Persisted,
         owner: "syrox_engine::execution::journal",
         summary: "Execution session journal state.",
         forms { SESSION_STATE_LINE = tag + "\n" },
     }
-    SERVICE_ROLE = "syrox-service-role-v1" {
+    SERVICE_ROLE = "syrox-service-role" {
         boundary: HashDomain,
         owner: "syrox_engine::execution::journal::roles",
         summary: "Stable pin of a service role.",
         forms { SERVICE_ROLE_LINE = tag + "\n" },
     }
-    SERVICE_BODY = "syrox-service-body-v1" {
+    SERVICE_BODY = "syrox-service-body" {
         boundary: Wire,
         owner: "syrox_engine::execution::resources",
         summary: "Managed service specification body.",
         forms { SERVICE_BODY_LINE = tag + "\n" },
     }
-    SERVICE_OFFER = "syrox-service-offer-v1" {
+    SERVICE_OFFER = "syrox-service-offer" {
         boundary: Wire,
         owner: "syrox_engine::execution::resources::transfer",
         summary: "Service resource transfer offer.",
         forms { SERVICE_OFFER_LINE = tag + "\n" },
     }
-    SERVICE_CHUNK = "syrox-service-chunk-v1" {
+    SERVICE_CHUNK = "syrox-service-chunk" {
         boundary: Wire,
         owner: "syrox_engine::execution::resources::transfer",
         summary: "Service resource transfer chunk.",
         forms { SERVICE_CHUNK_LINE = tag + "\n" },
     }
-    SERVICE_RESOURCES = "syrox-service-resources-v1" {
+    SERVICE_RESOURCES = "syrox-service-resources" {
         boundary: Wire,
         owner: "syrox_engine::execution::resources::transfer",
         summary: "Service resource descriptors message; the bare tag without terminator.",
     }
-    OWNER_PROTOCOL = "syrox-owner-v1" {
+    OWNER_PROTOCOL = "syrox-owner" {
         boundary: Wire,
         owner: "syrox_engine::execution::launcher",
         summary: "Owner coordinator messages, written as `tag verb`.",
@@ -633,7 +633,7 @@ registry! {
             OWNER_CLOSE = tag + " close",
         },
     }
-    SERVICE_PROTOCOL = "syrox-service-v2" {
+    SERVICE_PROTOCOL = "syrox-service" {
         boundary: Wire,
         owner: "syrox_engine::execution::launcher::service",
         summary: "Managed service launcher messages, written as `tag verb`.",
@@ -646,7 +646,7 @@ registry! {
     }
 
     // syrox_engine::platform
-    TERMINAL_ATTRIBUTES = "syrox-terminal-attributes-v1" {
+    TERMINAL_ATTRIBUTES = "syrox-terminal-attributes" {
         boundary: HashDomain,
         owner: "syrox_engine::platform::linux::fd::terminal",
         summary: "Fingerprint of meaningful terminal attribute fields.",
@@ -654,67 +654,67 @@ registry! {
     }
 
     // syrox_system
-    SYSTEM_TREE = "syrox-system-tree-v1" {
+    SYSTEM_TREE = "syrox-system-tree" {
         boundary: Identity,
         owner: "syrox_system::image",
         summary: "Canonical system tree metadata; the encoding defines the tree's SHA-256 identity.",
         forms { SYSTEM_TREE_LINE = tag + "\n" },
     }
-    SYSTEM_INVENTORY = "syrox-system-inventory-v1" {
+    SYSTEM_INVENTORY = "syrox-system-inventory" {
         boundary: HashDomain,
         owner: "syrox_system::inventory",
         summary: "Fingerprint of a system inventory observation.",
         forms { SYSTEM_INVENTORY_LINE = tag + "\n" },
     }
-    FILESYSTEM_OBSERVATION = "syrox-filesystem-observation-v1" {
+    FILESYSTEM_OBSERVATION = "syrox-filesystem-observation" {
         boundary: HashDomain,
         owner: "syrox_system::filesystem",
         summary: "Fingerprint of one filesystem observation, including capacity and usage.",
         forms { FILESYSTEM_OBSERVATION_LINE = tag + "\n" },
     }
-    BUILDER_LIMITS = "syrox-builder-limits-v1" {
+    BUILDER_LIMITS = "syrox-builder-limits" {
         boundary: HashDomain,
         owner: "syrox_system::budget",
         summary: "Fingerprint of the builder resource ceilings.",
         forms { BUILDER_LIMITS_LINE = tag + "\n" },
     }
-    SYSTEM_WORKSPACE_LAYOUT = "syrox-system-workspace-layout-v1" {
+    SYSTEM_WORKSPACE_LAYOUT = "syrox-system-workspace-layout" {
         boundary: HashDomain,
         owner: "syrox_system::workspace",
         summary: "Identity of a scratch/output workspace geometry.",
         forms { SYSTEM_WORKSPACE_LAYOUT_LINE = tag + "\n" },
     }
-    PRIVATE_SCRATCH_ACTIVATION = "syrox-private-scratch-activation-v1" {
+    PRIVATE_SCRATCH_ACTIVATION = "syrox-private-scratch-activation" {
         boundary: Persisted,
         owner: "syrox_system::helper_activation",
         summary: "Comment marker on the first line of the helper socket and service units.",
         forms { PRIVATE_SCRATCH_ACTIVATION_MARKER = "# " + tag + "\n" },
     }
-    PRIVATE_SCRATCH_AUTHORIZATION = "syrox-private-scratch-authorization-v1" {
+    PRIVATE_SCRATCH_AUTHORIZATION = "syrox-private-scratch-authorization" {
         boundary: HashDomain,
         owner: "syrox_system::helper::session",
         summary: "Authorization digest of a private scratch request.",
         forms { PRIVATE_SCRATCH_AUTHORIZATION_LINE = tag + "\n" },
     }
-    PRIVATE_SCRATCH_JOURNAL = "syrox-private-scratch-journal-v1" {
+    PRIVATE_SCRATCH_JOURNAL = "syrox-private-scratch-journal" {
         boundary: HashDomain,
         owner: "syrox_system::helper::recovery::evidence",
         summary: "Digest over the private scratch journal records.",
         forms { PRIVATE_SCRATCH_JOURNAL_LINE = tag + "\n" },
     }
-    PRIVATE_SCRATCH_RECOVERY_PLAN = "syrox-private-scratch-recovery-plan-v1" {
+    PRIVATE_SCRATCH_RECOVERY_PLAN = "syrox-private-scratch-recovery-plan" {
         boundary: HashDomain,
         owner: "syrox_system::helper::recovery",
         summary: "Digest of a private scratch recovery plan.",
         forms { PRIVATE_SCRATCH_RECOVERY_PLAN_LINE = tag + "\n" },
     }
-    PRIVATE_WORKSPACE_AUTHORIZATION = "syrox-private-workspace-authorization-v1" {
+    PRIVATE_WORKSPACE_AUTHORIZATION = "syrox-private-workspace-authorization" {
         boundary: HashDomain,
         owner: "syrox_system::helper::workspace",
         summary: "Authorization digest of a private workspace request.",
         forms { PRIVATE_WORKSPACE_AUTHORIZATION_LINE = tag + "\n" },
     }
-    PRIVATE_WORKSPACE_RECOVERY_PLAN = "syrox-private-workspace-recovery-plan-v1" {
+    PRIVATE_WORKSPACE_RECOVERY_PLAN = "syrox-private-workspace-recovery-plan" {
         boundary: HashDomain,
         owner: "syrox_system::helper::recovery::workspace",
         summary: "Digest of a private workspace recovery plan.",
@@ -722,7 +722,7 @@ registry! {
     }
 
     // syrox
-    RELEASE = "syrox-release-v1" {
+    RELEASE = "syrox-release" {
         boundary: Identity,
         owner: "syrox::cli::commands::install_self",
         summary: "Installed release manifest; its digest names the release.",
@@ -760,7 +760,10 @@ mod tests {
             })
             && (version.is_empty()
                 || version.strip_prefix("-v").is_some_and(|digits| {
-                    !digits.starts_with('0') && digits.bytes().all(|byte| byte.is_ascii_digit())
+                    // Version 1 is the unversioned tag; `-v1` is never written.
+                    !digits.starts_with('0')
+                        && digits != "1"
+                        && digits.bytes().all(|byte| byte.is_ascii_digit())
                 }))
     }
 
@@ -799,6 +802,20 @@ mod tests {
         }
     }
 
+    /// Pre-release, no format has a released predecessor: a tag carries a
+    /// version suffix only once an earlier tag of its family is still read.
+    #[test]
+    fn only_formats_with_older_readers_carry_a_version() {
+        for format in ALL {
+            let versioned = split(format.tag).0 != format.tag;
+            assert!(
+                !versioned || !format.reads.is_empty(),
+                "{} carries a version suffix without an older tag in `reads`",
+                format.tag
+            );
+        }
+    }
+
     #[test]
     fn tags_are_well_formed() {
         for format in ALL {
@@ -813,6 +830,8 @@ mod tests {
             );
         }
         assert!(!well_formed("syrox-lock-v0"));
+        assert!(!well_formed("syrox-lock-v1"));
+        assert!(well_formed("syrox-lock-v2"));
         assert!(!well_formed("syrox-lock-v01"));
         assert!(!well_formed("syrox-Lock"));
         assert!(!well_formed("srx-lock"));
@@ -824,11 +843,8 @@ mod tests {
         assert!(LOCK.reads.is_empty());
         assert_eq!(GRAPH_LOCK.tag, "syrox-graph-lock");
         assert_eq!(GRAPH_DIGEST.tag, "syrox-graph");
-        assert_eq!(
-            GENERATION_LINE.as_bytes(),
-            b"syrox-generation-v2\n"
-        );
-        assert_eq!(SHELL_SESSION_LINE, "syrox-shell-session-v2\n");
+        assert_eq!(GENERATION_LINE.as_bytes(), b"syrox-generation\n");
+        assert_eq!(SHELL_SESSION_LINE, "syrox-shell-session\n");
         assert_eq!(
             PACKAGE_RESULT_LINE.as_bytes(),
             b"syrox-package-result\n"
@@ -838,17 +854,14 @@ mod tests {
             b"syrox-system-result\n"
         );
         assert_eq!(STORE_ROOT_LINE, "syrox-root\n");
-        assert_eq!(BUILD_PROGRAM_MAGIC.as_bytes(), b"SRXBUILD\x02");
+        assert_eq!(BUILD_PROGRAM_MAGIC.as_bytes(), b"SRXBUILD\x01");
         assert_eq!(
             TERMINAL_ATTRIBUTES_NUL.as_bytes(),
-            b"syrox-terminal-attributes-v1\0"
+            b"syrox-terminal-attributes\0"
         );
         assert_eq!(SERVICES_UNIT_MARKER, "# syrox-services-unit\n");
-        assert_eq!(OWNER_RETENTION, "syrox-owner-v1 retention");
-        assert_eq!(SERVICE_DENIED, "syrox-service-v2 denied");
-        assert_eq!(
-            SERVICE_RESOURCES.tag,
-            "syrox-service-resources-v1"
-        );
+        assert_eq!(OWNER_RETENTION, "syrox-owner retention");
+        assert_eq!(SERVICE_DENIED, "syrox-service denied");
+        assert_eq!(SERVICE_RESOURCES.tag, "syrox-service-resources");
     }
 }

@@ -466,7 +466,7 @@ fn state_encoding_rejects_duplicates_unknown_fields_and_extra_bytes() {
     let text = String::from_utf8(bytes.clone()).unwrap();
     for changed in [
         format!("{text}\n"),
-        text.replace("syrox-session-state-v2", "syrox-session-state-v1"),
+        text.replace("syrox-session-state", "syrox-session-state-v1"),
         text.replace("\"revision\":2", "\"revision\":2,\"revision\":2"),
         text.replace("\"revision\":2", "\"unknown\":2,\"revision\":2"),
     ] {

@@ -11,7 +11,7 @@ fn deadline() -> Instant {
 fn manifest() -> Vec<u8> {
     let snapshot = format!(
         concat!(
-            "syrox-shell-session-v2\n",
+            "syrox-shell-session\n",
             "{{\"launcher\":{{\"digest\":\"{}\",\"protocol\":1}},\"outputs\":{{}},\"provenance\":{{}},\"services\":[],\"selections\":[],\"commands\":{{}},\"exposures\":{{}},\"configs\":{{}},\"processes\":{{}}}}"
         ),
         ContentDigest::sha256(b"candidate")
@@ -471,7 +471,7 @@ fn malformed_record_diagnostics_do_not_quote_configuration_content() {
         .tempdir()
         .unwrap();
     let journal = SessionJournal::open(root.path()).unwrap();
-    let bytes = b"syrox-shell-operation-v2\n{\"version\":\"PRIVATE_CONFIGURATION_TEXT\",\"configuration\":\"/private/config\",\"cwd\":\"/work\"}\ninvalid-snapshot";
+    let bytes = b"syrox-shell-operation\n{\"version\":\"PRIVATE_CONFIGURATION_TEXT\",\"configuration\":\"/private/config\",\"cwd\":\"/work\"}\ninvalid-snapshot";
     let session = journal
         .create(
             bytes,
@@ -538,7 +538,7 @@ fn legacy_record_is_preserved_without_migration_or_manager_effects() {
     let legacy = String::from_utf8(manifest())
         .unwrap()
         .replace(
-            "syrox-shell-operation-v2",
+            "syrox-shell-operation",
             "syrox-shell-operation-v1",
         )
         .replacen("\"version\":2", "\"version\":1", 1)
