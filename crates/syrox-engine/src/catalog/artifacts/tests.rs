@@ -76,7 +76,7 @@ impl Fixture {
             .ingest(bytes.as_slice(), artifact, bytes.len() as u64)
             .unwrap();
         let action = ContentDigest::sha256(b"qualified action");
-        let manifest = ResultManifest::parse(format!("syrox-result-v2\n{{\"outputs\":{{\"application\":{{\"action\":\"{action}\",\"output\":\"out\",\"artifact\":\"{artifact}\",\"files\":1}}}},\"commands\":{{\"fixture\":{{\"application\":\"application\",\"application_path\":\"share/message\",\"loader\":null,\"loader_path\":null,\"libraries\":[]}}}}}}\n").as_bytes()).unwrap();
+        let manifest = ResultManifest::parse(format!("syrox-package-result\n{{\"outputs\":{{\"application\":{{\"action\":\"{action}\",\"output\":\"out\",\"artifact\":\"{artifact}\",\"files\":1}}}},\"commands\":{{\"fixture\":{{\"application\":\"application\",\"application_path\":\"share/message\",\"loader\":null,\"loader_path\":null,\"libraries\":[]}}}}}}\n").as_bytes()).unwrap();
         let root = RootName::new("producer").unwrap();
         let cancel = Cancellation::default();
         let digest = manifest.digest().unwrap();

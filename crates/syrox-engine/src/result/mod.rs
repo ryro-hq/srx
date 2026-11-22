@@ -31,15 +31,15 @@ use crate::{
     store::OperationLease, store::RootName, store::Store, store::StoreError,
 };
 
-/// Largest admitted manifest; legacy v2 remains capped at 1 MiB.
+/// Largest admitted manifest; package results remain capped at 1 MiB.
 pub const MAX_RESULT_MANIFEST_BYTES: u64 = 8 * 1024 * 1024;
-const MAX_LEGACY_MANIFEST_BYTES: u64 = 1024 * 1024;
-const SYSTEM_HEADER: &[u8] = formats::RESULT_LINE.as_bytes();
+const MAX_PACKAGE_MANIFEST_BYTES: u64 = 1024 * 1024;
+const SYSTEM_HEADER: &[u8] = formats::SYSTEM_RESULT_LINE.as_bytes();
 pub const MAX_RESULT_OUTPUTS: usize = 128;
 pub const MAX_RESULT_ARTIFACT_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_COMMANDS: usize = 128;
 const MAX_COMMAND_ROLES: usize = 1024;
-const HEADER: &[u8] = formats::RESULT_V2_LINE.as_bytes();
+const PACKAGE_HEADER: &[u8] = formats::PACKAGE_RESULT_LINE.as_bytes();
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -214,7 +214,7 @@ impl ResultManifest {
                 files: usize::try_from(system.files).expect("bounded system files"),
             }
         } else {
-            artifact::ArtifactLimits::LEGACY
+            artifact::ArtifactLimits::PACKAGE
         }
     }
 
@@ -222,7 +222,7 @@ impl ResultManifest {
         if self.is_system() {
             MAX_RESULT_MANIFEST_BYTES
         } else {
-            MAX_LEGACY_MANIFEST_BYTES
+            MAX_PACKAGE_MANIFEST_BYTES
         }
     }
 
@@ -238,7 +238,7 @@ impl ResultManifest {
         let mut bytes = if self.is_system() {
             SYSTEM_HEADER
         } else {
-            HEADER
+            PACKAGE_HEADER
         }
         .to_vec();
         serde_json::to_writer(&mut bytes, self).map_err(|error| invalid(error.to_string()))?;
@@ -253,15 +253,23 @@ impl ResultManifest {
         if bytes.len() as u64 > MAX_RESULT_MANIFEST_BYTES {
             return Err(invalid("manifest byte limit exceeded"));
         }
-        if bytes.starts_with(HEADER) && bytes.len() as u64 > MAX_LEGACY_MANIFEST_BYTES {
-            return Err(invalid("manifest byte limit exceeded"));
-        }
-        let json = bytes
-            .strip_prefix(HEADER)
-            .or_else(|| bytes.strip_prefix(SYSTEM_HEADER))
-            .ok_or_else(|| invalid("unsupported manifest version"))?;
+        // Package and system results are different kinds: each header admits
+        // only manifests of its own kind.
+        let (json, system) = if let Some(json) = bytes.strip_prefix(PACKAGE_HEADER) {
+            if bytes.len() as u64 > MAX_PACKAGE_MANIFEST_BYTES {
+                return Err(invalid("manifest byte limit exceeded"));
+            }
+            (json, false)
+        } else if let Some(json) = bytes.strip_prefix(SYSTEM_HEADER) {
+            (json, true)
+        } else {
+            return Err(invalid("unsupported manifest header"));
+        };
         let manifest: Self =
             serde_json::from_slice(json).map_err(|error| invalid(error.to_string()))?;
+        if manifest.is_system() != system {
+            return Err(invalid("manifest kind disagrees with its header"));
+        }
         if manifest.encode()? != bytes {
             return Err(invalid("manifest is not canonical"));
         }
@@ -307,9 +315,7 @@ impl ResultManifest {
         let mut logical = BTreeMap::new();
         for (key, output) in &self.outputs {
             if output.chunked.is_some() && self.system.is_none() {
-                return Err(invalid(
-                    "chunked outputs require a version 3 system result",
-                ));
+                return Err(invalid("chunked outputs require a system result"));
             }
             if !valid_name(key)
                 || !valid_name(&output.output)

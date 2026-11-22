@@ -155,7 +155,7 @@ fn pin_corrupt_artifact_and_bad_metadata_never_publish_a_root() {
 }
 
 #[test]
-fn canonical_manifest_rejects_unknown_versions_fields_duplicates_and_bounds() {
+fn canonical_manifest_rejects_foreign_headers_fields_duplicates_and_bounds() {
     let temp = tempfile::tempdir().unwrap();
     let store = Store::initialize(temp.path()).unwrap();
     let mut manifest = fixture(&store);
@@ -163,7 +163,12 @@ fn canonical_manifest_rejects_unknown_versions_fields_duplicates_and_bounds() {
     assert_eq!(ResultManifest::parse(&bytes).unwrap(), manifest);
     let changed = String::from_utf8(bytes.clone())
         .unwrap()
-        .replace("syrox-result-v2", "syrox-result-v1");
+        .replace("syrox-package-result", "syrox-system-result");
+    assert!(ResultManifest::parse(changed.as_bytes()).is_err());
+    // A manifest from a pre-release srx carries an old header and is refused.
+    let changed = String::from_utf8(bytes.clone())
+        .unwrap()
+        .replace("syrox-package-result", "syrox-result-v2");
     assert!(ResultManifest::parse(changed.as_bytes()).is_err());
     let changed = String::from_utf8(bytes.clone())
         .unwrap()
@@ -524,14 +529,14 @@ fn admitted_result_allows_gc_and_retains_bytes_through_materialization_after_roo
 mod systems;
 
 #[test]
-fn legacy_result_and_bundle_keep_their_published_wire_identity() {
+fn package_result_and_bundle_have_fixed_wire_identities() {
     let directory = tempfile::tempdir().unwrap();
     let store = Store::initialize(directory.path()).unwrap();
     let manifest = fixture(&store);
     let pin = manifest.digest().unwrap();
     assert_eq!(
         pin.to_string(),
-        "811312a2bf8d71117f76011c0f55d9b3cd6673119637275010b59a61c3d3264a"
+        "be0508fb15d1c1290741edea9e625e39142acde73f4c5cd12cbe608e36a70aa5"
     );
     let root = RootName::new("legacy_wire_identity").unwrap();
     let cancellation = Cancellation::default();
@@ -540,6 +545,6 @@ fn legacy_result_and_bundle_keep_their_published_wire_identity() {
     crate::bundle::export_bundle(&store, &root, pin, &mut bundle, &cancellation).unwrap();
     assert_eq!(
         ContentDigest::sha256(&bundle).to_string(),
-        "d02c432b08d94c13dc411181b03eebaa5be2cf212381481fa93dc799898e4dee"
+        "2da15ea27db81e7c4a50209ba53eb09f0eda44e4107930a7b72cf81f06a8ea0b"
     );
 }

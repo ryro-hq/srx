@@ -50,12 +50,13 @@ checks that the registry still produces the same bytes.
 | `syrox-interest-v1` | persisted | `syrox_engine::store::retention` | - | Retention interest record that keeps roots alive across collection. |
 | `syrox-durable-interest-v1` | persisted | `syrox_engine::store::retention::durable` | - | Durable retention interest that survives the process that created it. |
 | `syrox-durable-store-anchor-v1` | hash domain | `syrox_engine::store::retention::durable` | - | Digest of the Store directory identities a durable interest was opened against. |
-| `syrox-result-v3` | persisted | `syrox_engine::result` | `syrox-result-v2` | Result manifest. v3 carries system results; v2 is still written for ordinary results and capped at 1 MiB. |
+| `syrox-package-result` | persisted | `syrox_engine::result` | - | Result manifest of an ordinary package build, capped at 1 MiB. |
+| `syrox-system-result` | persisted | `syrox_engine::result` | - | Result manifest of a system build, with its admitted budget and chunked outputs. |
 | `syrox-artifact` | persisted | `syrox_engine::result::artifact` | - | Single-file artifact encoding stored as a result output. |
 | `syrox-system-worker-outputs-v1` | wire | `syrox_engine::result::worker_output` | - | System worker output transfer; the bare tag is also the output protocol named by system build actions. |
 | `syrox-system-output-budget-v1` | hash domain | `syrox_engine::result::worker_output` | - | Binding of system worker outputs to the admitted budget. |
 | `syrox-runtime-bundle-v1` | persisted | `syrox_engine::bundle` | - | Exported runtime bundle: a result and its object closure. |
-| `syrox-system-bundle-v2` | persisted | `syrox_engine::bundle::system` | - | Exported v3 system result with its complete chunk closure. |
+| `syrox-system-bundle-v2` | persisted | `syrox_engine::bundle::system` | - | Exported system result with its complete chunk closure. |
 | `syrox-system-image-v1` | identity | `syrox_engine::image` | - | Initramfs image provenance manifest; its digest identifies the image. |
 | `syrox-initramfs-v1` | identity | `syrox_engine::image` | - | Archive format named inside the system image manifest. |
 | `syrox-raw-image-v1` | identity | `syrox_engine::image::raw` | - | Raw GPT disk image provenance manifest. |

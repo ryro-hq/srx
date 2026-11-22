@@ -230,7 +230,7 @@ fn fixture() -> Fixture {
     }
     drop(lease);
     let encoded = format!(
-        "syrox-result-v2\n{{\"outputs\":{{{}}},\"commands\":{{\"alias\":{{\"application\":\"app2\",\"application_path\":\"bin/other\",\"loader\":\"loader\",\"loader_path\":\"bin/loader\",\"libraries\":[\"lib\"]}},\"main\":{{\"application\":\"app\",\"application_path\":\"bin/app\",\"loader\":\"loader\",\"loader_path\":\"bin/loader\",\"libraries\":[\"lib\"]}}}}}}\n",
+        "syrox-package-result\n{{\"outputs\":{{{}}},\"commands\":{{\"alias\":{{\"application\":\"app2\",\"application_path\":\"bin/other\",\"loader\":\"loader\",\"loader_path\":\"bin/loader\",\"libraries\":[\"lib\"]}},\"main\":{{\"application\":\"app\",\"application_path\":\"bin/app\",\"loader\":\"loader\",\"loader_path\":\"bin/loader\",\"libraries\":[\"lib\"]}}}}}}\n",
         entries.join(",")
     );
     let manifest = ResultManifest::parse(encoded.as_bytes()).unwrap();

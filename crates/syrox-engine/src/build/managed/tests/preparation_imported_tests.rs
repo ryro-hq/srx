@@ -33,7 +33,7 @@ impl Fixture {
         }
         let logical = ContentDigest::sha256(b"imported identity, not an Action object");
         let wire = format!(
-            "syrox-result-v2\n{{\"outputs\":{{\"compiler\":{{\"action\":\"{logical}\",\"output\":\"out\",\"artifact\":\"{}\",\"files\":1}},\"sibling\":{{\"action\":\"{logical}\",\"output\":\"dev\",\"artifact\":\"{}\",\"files\":1}}}},\"commands\":{{}}}}\n",
+            "syrox-package-result\n{{\"outputs\":{{\"compiler\":{{\"action\":\"{logical}\",\"output\":\"out\",\"artifact\":\"{}\",\"files\":1}},\"sibling\":{{\"action\":\"{logical}\",\"output\":\"dev\",\"artifact\":\"{}\",\"files\":1}}}},\"commands\":{{}}}}\n",
             artifacts[0], artifacts[1]
         );
         let manifest = ResultManifest::parse(wire.as_bytes()).unwrap();

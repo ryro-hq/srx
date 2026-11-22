@@ -37,8 +37,8 @@ impl Input {
         match self.storage.as_str() {
             "blob"
                 if self.artifact_slots == 1
-                    && self.maximum_bytes == ArtifactLimits::LEGACY.bytes
-                    && self.maximum_files == ArtifactLimits::LEGACY.files as u64 => {}
+                    && self.maximum_bytes == ArtifactLimits::PACKAGE.bytes
+                    && self.maximum_files == ArtifactLimits::PACKAGE.files as u64 => {}
             "chunked"
                 if self.artifact_slots
                     <= u32::try_from(crate::store::chunked::MAX_CHUNKS)

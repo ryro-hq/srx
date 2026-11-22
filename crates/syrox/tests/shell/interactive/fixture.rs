@@ -186,7 +186,7 @@ pub(super) fn create() -> PathBuf {
         .unwrap();
     let action = ContentDigest::sha256(&payload);
     let wire = format!(
-        "syrox-result-v2\n{{\"outputs\":{{\"payload\":{{\"action\":\"{action}\",\"output\":\"out\",\"artifact\":\"{artifact_pin}\",\"files\":1}}}},\"commands\":{{\"payload\":{{\"application\":\"payload\",\"application_path\":\"bin/payload\",\"loader\":null,\"loader_path\":null,\"libraries\":[]}}}}}}\n"
+        "syrox-package-result\n{{\"outputs\":{{\"payload\":{{\"action\":\"{action}\",\"output\":\"out\",\"artifact\":\"{artifact_pin}\",\"files\":1}}}},\"commands\":{{\"payload\":{{\"application\":\"payload\",\"application_path\":\"bin/payload\",\"loader\":null,\"loader_path\":null,\"libraries\":[]}}}}}}\n"
     );
     let manifest = ResultManifest::parse(wire.as_bytes()).unwrap();
     let pin = manifest.digest().unwrap();

@@ -1042,7 +1042,7 @@ fn materialize_authorized(
             references: receipt.references(),
             files: output.files,
             maximum_bytes: artifact_limit,
-            limits: artifact::ArtifactLimits::LEGACY,
+            limits: artifact::ArtifactLimits::PACKAGE,
             chunked: None,
         },
         cancellation,

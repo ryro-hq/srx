@@ -39,7 +39,7 @@ fn output(store: &Store, bytes: &[u8]) -> MaterializedArtifact {
         .ingest(packed.as_slice(), artifact, packed.len() as u64)
         .unwrap();
     let metadata = format!(
-        "syrox-result-v2\n{{\"outputs\":{{\"data\":{{\"action\":\"{}\",\"output\":\"data\",\"artifact\":\"{artifact}\",\"files\":1}}}},\"commands\":{{}}}}\n",
+        "syrox-package-result\n{{\"outputs\":{{\"data\":{{\"action\":\"{}\",\"output\":\"data\",\"artifact\":\"{artifact}\",\"files\":1}}}},\"commands\":{{}}}}\n",
         ContentDigest::sha256(b"fixture logical action")
     );
     let manifest = ResultManifest::parse(metadata.as_bytes()).unwrap();

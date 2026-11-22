@@ -132,7 +132,7 @@ fn system_bundle_and_view_round_trip_preserve_chunks_and_import_origin() {
     let prepared = prepare(&source, CHUNK_BYTES as u64 + 17, &budget);
     let manifest = manifest(&prepared, &budget);
     let encoded = manifest.encode().unwrap();
-    assert!(encoded.starts_with(b"syrox-result-v3\n"));
+    assert!(encoded.starts_with(b"syrox-system-result\n"));
     assert_eq!(ResultManifest::parse(&encoded).unwrap(), manifest);
     let pin = manifest.digest().unwrap();
     let root = RootName::new("system_transport").unwrap();
@@ -244,7 +244,7 @@ fn result_versions_and_budgets_cannot_be_confused() {
     ));
     let wrong_version = String::from_utf8(manifest.encode().unwrap())
         .unwrap()
-        .replace("syrox-result-v3", "syrox-result-v2");
+        .replace("syrox-system-result", "syrox-package-result");
     assert!(ResultManifest::parse(wrong_version.as_bytes()).is_err());
     let mut wrong_files = manifest.clone();
     wrong_files.outputs.get_mut("data").unwrap().files = 2;
@@ -406,7 +406,7 @@ fn system_bundle_rejects_missing_extra_changed_and_unauthorized_objects_without_
 }
 
 #[test]
-fn system_result_and_bundle_have_fixed_versioned_wire_identities() {
+fn system_result_and_bundle_have_fixed_wire_identities() {
     let directory = tempfile::tempdir().unwrap();
     let store = Store::initialize(directory.path()).unwrap();
     let budget = budget(1024, 10);
@@ -415,7 +415,7 @@ fn system_result_and_bundle_have_fixed_versioned_wire_identities() {
     let pin = manifest.digest().unwrap();
     assert_eq!(
         pin.to_string(),
-        "f6638d9be405d29699199398379d4d154596cd1e6748f85d7f68d6e32e2b1867"
+        "f38771fafe53c920546479898dfc44ab3bdbdf710119d245923c5af93d1d97bf"
     );
     let root = RootName::new("system_wire_identity").unwrap();
     let cancellation = Cancellation::default();
@@ -440,7 +440,7 @@ fn system_result_and_bundle_have_fixed_versioned_wire_identities() {
     .unwrap();
     assert_eq!(
         ContentDigest::sha256(&bundle).to_string(),
-        "812e3c290a840a42802ddda78e137532d8c5837ad3ebee8dd1e5ff957377bab3"
+        "2f9b1a68506c6e73f56d920ba85561d9c8a2b6f9e7beaa66ca84af786dde6b42"
     );
 }
 

@@ -165,14 +165,17 @@ registry! {
     }
 
     // syrox_engine::result
-    RESULT = "syrox-result-v3" {
+    PACKAGE_RESULT = "syrox-package-result" {
         boundary: Persisted,
         owner: "syrox_engine::result",
-        summary: "Result manifest. v3 carries system results; v2 is still written for ordinary results and capped at 1 MiB.",
-        forms { RESULT_LINE = tag + "\n" },
-        reads {
-            RESULT_V2 = "syrox-result-v2" { RESULT_V2_LINE = tag + "\n" },
-        },
+        summary: "Result manifest of an ordinary package build, capped at 1 MiB.",
+        forms { PACKAGE_RESULT_LINE = tag + "\n" },
+    }
+    SYSTEM_RESULT = "syrox-system-result" {
+        boundary: Persisted,
+        owner: "syrox_engine::result",
+        summary: "Result manifest of a system build, with its admitted budget and chunked outputs.",
+        forms { SYSTEM_RESULT_LINE = tag + "\n" },
     }
     ARTIFACT = "syrox-artifact" {
         boundary: Persisted,
@@ -203,7 +206,7 @@ registry! {
     SYSTEM_BUNDLE = "syrox-system-bundle-v2" {
         boundary: Persisted,
         owner: "syrox_engine::bundle::system",
-        summary: "Exported v3 system result with its complete chunk closure.",
+        summary: "Exported system result with its complete chunk closure.",
         forms { SYSTEM_BUNDLE_LINE = tag + "\n" },
     }
 
@@ -826,8 +829,14 @@ mod tests {
             b"syrox-generation-v2\n"
         );
         assert_eq!(SHELL_SESSION_LINE, "syrox-shell-session-v2\n");
-        assert_eq!(RESULT_LINE.as_bytes(), b"syrox-result-v3\n");
-        assert_eq!(RESULT_V2_LINE.as_bytes(), b"syrox-result-v2\n");
+        assert_eq!(
+            PACKAGE_RESULT_LINE.as_bytes(),
+            b"syrox-package-result\n"
+        );
+        assert_eq!(
+            SYSTEM_RESULT_LINE.as_bytes(),
+            b"syrox-system-result\n"
+        );
         assert_eq!(STORE_ROOT_LINE, "syrox-root\n");
         assert_eq!(BUILD_PROGRAM_MAGIC.as_bytes(), b"SRXBUILD\x02");
         assert_eq!(

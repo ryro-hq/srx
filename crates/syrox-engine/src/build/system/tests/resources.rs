@@ -65,7 +65,7 @@ fn imported(kinds: &[bool], files: usize) -> Fixture {
                 .unwrap()
                 .ingest(bytes.as_slice(), pin, bytes.len() as u64)
                 .unwrap();
-            ResultManifest::parse(format!("syrox-result-v2\n{{\"outputs\":{{\"data\":{{\"action\":\"{logical}\",\"output\":\"out\",\"artifact\":\"{pin}\",\"files\":{files}}}}},\"commands\":{{}}}}\n").as_bytes()).unwrap()
+            ResultManifest::parse(format!("syrox-package-result\n{{\"outputs\":{{\"data\":{{\"action\":\"{logical}\",\"output\":\"out\",\"artifact\":\"{pin}\",\"files\":{files}}}}},\"commands\":{{}}}}\n").as_bytes()).unwrap()
         };
         let pin = manifest.digest().unwrap();
         let admitted = if *chunked {

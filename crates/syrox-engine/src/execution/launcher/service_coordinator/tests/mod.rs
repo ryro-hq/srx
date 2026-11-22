@@ -113,7 +113,7 @@ fn import_payload(store: &Store, payload: &[u8]) -> crate::runtime::RuntimeClosu
         .unwrap();
     drop(operation);
     let bytes = format!(
-        "syrox-result-v2\n{{\"outputs\":{{\"app\":{{\"action\":\"{action}\",\"output\":\"out\",\"artifact\":\"{artifact_pin}\",\"files\":1}}}},\"commands\":{{\"service\":{{\"application\":\"app\",\"application_path\":\"bin/run\",\"loader\":null,\"loader_path\":null,\"libraries\":[]}}}}}}\n"
+        "syrox-package-result\n{{\"outputs\":{{\"app\":{{\"action\":\"{action}\",\"output\":\"out\",\"artifact\":\"{artifact_pin}\",\"files\":1}}}},\"commands\":{{\"service\":{{\"application\":\"app\",\"application_path\":\"bin/run\",\"loader\":null,\"loader_path\":null,\"libraries\":[]}}}}}}\n"
     );
     let manifest = ResultManifest::parse(bytes.as_bytes()).unwrap();
     admit_result(

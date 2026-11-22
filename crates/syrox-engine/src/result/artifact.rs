@@ -47,7 +47,7 @@ pub(crate) struct ArtifactLimits {
 }
 
 impl ArtifactLimits {
-    pub const LEGACY: Self = Self {
+    pub const PACKAGE: Self = Self {
         bytes: MAX_OUTPUT_BYTES,
         expanded_bytes: MAX_OUTPUT_BYTES,
         files: MAX_FILES,
@@ -82,7 +82,7 @@ pub(crate) struct PreparedArtifact {
 
 impl PreparedArtifact {
     pub(crate) fn new(root: &Path) -> Result<Self, ArtifactError> {
-        Self::with_limits(root, ArtifactLimits::LEGACY)
+        Self::with_limits(root, ArtifactLimits::PACKAGE)
     }
 
     pub(crate) fn with_limits(root: &Path, limits: ArtifactLimits) -> Result<Self, ArtifactError> {
@@ -411,7 +411,7 @@ impl<R: std::io::Read> std::io::Read for Positioned<R> {
 }
 
 fn scan(input: impl std::io::Read, expected_entry: &str) -> Result<ArtifactIndex, ArtifactError> {
-    scan_with_limits(input, expected_entry, ArtifactLimits::LEGACY)
+    scan_with_limits(input, expected_entry, ArtifactLimits::PACKAGE)
 }
 
 pub(crate) fn scan_with_limits(
@@ -670,7 +670,12 @@ impl<R: std::io::Read + std::io::Seek> IndexedArtifact<R> {
         entry: &str,
         cancellation: &(impl OperationControl + ?Sized),
     ) -> Result<Self, ArtifactError> {
-        Self::open_with_limits(input, entry, ArtifactLimits::LEGACY, cancellation)
+        Self::open_with_limits(
+            input,
+            entry,
+            ArtifactLimits::PACKAGE,
+            cancellation,
+        )
     }
 
     pub(crate) fn open_with_limits(

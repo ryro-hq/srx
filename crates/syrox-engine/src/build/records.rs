@@ -860,7 +860,7 @@ mod input_tests {
         let second = ingest(lease, &artifact(b"sibling"));
         let logical = ContentDigest::sha256(b"logical identity without CAS object");
         let text = format!(
-            "syrox-result-v2\n{{\"outputs\":{{\"data\":{{\"action\":\"{logical}\",\"output\":\"out\",\"artifact\":\"{first}\",\"files\":1}},\"sibling\":{{\"action\":\"{logical}\",\"output\":\"dev\",\"artifact\":\"{second}\",\"files\":1}}}},\"commands\":{{}}}}\n"
+            "syrox-package-result\n{{\"outputs\":{{\"data\":{{\"action\":\"{logical}\",\"output\":\"out\",\"artifact\":\"{first}\",\"files\":1}},\"sibling\":{{\"action\":\"{logical}\",\"output\":\"dev\",\"artifact\":\"{second}\",\"files\":1}}}},\"commands\":{{}}}}\n"
         );
         let manifest = ResultManifest::parse(text.as_bytes()).unwrap();
         let pin = ingest(lease, &manifest.encode().unwrap());

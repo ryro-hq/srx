@@ -38,7 +38,7 @@ mod imported_tests {
             .unwrap();
         let action = ContentDigest::sha256(b"opaque imported action, no build record");
         let manifest = crate::result::ResultManifest::parse(format!(
-            "syrox-result-v2\n{{\"outputs\":{{\"compiler\":{{\"action\":\"{action}\",\"output\":\"out\",\"artifact\":\"{artifact}\",\"files\":1}}}},\"commands\":{{}}}}\n"
+            "syrox-package-result\n{{\"outputs\":{{\"compiler\":{{\"action\":\"{action}\",\"output\":\"out\",\"artifact\":\"{artifact}\",\"files\":1}}}},\"commands\":{{}}}}\n"
         ).as_bytes()).unwrap();
         let pin = manifest.digest().unwrap();
         crate::result::admit_result(
