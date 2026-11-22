@@ -19,24 +19,31 @@ const PREAMBLE: &str = "\
 A format tag names the encoding of bytes that leave the code that produced
 them: a record on disk, a message between processes, a hash domain or a
 published identity. Every tag lives in `syrox_encoding::formats`; production
-code references the registry and `cargo xtask check` rejects versioned tag
-literals elsewhere. Tests and fixtures keep literal tags on purpose, as golden
-checks that the registry still produces the same bytes.
+code references the registry, and `cargo xtask check` rejects a string literal
+that starts with a registered tag (current or still read) or with any
+versioned `syrox-...-vN` tag outside the registry. Tests and fixtures keep
+literal tags on purpose, as golden checks that the registry still produces the
+same bytes.
 
 ## Versioning policy
 
+Before the first release every format was reset: no tag has a version
+suffix, no reader accepts an older tag, and data written by pre-release
+builds is refused (see [the format reset](migrations/format-reset.md)).
+
+- A tag starts unversioned; an unversioned tag is version 1 and `-v1` is never
+  written. A tagged record carries no second version inside its body.
 - Bump a version only when a reader must tell old bytes from new ones: the
   layout or meaning of a persisted record changes, wire peers may run different
   builds, or digests in a hash domain must not collide with earlier digests.
   Bytes that never outlive one process, and additive changes the reader already
   rejects or ignores safely, need no new version.
-- An unversioned tag is version 1. Its first incompatible change appends `-v2`.
+- The first incompatible change after a release appends `-v2` and adds the
+  released tag to `reads` when bytes written by that release must stay
+  readable; the reader then handles each listed version explicitly. A registry
+  test refuses a version suffix on a format whose `reads` is empty.
 - Changing a hash domain or identity tag changes every digest and identity
   derived from it. Treat that as a break of every stored pin, not a refactor.
-- Add the previous tag to `reads` when bytes written by released versions must
-  stay readable; the reader then handles each listed version explicitly. A
-  writer may keep emitting an older version when it can represent the content
-  (the lock and result manifests do this).
 - Drop an old reader only when no supported installation can still hold those
   bytes, because a migration rewrote them or a release declared the break.
   Remove the tag from `reads` together with its parsing path.

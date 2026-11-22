@@ -212,7 +212,10 @@ for automatic consumption of explicitly authorized local bundles.
 
 Existing projects and scripts must follow the
 [Services migration](docs/migrations/services.md) to replace `Os` and `srx os`
-and explicitly refresh standard-library locks.
+and explicitly refresh standard-library locks. Anyone who ran a pre-release
+build must also follow the [format reset](docs/migrations/format-reset.md):
+locks, Stores and Services installations written before it are refused and must
+be recreated.
 
 Package modules use ordinary `if`, `==`/`!=`, literal `match` and static traits.
 `package_traits::Package` associates an implementation with `Settings`,

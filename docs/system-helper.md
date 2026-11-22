@@ -37,7 +37,7 @@ request. The receipt's observation echoes the caller binding while
 `helper_layout_sha256` records the root-admitted layout. Echoing the caller's
 digest grants no authority to exceed root policy or select image paths. Both
 geometries derive from the same requested bytes/files. The root authorization
-hash uses a distinct `syrox-private-workspace-authorization-v1` domain and binds
+hash uses a distinct `syrox-private-workspace-authorization` domain and binds
 the complete request, root layout, policy, peer and state filesystem identity.
 The client validates the exact requested budget/layout, role identities and
 actual filesystem ceilings before accepting either role.
@@ -53,7 +53,7 @@ partial allocation/format/mount/ownership changes or lost replies are uncertain;
 the helper never repeats formatting to repair them.
 
 Workspace recovery has its own plan-hash domain,
-`syrox-private-workspace-recovery-plan-v1`, and explicit inspection/reconciliation
+`syrox-private-workspace-recovery-plan`, and explicit inspection/reconciliation
 operations. It verifies both allocation identities and requested lengths, the
 original policy and same-boot/PID-namespace session identity, recorded tool exits
 and independent loop teardown. Missing evidence or a live retained mount blocks

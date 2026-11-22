@@ -31,8 +31,8 @@ from the host filesystem. Image extraction must separately use a confined writer
 the validated link text is not permission to follow links on the host.
 
 Trees retain each entry's origins in deterministic order. Their canonical format
-is ASCII `syrox-system-tree-v1` plus LF followed by compact UTF-8 JSON, with no
-trailing LF. Field order is `version`, `entries`, `content_bytes`; entries are
+is ASCII `syrox-system-tree` plus LF followed by compact UTF-8 JSON, with no
+trailing LF. Field order is `entries`, `content_bytes`; entries are
 ordered by path and origin sets are ordered. SHA-256 of these exact bytes is the
 tree identity. Administrator policy ceilings do not affect that identity. Parsing
 reconstructs and revalidates the composition and requires byte-for-byte canonical
@@ -100,7 +100,7 @@ kernel, init program, UKI, firmware boot or operating-system qualification is
 implied. Executor enforcement of complete system build budgets, large package
 worker/receipt integration, rootfs/disk writers and boot remain pending.
 
-System v3 consumption results can now provide chunked package components through
+System consumption results can now provide chunked package components through
 the same `MaterializedArtifact` interface. The image builder opens their verified
 logical stream and retains the embedded result/chunk closure. This removes the
 legacy blob cap from this consumption path; system workers, source budgets and
@@ -137,8 +137,8 @@ elapsed duration are checked between bounded I/O calls. These library checks
 do not establish a process resource envelope; the system executor must still
 enforce memory, CPU, process and descriptor limits and bound blocked kernel I/O.
 
-The parameter manifest is `syrox-verity-image-v1` plus LF, compact JSON and a
-final LF. Field order is `version`, `algorithm`, `data_block_bytes`,
+The parameter manifest is `syrox-verity-image` plus LF, compact JSON and a
+final LF. Field order is `algorithm`, `data_block_bytes`,
 `hash_block_bytes`, `hash_start_block`, `superblock`,
 `data_manifest_sha256`, `data_sha256`, `data_bytes`,
 `hash_manifest_sha256`, `hash_sha256`, `hash_bytes`, `root_hash`, `salt`.
@@ -192,10 +192,10 @@ same Store. Missing, repeated, foreign or inconsistent bindings fail before
 staging. It requires at least 32 MiB for bounded CAS transport/metadata and a
 conservative complete root-reference bound. The disk streams directly into
 chunked staging. Only complete successful construction produces its chunk
-manifest and `syrox-raw-image-v1` provenance manifest.
+manifest and `syrox-raw-image` provenance manifest.
 
 The provenance format is the domain plus LF, compact JSON and a final LF. Field
-order is `version`, `format`, `specification`, `image_sha256`,
+order is `format`, `specification`, `image_sha256`,
 `image_manifest_sha256`, `image_bytes`, `partitions`. Version is 1 and format is
 `gpt`. The specification uses the public `DiskSpec` field order, partitions by
 entry number, and fixed GUID/hash byte arrays; input records contain `number`,
@@ -240,8 +240,8 @@ Only successful writing admits the qcow2 chunk manifest and provenance metadata.
 its provenance manifest and partition streams, plus the qcow2 stream and metadata.
 Unknown source build/tree/signature evidence is never invented.
 
-The metadata domain is `syrox-qcow2-image-v1` plus LF, compact JSON and a final LF.
-Field order is `version`, `format`, `qcow2_version`, `cluster_bytes`,
+The metadata domain is `syrox-qcow2-image` plus LF, compact JSON and a final LF.
+Field order is `format`, `qcow2_version`, `cluster_bytes`,
 `refcount_bits`, `raw_provenance_sha256`, `raw_manifest_sha256`, `raw_sha256`,
 `virtual_bytes`, `image_manifest_sha256`, `image_sha256`, `image_bytes`.
 Values are 1, `qcow2`, 3, 65536 and 16 for the first five fields; pins use

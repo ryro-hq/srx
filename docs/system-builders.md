@@ -99,11 +99,11 @@ the held source, worker and every input view before duplicating the readonly
 source descriptor. Preparation creates no operation, scratch, process or receipt.
 
 `SystemBuildAction` has its own canonical encoding: the prefix
-`syrox-system-build-action-v1\n` followed by compact struct-ordered JSON. Its
-`syrox-system-managed-x86_64-v1` profile binds the source and effective source
+`syrox-system-build-action\n` followed by compact struct-ordered JSON. Its
+`syrox-system-managed-x86_64` profile binds the source and effective source
 limit, worker, directory, ordered input identities/origins, exact hexadecimal
-`SRXBUILD\x02` program, all eight budget values, administrator-policy fingerprint,
-`syrox-system-worker-outputs-v1` output protocol and `subreaper-echild` settlement
+`SRXBUILD\x01` program, all eight budget values, administrator-policy fingerprint,
+`syrox-system-worker-outputs` output protocol and `subreaper-echild` settlement
 contract. An independently admitted budget is required to parse it. Unknown or
 duplicate fields, alternate encodings, altered policy/budget and trailing bytes
 are refused. The independent 701-byte test vector has SHA-256
@@ -141,8 +141,8 @@ the source, full input closures and materialized views. Sender interests are
 combined only within the same Store; no global maintenance barrier survives the
 operation. No build attempt, scratch or receipt is created by this API.
 
-The new canonical record is `syrox-system-input-resources-v1\n` followed by
-struct-ordered JSON fields `version`, `action`, `reserved`, `slots`, `inputs`,
+The new canonical record is `syrox-system-input-resources\n` followed by
+struct-ordered JSON fields `action`, `reserved`, `slots`, `inputs`,
 `retention`, `retention_device`, `retention_inode`. Each input records `storage`,
 `artifact_slots`, `maximum_bytes`, `maximum_files`. The record is bounded at
 32 KiB. Artifact identities/order come from the independently selected System
@@ -185,18 +185,18 @@ descriptors from malformed/truncated ancillary data. It checks the expected
 message PID, including when the socketpair was created before a child exec.
 No ordinary worker packet size, ancillary limit or protocol is expanded.
 
-The receiver starts with `syrox-system-input-ready-v1\n`, then the nonce,
+The receiver starts with `syrox-system-input-ready\n`, then the nonce,
 action SHA-256, expected resource-record SHA-256 (32 bytes each), and reserved
 descriptor count as u32 little-endian. SHA-256 of that complete message binds
 the remaining phases. The sender checks this exact message before transferring:
 
-- `syrox-system-input-manifest-v1\n`: binding SHA-256, total metadata bytes and
+- `syrox-system-input-manifest\n`: binding SHA-256, total metadata bytes and
   contiguous offset (u32 little-endian), followed by up to 1,024 metadata bytes.
   Every fragment has the exact expected length; the total is bounded at 32 KiB.
-- `syrox-system-input-batch-v1\n`: binding SHA-256, total descriptors, contiguous
+- `syrox-system-input-batch\n`: binding SHA-256, total descriptors, contiguous
   offset and batch count (u32 little-endian), plus exactly that many FDs, at most
   64 per packet. The entire record passes admission before any FD batch is read.
-- `syrox-system-input-accepted-v1\n`: binding SHA-256, total descriptors and zero
+- `syrox-system-input-accepted\n`: binding SHA-256, total descriptors and zero
   offset, with no FDs, sent only after receiver validation and retention locking.
 
 Cancellation/deadlines bound packet waits; validation observes cancellation and
@@ -346,7 +346,7 @@ change quotas or mount anything. Text output reports the same observations.
 
 JSON retains the ordinary kernel `inventory` and its `digest`. The additional
 `builder_filesystem` has its own `path`, `digest` and `observation`. Its SHA-256
-uses the domain `syrox-filesystem-observation-v1\n` followed by compact serialized
+uses the domain `syrox-filesystem-observation\n` followed by compact serialized
 observation bytes. It binds the exact reported identity, capacity, usage and
 quota availability. These values can change immediately after inspection; the
 digest provides neither exclusive use nor a persistent execution authorization.
@@ -538,7 +538,7 @@ down to ext4's existing group/table granularity. The sum of observed filesystem
 inodes must remain within the original budget; reserved filesystem inodes also
 consume those ceilings. This does not give each filesystem the entire file budget.
 
-The layout identity hashes `syrox-system-workspace-layout-v1\n`, the 32-byte
+The layout identity hashes `syrox-system-workspace-layout\n`, the 32-byte
 administrator-policy fingerprint, then twelve u64 little-endian values: the
 eight requested budget dimensions in their existing order, scratch image bytes,
 scratch effective inodes, output image bytes and output effective inodes. The

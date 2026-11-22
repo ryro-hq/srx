@@ -80,10 +80,11 @@ identities; this migration does not rewrite old artifacts or journals.
 
 Rust callers must replace `PlanConsumerKind::Os` with
 `PlanConsumerKind::Services`. The engine module is now `deployment::services` and its handles use the
-`Services` prefix (`ServicesProfile`, `ServicesApplyRequest`, ...). Their
-persistence and execution protocols have not been renamed: `syrox-os-*` format
-tags and the `__os-service` worker mode stay byte-identical so existing
-installations and units keep working.
+`Services` prefix (`ServicesProfile`, `ServicesApplyRequest`, ...). The
+[format reset](format-reset.md) later renamed their persistence and execution
+protocols too: the `syrox-services-*` format tags, `syrox-services-*` unit names
+and the `__services-worker` worker mode replace the earlier `os` names, and
+installations created before the reset must be recreated.
 
 Services still require the existing matching non-root execution identity.
 Systemd system scope continues to require its existing delegated authority.
@@ -136,7 +137,7 @@ bundle identities remain unchanged; no automatic cache/lock migration occurs.
 
 `SystemBuildInputResources` now groups legacy/chunked inputs under one aggregate
 descriptor budget and a separate locked retention description. Its canonical
-`syrox-system-input-resources-v1` record requires an independently authenticated
+`syrox-system-input-resources` record requires an independently authenticated
 digest, action and reserve; receivers must not trust the offer's own claims.
 `SystemBuildInputTransfer` adds a distinct one-shot, kernel-credential-checked
 seqpacket exchange with its own ready/manifest/batch/accepted v1 domains. These
@@ -147,7 +148,7 @@ are introduced by this Rust/transport increment.
 
 The Rust-only `workspace` API adds deterministic, separately bounded scratch and
 output ext4 roles derived from an admitted System budget. Its layout has a new
-`syrox-system-workspace-layout-v1` identity domain; existing action bytes and
+`syrox-system-workspace-layout` identity domain; existing action bytes and
 single-scratch helper requests retain their meanings. Callers must authenticate
 both root roles and observations and manage partial mount/ownership failures.
 This does not enable a System CLI executor or migrate existing journals, project

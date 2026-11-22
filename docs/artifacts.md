@@ -96,7 +96,7 @@ automatic release discovery are separate future extensions.
 
 ## Large streams in the engine Store
 
-The engine also provides a versioned container for large byte streams in
+The engine also provides a tagged container for large byte streams in
 [`store::chunked`](../crates/syrox-engine/src/store/chunked.rs). This is a
 foundation for system images. Ordinary package outputs, release bundles, build
 protocols and recipe limits continue to use their current formats and budgets.
@@ -111,21 +111,21 @@ content hash must all pass before the manifest is published. Read boundaries and
 transient `Interrupted` errors do not affect the resulting identities. Empty
 streams have a manifest and no chunks.
 
-The v1 manifest has this canonical binary representation:
+The manifest has this canonical binary representation:
 
 | Field, in order | Encoding |
 |---|---|
-| Format header | ASCII `syrox-chunked-artifact-v1` followed by LF |
+| Format header | ASCII `syrox-chunked-artifact` followed by LF |
 | Chunk size | Unsigned 32-bit little endian; exactly 4,194,304 |
 | Logical length | Unsigned 64-bit little endian |
 | Complete content digest | 32 raw SHA-256 bytes |
 | Chunk count | Unsigned 32-bit little endian |
 | Ordered chunk digests | 32 raw SHA-256 bytes per chunk, including repetitions |
 
-Unknown versions, inconsistent lengths/counts, trailing bytes and oversized
+Unknown headers, inconsistent lengths/counts, trailing bytes and oversized
 manifests are rejected. The SHA-256 of these canonical bytes identifies the
 container separately from the logical content digest. The format has a fixed
-identity fixture; changing its encoding requires a new format version.
+identity fixture; changing its encoding requires a new format tag.
 
 The cap is 65,535 chunks, or 256 GiB minus 4 MiB of logical content. The manifest
 is at most 2,097,194 bytes. These are storage format limits; callers must still
@@ -225,8 +225,9 @@ An action supplied here is consumption metadata; this API creates no local build
 receipt or claim that the producer executed successfully.
 
 `ResultManifest::for_system` and `admit_system_result` introduce canonical
-`syrox-result-v3\n` manifests. Alongside the existing outputs/commands, v3 records
-positive `system.bytes` and `system.files` limits. They must fit the caller's
+`syrox-system-result\n` manifests. Alongside the outputs/commands of a package
+result (`syrox-package-result\n`), a system result records positive
+`system.bytes` and `system.files` limits. They must fit the caller's
 administrator-admitted budget. Format caps are 256 GiB minus 4 MiB of aggregate
 logical/expanded bytes, one million view entries, 128 outputs and 8 MiB of
 manifest bytes. Admission charges each unique artifact once, using the greater
@@ -234,14 +235,14 @@ of its encoded and expanded size, and counts the view's files and directories.
 Runtime commands still undergo the existing complete executable-closure checks.
 
 A chunked output adds `chunked: { "manifest": "<lowercase hex>" }` to its
-metadata. The hex encodes the exact canonical v1 chunk-manifest bytes described
+metadata. The hex encodes the exact canonical chunk-manifest bytes described
 above. Its `artifact` field pins those bytes; the embedded manifest separately
 pins the complete logical package content. Descriptors are checked against their
 pins, actual Store manifests, every chunk and the complete logical content.
 Embedding the chunk identities makes the complete portable GC closure available
 from the result itself. The expanded root set is bounded by the existing 65,536
 Store references, including the result manifest. Unknown fields, noncanonical
-encodings and version/descriptor mismatches fail admission.
+encodings and header/descriptor mismatches fail admission.
 
 Materialization, bounded file reads, runtime inspection and initramfs construction
 use the same authenticated artifact index over either storage form. Chunked
@@ -251,7 +252,7 @@ consumption manifest. Views and image roots retain the complete source closure,
 including all chunks, after the input root is retired.
 
 `bundle::export_system_bundle` and `import_system_bundle` use
-`syrox-system-bundle-v2\n` framing and require an admitted budget. The result
+`syrox-system-bundle\n` framing and require an admitted budget. The result
 manifest travels first with its u32 little-endian byte length. A u32 object count
 follows, then unique objects in raw-digest order: 32 digest bytes, u64
 little-endian length, and the object bytes. This includes chunk manifests and
@@ -262,11 +263,11 @@ root. Truncation, corruption, cancellation or trailing objects leave no root;
 verified unrooted uploads remain collectible. Export failures may leave a partial
 destination, which callers must stage before publishing.
 
-Legacy v2 results and v1 runtime bundles preserve their canonical bytes and
-identities, 1 MiB manifests, 128 MiB individual artifacts and 512 MiB aggregate
-artifacts. Their ordinary admission/export APIs reject system results. A result
-v3 can contain legacy blobs, which keep their individual legacy bounds. The
-legacy worker input/descriptor protocol explicitly refuses v3 results until the
+Package results and runtime bundles keep their 1 MiB manifests, 128 MiB
+individual artifacts and 512 MiB aggregate artifacts. Their ordinary
+admission/export APIs reject system results. A system result can contain
+package blobs, which keep their individual package bounds. The managed worker
+input/descriptor protocol explicitly refuses system results until the
 system worker protocol and execution profile are implemented. Source budgets,
 worker enforcement, disk scratch, build receipts and release authorization still
 need their system integration; this result/transport increment does not enable
@@ -300,15 +301,15 @@ root nor a build receipt. The external producer API `ingest_system_output`
 continues requiring its caller's complete content pin.
 
 `write_system_outputs` and `receive_system_outputs` provide a separately
-versioned, one-shot worker transfer. Its bytes are:
+tagged, one-shot worker transfer. Its bytes are:
 
-1. `syrox-system-worker-outputs-v1\n`, the 32-byte action digest, a 32-byte budget
+1. `syrox-system-worker-outputs\n`, the 32-byte action digest, a 32-byte budget
    binding and a u16 little-endian output count (1–128).
 2. Outputs in ASCII name order: u8 name length, name bytes, u64 little-endian
    package length, the exact package bytes, then their 32-byte SHA-256.
 3. EOF, without additional frames or trailing bytes.
 
-The budget binding hashes `syrox-system-output-budget-v1\n`, the admitted
+The budget binding hashes `syrox-system-output-budget\n`, the admitted
 administrator policy fingerprint, then eight u64 little-endian request values:
 memory, CPU percentage, processes, descriptors, scratch bytes, files, output
 bytes and duration seconds. This binds the exact request/policy; it does not
