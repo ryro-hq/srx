@@ -1,12 +1,11 @@
 use crate::build::cancellation::BuildControl;
 use crate::result::artifact;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Write as _;
 use std::io::Read as _;
 use std::ops::Deref;
 use std::path::Path;
 use std::time::{Duration, Instant};
-use syrox_encoding::formats;
+use syrox_encoding::{formats, record};
 
 use super::records::{Action, BuildDescription, MAX_RECORD_BYTES, Receipt, invalid};
 
@@ -834,12 +833,15 @@ fn read_index_bytes(
 }
 
 fn encode_index(action: ContentDigest, entries: &[Candidate]) -> Vec<u8> {
-    let mut text = format!("{}\naction {action}\n", formats::BUILD_INDEX.tag);
+    let mut record = record::Writer::new(&formats::BUILD_INDEX);
+    record.field("action", action);
     for entry in entries {
-        writeln!(text, "result {} {}", entry.receipt, entry.root)
-            .expect("String writes are infallible");
+        record.field(
+            "result",
+            format_args!("{} {}", entry.receipt, entry.root),
+        );
     }
-    text.into_bytes()
+    record.into_bytes()
 }
 
 fn parse_index(action: ContentDigest, bytes: &[u8]) -> Result<Vec<Candidate>, BuildError> {
@@ -847,19 +849,18 @@ fn parse_index(action: ContentDigest, bytes: &[u8]) -> Result<Vec<Candidate>, Bu
         return Err(invalid("oversized action index entry"));
     }
     let text = std::str::from_utf8(bytes).map_err(problem)?;
-    let mut lines = text.lines();
-    if lines.next() != Some(formats::BUILD_INDEX.tag)
-        || lines.next() != Some(format!("action {action}").as_str())
-    {
+    let mut lines = record::Reader::new(text, &formats::BUILD_INDEX)
+        .map_err(|_| invalid("wrong action index identity"))?;
+    if lines.field("action") != Ok(action.to_string().as_str()) {
         return Err(invalid("wrong action index identity"));
     }
     let mut entries = Vec::new();
-    for line in lines {
+    while let Some(result) = lines.next_field("result") {
         if entries.len() == 2 {
             return Err(invalid("too many indexed results"));
         }
-        let (receipt, root) = line
-            .strip_prefix("result ")
+        let (receipt, root) = result
+            .ok()
             .and_then(|value| value.split_once(' '))
             .ok_or_else(|| invalid("invalid index result"))?;
         let receipt = receipt

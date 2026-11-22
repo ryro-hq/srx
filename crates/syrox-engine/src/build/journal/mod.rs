@@ -7,7 +7,7 @@
 use std::fs;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
-use syrox_encoding::formats;
+use syrox_encoding::{formats, record};
 
 use super::{
     BuildError, BuildRecoveryEntry, BuildRecoveryReport, BuildRecoveryState, BuildResult, sandbox,
@@ -45,12 +45,11 @@ impl Attempt {
     }
 
     fn encode(self) -> String {
-        format!(
-            "{}\naction {}\ntimeout {}\n",
-            formats::BUILD_ATTEMPT.tag,
-            self.action,
-            self.timeout_seconds
-        )
+        let mut record = record::Writer::new(&formats::BUILD_ATTEMPT);
+        record
+            .field("action", self.action)
+            .field("timeout", self.timeout_seconds);
+        record.finish()
     }
 
     pub(super) fn read(directory: &OpenedPath) -> Result<Option<Self>, BuildError> {
@@ -61,20 +60,16 @@ impl Attempt {
 
     fn parse(bytes: &[u8]) -> Result<Self, BuildError> {
         let text = std::str::from_utf8(bytes).map_err(problem)?;
-        let mut lines = text.lines();
-        if lines.next() != Some(formats::BUILD_ATTEMPT.tag) {
-            return Err(invalid("unsupported build attempt"));
-        }
+        let mut lines = record::Reader::new(text, &formats::BUILD_ATTEMPT)
+            .map_err(|_| invalid("unsupported build attempt"))?;
         let action = lines
-            .next()
-            .and_then(|line| line.strip_prefix("action "))
-            .ok_or_else(|| invalid("missing attempt action"))?
+            .field("action")
+            .map_err(|_| invalid("missing attempt action"))?
             .parse()
             .map_err(problem)?;
         let timeout = lines
-            .next()
-            .and_then(|line| line.strip_prefix("timeout "))
-            .ok_or_else(|| invalid("missing attempt deadline"))?
+            .field("timeout")
+            .map_err(|_| invalid("missing attempt deadline"))?
             .parse()
             .map_err(problem)?;
         let attempt = Self::new(action, timeout)?;

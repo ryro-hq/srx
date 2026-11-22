@@ -11,8 +11,7 @@ use crate::{
     plan::Plan, plan::PlanPackageId, result::OutputOrigin, store::ContentDigest, store::RootName,
 };
 use std::collections::BTreeMap;
-use std::fmt::Write as _;
-use syrox_encoding::formats;
+use syrox_encoding::{formats, record};
 
 pub(crate) const MAX_RECORD_BYTES: u64 = 2 * super::MAX_BUILD_PROGRAM_BYTES as u64 + 32 * 1024;
 
@@ -120,35 +119,35 @@ impl Action {
     }
 
     pub(crate) fn encode(&self) -> Vec<u8> {
-        let profile = profile_name(self.program.profile);
-        let envelope = envelope(self.program.resources);
-        let mut text = format!(
-            "{}\nprofile {profile}\nsource {}\ntoolchain {}\nworker {}\ndirectory {}\nenvelope {envelope}\n",
-            formats::BUILD_ACTION.tag,
-            self.source,
-            optional_pin(self.toolchain),
-            self.worker,
-            self.directory
-        );
-        writeln!(text, "selected-inputs {}", self.inputs.len()).expect("String write");
+        let mut record = record::Writer::new(&formats::BUILD_ACTION);
+        record
+            .field("profile", profile_name(self.program.profile))
+            .field("source", self.source)
+            .field("toolchain", optional_pin(self.toolchain))
+            .field("worker", self.worker)
+            .field("directory", &self.directory)
+            .field("envelope", envelope(self.program.resources))
+            .field("selected-inputs", self.inputs.len());
         for input in &self.inputs {
-            writeln!(
-                text,
-                "selected-input {} {} {} {} {}",
-                origin_name(&input.origin),
-                origin_pin(&input.origin),
-                input.action,
-                input.artifact,
-                input.output
+            record.field(
+                "selected-input",
+                format_args!(
+                    "{} {} {} {} {}",
+                    origin_name(&input.origin),
+                    origin_pin(&input.origin),
+                    input.action,
+                    input.artifact,
+                    input.output
+                ),
+            );
+        }
+        record
+            .field(
+                "program",
+                syrox_encoding::hex(&self.program.encode()),
             )
-            .expect("String write");
-        }
-        text.push_str("program ");
-        for byte in self.program.encode() {
-            write!(text, "{byte:02x}").expect("String write");
-        }
-        text.push_str("\npayload-settlement subreaper-echild\n");
-        text.into_bytes()
+            .field("payload-settlement", "subreaper-echild");
+        record.into_bytes()
     }
 
     pub(crate) fn digest(&self) -> ContentDigest {
@@ -156,21 +155,18 @@ impl Action {
     }
 
     pub(crate) fn parse(bytes: &[u8]) -> Result<Self, BuildError> {
-        let text = record_text(bytes)?;
-        let mut lines = text.lines();
-        if lines.next() != Some(formats::BUILD_ACTION.tag) {
-            return Err(invalid("unsupported action format"));
-        }
-        let profile = field(&mut lines, "profile ")?;
+        let mut lines = record::Reader::new(record_text(bytes)?, &formats::BUILD_ACTION)
+            .map_err(|_| invalid("unsupported action format"))?;
+        let profile = field(&mut lines, "profile")?;
         if profile != PROFILE && profile != super::MANAGED_PROFILE {
             return Err(invalid("unsupported action profile"));
         }
-        let source = digest(field(&mut lines, "source ")?)?;
-        let toolchain = parse_optional_pin(field(&mut lines, "toolchain ")?)?;
-        let worker = digest(field(&mut lines, "worker ")?)?;
-        let directory = field(&mut lines, "directory ")?.to_owned();
-        let limits = field(&mut lines, "envelope ")?;
-        let count: usize = field(&mut lines, "selected-inputs ")?
+        let source = digest(field(&mut lines, "source")?)?;
+        let toolchain = parse_optional_pin(field(&mut lines, "toolchain")?)?;
+        let worker = digest(field(&mut lines, "worker")?)?;
+        let directory = field(&mut lines, "directory")?.to_owned();
+        let limits = field(&mut lines, "envelope")?;
+        let count: usize = field(&mut lines, "selected-inputs")?
             .parse()
             .map_err(|_| invalid("invalid build inputs"))?;
         if count > 64 {
@@ -178,7 +174,7 @@ impl Action {
         }
         let mut inputs = Vec::with_capacity(count);
         for _ in 0..count {
-            let fields = field(&mut lines, "selected-input ")?
+            let fields = field(&mut lines, "selected-input")?
                 .split(' ')
                 .collect::<Vec<_>>();
             let [origin, pin, action, artifact, output] = fields.as_slice() else {
@@ -202,7 +198,7 @@ impl Action {
                 output: (*output).to_owned(),
             });
         }
-        let program = decode_program(field(&mut lines, "program ")?)?;
+        let program = decode_program(field(&mut lines, "program")?)?;
         if profile != profile_name(program.profile)
             || toolchain.is_some() != (program.profile == BuildProfile::HostBootstrap)
         {
@@ -563,30 +559,26 @@ impl Receipt {
         self.outputs.keys().cloned().collect()
     }
     pub(crate) fn encode(&self) -> Vec<u8> {
-        let mut text = format!(
-            "{}action {}\nsource {}\ntoolchain {}\ninputs {}\n",
-            formats::BUILD_RESULT_LINE,
-            self.action,
-            self.source,
-            optional_pin(self.toolchain),
-            self.inputs.len()
-        );
+        let mut record = record::Writer::new(&formats::BUILD_RESULT);
+        record
+            .field("action", self.action)
+            .field("source", self.source)
+            .field("toolchain", optional_pin(self.toolchain))
+            .field("inputs", self.inputs.len());
         for digest in &self.inputs {
-            writeln!(text, "input {digest}").expect("String writes are infallible");
+            record.field("input", digest);
         }
-        writeln!(text, "outputs {}", self.outputs.len()).expect("String writes are infallible");
+        record.field("outputs", self.outputs.len());
         for (name, output) in &self.outputs {
-            writeln!(
-                text,
-                "output {name} {} {}",
-                output.artifact, output.files
-            )
-            .expect("String writes are infallible");
+            record.field(
+                "output",
+                format_args!("{name} {} {}", output.artifact, output.files),
+            );
         }
-        text.push_str(
-            "payload-settlement subreaper-echild\nsettlement systemd-unit-inactive-or-collected\n",
-        );
-        text.into_bytes()
+        record
+            .field("payload-settlement", "subreaper-echild")
+            .field("settlement", "systemd-unit-inactive-or-collected");
+        record.into_bytes()
     }
     pub(crate) fn digest(&self) -> ContentDigest {
         ContentDigest::sha256(&self.encode())
@@ -608,15 +600,12 @@ impl Receipt {
         references
     }
     pub(crate) fn parse(bytes: &[u8]) -> Result<Self, BuildError> {
-        let text = record_text(bytes)?;
-        let mut lines = text.lines();
-        if lines.next() != Some(formats::BUILD_RESULT.tag) {
-            return Err(invalid("unsupported receipt format"));
-        }
-        let action = digest(field(&mut lines, "action ")?)?;
-        let source = digest(field(&mut lines, "source ")?)?;
-        let toolchain = parse_optional_pin(field(&mut lines, "toolchain ")?)?;
-        let input_count: usize = field(&mut lines, "inputs ")?
+        let mut lines = record::Reader::new(record_text(bytes)?, &formats::BUILD_RESULT)
+            .map_err(|_| invalid("unsupported receipt format"))?;
+        let action = digest(field(&mut lines, "action")?)?;
+        let source = digest(field(&mut lines, "source")?)?;
+        let toolchain = parse_optional_pin(field(&mut lines, "toolchain")?)?;
+        let input_count: usize = field(&mut lines, "inputs")?
             .parse()
             .map_err(|_| invalid("invalid input count"))?;
         if input_count > 4096 {
@@ -624,7 +613,7 @@ impl Receipt {
         }
         let mut inputs = Vec::with_capacity(input_count);
         for _ in 0..input_count {
-            let input = digest(field(&mut lines, "input ")?)?;
+            let input = digest(field(&mut lines, "input")?)?;
             if inputs
                 .last()
                 .is_some_and(|previous| *previous >= input)
@@ -633,7 +622,7 @@ impl Receipt {
             }
             inputs.push(input);
         }
-        let count: usize = field(&mut lines, "outputs ")?
+        let count: usize = field(&mut lines, "outputs")?
             .parse()
             .map_err(|_| invalid("invalid output count"))?;
         if !(1..=9).contains(&count) {
@@ -642,7 +631,7 @@ impl Receipt {
         let mut previous = String::new();
         let mut outputs = BTreeMap::new();
         for _ in 0..count {
-            let line = field(&mut lines, "output ")?;
+            let line = field(&mut lines, "output")?;
             let mut parts = line.split(' ');
             let name = parts
                 .next()
@@ -706,11 +695,10 @@ fn record_text(bytes: &[u8]) -> Result<&str, BuildError> {
     }
     std::str::from_utf8(bytes).map_err(|_| invalid("build record is not UTF-8"))
 }
-fn field<'a>(lines: &mut std::str::Lines<'a>, prefix: &str) -> Result<&'a str, BuildError> {
+fn field<'a>(lines: &mut record::Reader<'a>, key: &str) -> Result<&'a str, BuildError> {
     lines
-        .next()
-        .and_then(|line| line.strip_prefix(prefix))
-        .ok_or_else(|| invalid("invalid build record field"))
+        .field(key)
+        .map_err(|_| invalid("invalid build record field"))
 }
 fn digest(text: &str) -> Result<ContentDigest, BuildError> {
     text.parse()
