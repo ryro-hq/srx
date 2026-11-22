@@ -13,6 +13,10 @@ substitute for the native VM lane. The compiler and typed YAML/TOML regression
 suites cover invalid syntax/types, defaults, external keys, partial patches,
 immutable documents, comments and authenticated text assets.
 
+The [editor compatibility checks](editor-compatibility.md#rerun-the-checks)
+use the same fixture as the portable stdio test but run it through the real
+integrations. Release verification requires the separate `--hosts` run.
+
 Prepare the VM using the existing explicit `cargo test -p syrox --test vm --
 --prepare ...` arguments from the CI workflow and VM harness help. Then use
 `cargo xtask test --suite native` or `--suite acceptance`. These use the pinned

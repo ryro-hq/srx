@@ -1,0 +1,7 @@
+{
+  "completion": { "needle": "{ }", "offset": 2, "labels": ["nodeName", "port"] },
+  "definition": { "needle": "project::hello", "offset": 9, "file": "recipes/hello.srx" },
+  "virtualSource": { "needle": "Document<", "offset": 1, "text": "pub opaque struct Document" },
+  "diagnostic": { "before": "{ }", "after": "{ typo = 1; }", "text": "typo" },
+  "formattedLine": "pub publish(recipes, recipe): std::Recipe;"
+}

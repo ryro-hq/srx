@@ -28,7 +28,8 @@ or building.
 - Compose packages with typed recipes, modules, and explicit dependencies.
 - Declare `Shell` and `Services` environments alongside their services and configuration.
 - Lock local projects and pinned GitHub inputs.
-- Get diagnostics, completion, navigation, and formatting in your editor.
+- Get diagnostics, completion, navigation, and formatting in your editor (see
+  the [editor compatibility matrix](docs/editor-compatibility.md)).
 
 Syrox is experimental and currently targets Linux.
 

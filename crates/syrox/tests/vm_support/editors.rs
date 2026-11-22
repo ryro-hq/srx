@@ -23,12 +23,14 @@ pub struct Inputs {
 
 #[derive(Debug)]
 pub struct Tools {
+    pub node: PathBuf,
     pub npm: PathBuf,
     pub neovim: PathBuf,
 }
 impl Default for Tools {
     fn default() -> Self {
         Self {
+            node: "node".into(),
             npm: "npm".into(),
             neovim: "nvim".into(),
         }
@@ -110,21 +112,22 @@ pub fn run(input: &Inputs, tools: &Tools, evidence: &Path) -> Result<()> {
         if fs::metadata(&binary)?.permissions().mode() & 0o111 == 0 {
             return Err("editor candidate must be executable".into());
         }
-        let fixture = fs::read(
-            input
-                .core
-                .join("tests/fixtures/lsp-contract.json"),
-        )?;
+        let fixture = input.core.join("tests/fixtures/editor-compat");
+        if !fixture.join("case.json").is_file() || !fixture.join("project/main.srx").is_file() {
+            return Err(format!(
+                "shared editor fixture is missing: {}",
+                fixture.display()
+            )
+            .into());
+        }
         for checkout in [
             &input.vscode,
             &input.neovim,
             &input.opencode,
         ] {
-            if !checkout.is_absolute()
-                || fs::read(checkout.join("tests/fixtures/lsp-contract.json"))? != fixture
-            {
+            if !checkout.is_absolute() || !checkout.is_dir() {
                 return Err(format!(
-                    "editor checkout path or contract differs: {}",
+                    "editor checkout must be an absolute directory: {}",
                     checkout.display()
                 )
                 .into());
@@ -135,6 +138,7 @@ pub fn run(input: &Inputs, tools: &Tools, evidence: &Path) -> Result<()> {
         let candidate = candidates.join("srx");
         let pin = snapshot::copy_candidate(&binary, &candidate, 128 * 1024 * 1024)?;
         report["candidate"] = json!({"path":binary,"sha256":pin});
+        report["fixture"] = json!(fixture);
         let worker = binary.with_file_name("syrox-worker");
         if worker.exists() {
             report["worker_sha256"] = json!(snapshot::copy_candidate(
@@ -153,32 +157,39 @@ pub fn run(input: &Inputs, tools: &Tools, evidence: &Path) -> Result<()> {
             cmd.args(["run", "check"]);
             commands.push((checkout, cmd, format!("{name}-check")));
         }
-        for script in ["check", "smoke", "std"] {
+        for script in ["check", "smoke"] {
             let mut cmd = Command::new(&tools.neovim);
             cmd.args(["--headless", "-u", "NONE", "-l"])
                 .arg(format!("tests/{script}.lua"));
             commands.push((&input.neovim, cmd, format!("neovim-{script}")));
         }
+        let scripts = input.core.join("tests/editor-compat");
+        let mut neovim = Command::new(&tools.neovim);
+        neovim
+            .args(["--headless", "-u", "NONE", "-l"])
+            .arg(scripts.join("neovim.lua"));
+        commands.push((&input.neovim, neovim, "neovim-compat".into()));
+        let mut opencode = Command::new(&tools.node);
+        opencode.arg(scripts.join("opencode.mjs"));
+        commands.push((
+            &input.opencode,
+            opencode,
+            "opencode-compat".into(),
+        ));
         if input.hosts {
-            for (name, checkout, script) in [
-                ("vscode", &input.vscode, "test:host"),
-                ("opencode", &input.opencode, "test:package"),
-                ("opencode", &input.opencode, "test:host"),
-            ] {
-                let mut cmd = Command::new(&tools.npm);
-                cmd.args(["run", script]);
-                commands.push((
-                    checkout,
-                    cmd,
-                    format!("{name}-{}", script.replace(':', "-")),
-                ));
-            }
+            let mut vscode = Command::new(&tools.node);
+            vscode.arg(scripts.join("vscode.cjs"));
+            commands.push((&input.vscode, vscode, "vscode-compat-host".into()));
+            let mut host = Command::new(&tools.npm);
+            host.args(["run", "test:host"]);
+            commands.push((&input.opencode, host, "opencode-test-host".into()));
         }
         for (checkout, mut cmd, label) in commands {
             process::command(
                 cmd.current_dir(checkout)
                     .env("SRX_BIN", &candidate)
                     .env("SRX_STD_DIR", input.core.join("std"))
+                    .env("SRX_LSP_FIXTURE", &fixture)
                     .env("XDG_STATE_HOME", evidence.join("editor-state")),
                 &evidence.join(format!("{label}.log")),
                 Duration::from_mins(10),

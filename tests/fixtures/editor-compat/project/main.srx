@@ -1,0 +1,8 @@
+inputs { schemas="modules:schemas"; recipes="modules:recipes"; }
+pub publish(recipes,recipe):std::Recipe;
+
+fn selected() -> std::RecipeRef<std::Recipe> { project::hello }
+
+fn update(doc: std::yaml::Document<schemas::host::Config>) {
+    std::yaml::patch(doc, { });
+}

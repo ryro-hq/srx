@@ -1,0 +1,8 @@
+pub fn recipe() -> std::Recipe {
+    std::Recipe {
+        package = std::Package {
+            id = "hello";
+            dependencies = [];
+        };
+    }
+}

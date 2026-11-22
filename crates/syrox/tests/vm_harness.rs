@@ -336,14 +336,13 @@ fn editor_fixture() -> (
     let vscode = root.path().join("vscode");
     let neovim = root.path().join("neovim");
     let opencode = root.path().join("opencode");
-    for checkout in [&core, &vscode, &neovim, &opencode] {
-        fs::create_dir_all(checkout.join("tests/fixtures")).unwrap();
-        fs::write(
-            checkout.join("tests/fixtures/lsp-contract.json"),
-            b"contract",
-        )
-        .unwrap();
+    for checkout in [&vscode, &neovim, &opencode] {
+        fs::create_dir(checkout).unwrap();
     }
+    let fixture = core.join("tests/fixtures/editor-compat");
+    fs::create_dir_all(fixture.join("project")).unwrap();
+    fs::write(fixture.join("case.json"), b"{}").unwrap();
+    fs::write(fixture.join("project/main.srx"), b"").unwrap();
     fs::create_dir(core.join("std")).unwrap();
     let binary = root.path().join("srx");
     fs::write(&binary, b"#!/bin/sh\nexit 0\n").unwrap();
@@ -351,7 +350,7 @@ fn editor_fixture() -> (
     let tool = root.path().join("editor-tool");
     fs::write(
         &tool,
-        b"#!/bin/sh\nprintf '%s\\n' \"$SRX_BIN\" \"$SRX_STD_DIR\" \"$XDG_STATE_HOME\" \"$*\"\n",
+        b"#!/bin/sh\nprintf '%s\\n' \"$SRX_BIN\" \"$SRX_STD_DIR\" \"$SRX_LSP_FIXTURE\" \"$XDG_STATE_HOME\" \"$*\"\n",
     )
     .unwrap();
     fs::set_permissions(&tool, fs::Permissions::from_mode(0o700)).unwrap();
@@ -366,6 +365,7 @@ fn editor_fixture() -> (
             hosts: false,
         },
         Tools {
+            node: tool.clone(),
             npm: tool.clone(),
             neovim: tool,
         },
@@ -386,6 +386,8 @@ fn editor_checks_pin_candidate_and_run_optional_host_commands() {
         let report: serde_json::Value =
             serde_json::from_slice(&fs::read(evidence.join("report.json")).unwrap()).unwrap();
         assert_eq!(report["status"], "passed");
+        let fixture = input.core.join("tests/fixtures/editor-compat");
+        assert_eq!(report["fixture"], fixture.to_str().unwrap());
         assert_eq!(
             report["pending"].as_array().unwrap().len(),
             if hosts {
@@ -409,38 +411,49 @@ fn editor_checks_pin_candidate_and_run_optional_host_commands() {
             if hosts {
                 8
             } else {
-                5
+                6
             }
+        );
+        assert!(evidence.join("neovim-compat.log").is_file());
+        assert!(evidence.join("opencode-compat.log").is_file());
+        assert_eq!(
+            evidence.join("vscode-compat-host.log").is_file(),
+            hosts
+        );
+        assert_eq!(
+            evidence.join("opencode-test-host.log").is_file(),
+            hosts
         );
         for log in logs {
             let output = fs::read_to_string(log.path()).unwrap();
             assert!(output.contains(evidence.join("candidates/srx").to_str().unwrap()));
             assert!(output.contains(input.core.join("std").to_str().unwrap()));
+            assert!(output.contains(fixture.to_str().unwrap()));
         }
         assert!(vm_support::editors::run(&input, &tools, &evidence).is_err());
     }
 }
 
 #[test]
-fn editor_contract_mismatch_and_command_failure_preserve_failed_report() {
+fn editor_fixture_and_command_failure_preserve_failed_report() {
     let (root, input, tools) = editor_fixture();
-    fs::write(
-        input
-            .vscode
-            .join("tests/fixtures/lsp-contract.json"),
-        b"different",
-    )
-    .unwrap();
-    let mismatch = root.path().join("mismatch");
-    assert!(vm_support::editors::run(&input, &tools, &mismatch).is_err());
-    assert!(!mismatch.join("vscode-check.log").exists());
-    fs::write(
-        input
-            .vscode
-            .join("tests/fixtures/lsp-contract.json"),
-        b"contract",
-    )
-    .unwrap();
+    let case = input
+        .core
+        .join("tests/fixtures/editor-compat/case.json");
+    fs::remove_file(&case).unwrap();
+    let missing = root.path().join("missing");
+    assert!(vm_support::editors::run(&input, &tools, &missing).is_err());
+    assert!(!missing.join("vscode-check.log").exists());
+    let report: serde_json::Value =
+        serde_json::from_slice(&fs::read(missing.join("report.json")).unwrap()).unwrap();
+    assert_eq!(report["status"], "failed");
+    assert!(
+        report["error"]
+            .as_str()
+            .unwrap()
+            .contains("missing")
+    );
+    fs::write(&case, b"{}").unwrap();
     fs::write(
         &tools.npm,
         b"#!/bin/sh\necho 'editor fixture failure'\nexit 13\n",

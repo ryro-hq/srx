@@ -1,0 +1,7 @@
+pub value Name(str);
+pub value Port(int);
+
+pub struct Config {
+    #[key("node-name")] nodeName: Name;
+    port: Port;
+}
