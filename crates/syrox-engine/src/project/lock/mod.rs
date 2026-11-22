@@ -186,14 +186,8 @@ impl LockManifest {
             return Err(LockFormatError::NonCanonical);
         }
         let text = std::str::from_utf8(data).map_err(|_| LockFormatError::NonCanonical)?;
-        let mut lines = record::Reader::versioned(text, &formats::LOCK)?;
-        let version = match lines.tag() {
-            formats::LOCK_V1 => 1,
-            formats::LOCK_V2 => 2,
-            formats::LOCK_V3 => 3,
-            formats::LOCK_V4 => 4,
-            _ => return Err(LockFormatError::UnknownRecord),
-        };
+        let mut lines = record::Reader::new(text, &formats::LOCK)
+            .map_err(|error| earlier_format(text, formats::LOCK.tag, error))?;
         lines.expect("hash sha256")?;
         let [project] = lines.words("project")?;
         let expected_project_digest = digest(project)?;
@@ -231,16 +225,8 @@ impl LockManifest {
             });
         }
         let standard_library = parse_standard_library(&mut lines, total_files)?;
-        let edges = if version >= 2 {
-            parse_project_edges(&mut lines, &inputs, version)?
-        } else {
-            Vec::new()
-        };
-        let assets = if version >= 3 {
-            parse_assets(&mut lines)?
-        } else {
-            Vec::new()
-        };
+        let edges = parse_project_edges(&mut lines, &inputs)?;
+        let assets = parse_assets(&mut lines)?;
         lines.expect("end")?;
         lines.finish()?;
         ensure_sorted_unique(inputs.iter().map(|input| input.name.as_slice()))?;
@@ -333,19 +319,7 @@ impl LockManifest {
 
     fn encode_with_limit(&self, limit: usize) -> Result<Vec<u8>, LockFormatError> {
         let mut output = LockEncoder::new(limit);
-        let github = self
-            .edges
-            .iter()
-            .any(|edge| edge.github_pin().is_some());
-        output.push_str(if github {
-            formats::LOCK_V4
-        } else if !self.assets.is_empty() {
-            formats::LOCK_V3
-        } else if self.edges.is_empty() {
-            formats::LOCK_V1
-        } else {
-            formats::LOCK_V2
-        })?;
+        output.push_str(formats::LOCK.tag)?;
         output.push_str("\nhash sha256\nproject ")?;
         hex_into(&mut output, &self.project_digest)?;
         write!(&mut output, "\nmain {} ", self.main.size).map_err(|_| LockFormatError::TooLarge)?;
@@ -376,18 +350,14 @@ impl LockManifest {
         } else {
             output.push_str("std absent\n")?;
         }
-        if !self.edges.is_empty() || !self.assets.is_empty() {
-            writeln!(&mut output, "edges {}", self.edges.len())
-                .map_err(|_| LockFormatError::TooLarge)?;
-            for edge in &self.edges {
-                edge.encode(&mut output)?;
-            }
+        writeln!(&mut output, "edges {}", self.edges.len())
+            .map_err(|_| LockFormatError::TooLarge)?;
+        for edge in &self.edges {
+            edge.encode(&mut output)?;
         }
-        if !self.assets.is_empty() || github {
-            writeln!(&mut output, "assets {}", self.assets.len())
-                .map_err(|_| LockFormatError::TooLarge)?;
-            encode_files(&mut output, "asset", &self.assets)?;
-        }
+        writeln!(&mut output, "assets {}", self.assets.len())
+            .map_err(|_| LockFormatError::TooLarge)?;
+        encode_files(&mut output, "asset", &self.assets)?;
         output.push_str("end\n")?;
         Ok(output.finish())
     }
@@ -450,6 +420,24 @@ pub enum LockFormatError {
     Misordered,
     #[error("lock contains an internally inconsistent digest")]
     InconsistentDigest,
+    #[error("lock written by an earlier srx format; run `srx project lock` to regenerate it")]
+    EarlierFormat,
+}
+
+/// Map a refused header to [`LockFormatError::EarlierFormat`] when the first
+/// line still names the lock family, so a lock from a pre-release srx gets an
+/// actionable message instead of a generic parse error.
+pub(super) fn earlier_format(text: &str, tag: &str, error: record::Error) -> LockFormatError {
+    let header = text.lines().next().unwrap_or_default();
+    if error == record::Error::Header
+        && header
+            .strip_prefix(tag)
+            .is_some_and(|rest| rest.starts_with("-v"))
+    {
+        LockFormatError::EarlierFormat
+    } else {
+        error.into()
+    }
 }
 
 pub(crate) fn standard_library_digest(sources: &[AuthenticatedStandardSource]) -> [u8; 32] {
@@ -758,16 +746,22 @@ fn parse_assets(lines: &mut record::Reader<'_>) -> Result<Vec<LockedFile>, LockF
 fn parse_project_edges(
     lines: &mut record::Reader<'_>,
     inputs: &[LockedInput],
-    version: u8,
 ) -> Result<Vec<ProjectEdge>, LockFormatError> {
-    let count = count_field(lines, "edges")?;
-    if (version < 3 && count == 0) || count > MAX_PROJECT_EDGES {
+    // The pre-release layout ended after `std`; its `end` line stands where
+    // the unified layout always writes `edges`.
+    let line = lines.line()?;
+    if line == "end" {
+        return Err(LockFormatError::EarlierFormat);
+    }
+    let [count] = record::words(line, "edges")?;
+    let count = self::count(count)?;
+    if count > MAX_PROJECT_EDGES {
         return Err(LockFormatError::InvalidField);
     }
     let mut edges = Vec::with_capacity(count);
     for _ in 0..count {
         let line = lines.line()?;
-        let (alias, origin, child, github) = if version >= 4 && line.starts_with("github-edge ") {
+        let (alias, origin, child, github) = if line.starts_with("github-edge ") {
             let [alias, origin, child, commit, archive] = record::words(line, "github-edge")?;
             (alias, origin, child, Some((commit, archive)))
         } else {
@@ -839,10 +833,34 @@ mod tests {
         let parsed = LockManifest::parse(manifest.data()).unwrap();
         assert_eq!(parsed.data(), manifest.data());
         assert_eq!(parsed.digest(), manifest.digest());
+        let text = std::str::from_utf8(manifest.data()).unwrap();
+        assert!(text.starts_with("syrox-lock\nhash sha256\nproject "));
+        assert!(text.ends_with("std absent\nedges 0\nassets 0\nend\n"));
+    }
+
+    #[test]
+    fn pre_reset_locks_are_refused_as_an_earlier_format() {
+        let current = String::from_utf8(minimal().data).unwrap();
+        // The pre-release v1 layout shared the header but ended after `std`.
+        let unversioned = current.replacen("edges 0\nassets 0\n", "", 1);
+        assert_eq!(
+            LockManifest::parse(unversioned.as_bytes()),
+            Err(LockFormatError::EarlierFormat)
+        );
+        let versioned = current.replacen("syrox-lock\n", "syrox-lock-v4\n", 1);
+        assert_eq!(
+            LockManifest::parse(versioned.as_bytes()),
+            Err(LockFormatError::EarlierFormat)
+        );
+        let foreign = current.replacen("syrox-lock\n", "syrox-other\n", 1);
+        assert_eq!(
+            LockManifest::parse(foreign.as_bytes()),
+            Err(LockFormatError::UnknownRecord)
+        );
         assert!(
-            std::str::from_utf8(manifest.data())
-                .unwrap()
-                .starts_with("syrox-lock\nhash sha256\nproject ")
+            LockFormatError::EarlierFormat
+                .to_string()
+                .contains("run `srx project lock`")
         );
     }
 
@@ -854,7 +872,7 @@ mod tests {
             ProjectEdge::new("z", "path:../z", hash(b"z lock")).unwrap(),
         ];
         let encoded = manifest.encode().unwrap();
-        assert!(encoded.starts_with(b"syrox-lock-v2\n"));
+        assert!(encoded.starts_with(b"syrox-lock\n"));
         let parsed = LockManifest::parse(&encoded).unwrap();
         assert_eq!(parsed.edges, manifest.edges);
         assert_eq!(parsed.data(), encoded);
@@ -905,7 +923,7 @@ mod tests {
             digest: hash(b"\0x"),
         });
         let data = manifest.encode().unwrap();
-        assert!(data.starts_with(b"syrox-lock-v3\n"));
+        assert!(data.starts_with(b"syrox-lock\n"));
         assert_eq!(
             LockManifest::parse(&data).unwrap().assets,
             manifest.assets

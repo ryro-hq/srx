@@ -94,21 +94,20 @@ macro_rules! registry {
 
 registry! {
     // syrox_engine::project
-    LOCK = "syrox-lock-v4" {
+    LOCK = "syrox-lock" {
         boundary: Persisted,
         owner: "syrox_engine::project::lock",
-        summary: "Project lock. The writer emits the oldest version that can hold the content: v1 without edges, v2 with edges, v3 with assets, v4 with GitHub pins.",
-        forms { LOCK_V4 = tag },
-        reads {
-            LOCK_V3 = "syrox-lock-v3",
-            LOCK_V2 = "syrox-lock-v2",
-            LOCK_V1 = "syrox-lock",
-        },
+        summary: "Project lock. Every section is always written: inputs, standard library, project edges (including GitHub pins) and assets.",
     }
-    GRAPH_LOCK = "syrox-graph-lock-v2" {
+    GRAPH_LOCK = "syrox-graph-lock" {
         boundary: Persisted,
         owner: "syrox_engine::project::lock::graph",
-        summary: "Project graph lock header; the bare tag also frames the graph digest.",
+        summary: "Project graph lock header.",
+    }
+    GRAPH_DIGEST = "syrox-graph" {
+        boundary: HashDomain,
+        owner: "syrox_engine::project::lock::graph",
+        summary: "Length-framed domain of the project graph digest recorded in a graph lock.",
     }
     STD_DIGEST = "syrox-std" {
         boundary: HashDomain,
@@ -818,17 +817,10 @@ mod tests {
 
     #[test]
     fn critical_tags_keep_their_bytes() {
-        assert_eq!(LOCK.tag, "syrox-lock-v4");
-        assert_eq!(
-            LOCK.reads,
-            [
-                "syrox-lock-v3",
-                "syrox-lock-v2",
-                "syrox-lock"
-            ]
-        );
-        assert_eq!(LOCK_V1, "syrox-lock");
-        assert_eq!(GRAPH_LOCK.tag, "syrox-graph-lock-v2");
+        assert_eq!(LOCK.tag, "syrox-lock");
+        assert!(LOCK.reads.is_empty());
+        assert_eq!(GRAPH_LOCK.tag, "syrox-graph-lock");
+        assert_eq!(GRAPH_DIGEST.tag, "syrox-graph");
         assert_eq!(
             GENERATION_LINE.as_bytes(),
             b"syrox-generation-v2\n"

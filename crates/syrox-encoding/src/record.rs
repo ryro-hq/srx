@@ -59,7 +59,7 @@ pub struct Writer {
 }
 
 impl Writer {
-    /// Start a record with the current tag of `format` as its header line.
+    /// Start a record with the tag of `format` as its header line.
     /// Fields are separated from their key by a space.
     pub fn new(format: &Format) -> Self {
         let mut text = String::with_capacity(format.tag.len() + 1);
@@ -101,40 +101,21 @@ impl Writer {
 #[derive(Debug)]
 pub struct Reader<'a> {
     rest: &'a str,
-    tag: &'static str,
     separator: char,
     canonical: bool,
 }
 
 impl<'a> Reader<'a> {
-    /// Accept `text` only when its first line is the current tag of `format`.
+    /// Accept `text` only when its first line is the tag of `format`.
     pub fn new(text: &'a str, format: &Format) -> Result<Self, Error> {
-        Self::accepting(text, std::iter::once(format.tag))
-    }
-
-    /// Accept the current tag of `format` or any older tag it still reads.
-    /// [`Reader::tag`] names the version found.
-    pub fn versioned(text: &'a str, format: &Format) -> Result<Self, Error> {
-        Self::accepting(
-            text,
-            std::iter::once(format.tag).chain(format.reads.iter().copied()),
-        )
-    }
-
-    fn accepting(
-        text: &'a str,
-        mut tags: impl Iterator<Item = &'static str>,
-    ) -> Result<Self, Error> {
         let mut reader = Self {
             rest: text,
-            tag: "",
             separator: ' ',
             canonical: true,
         };
-        let header = reader.line().map_err(|_| Error::Header)?;
-        reader.tag = tags
-            .find(|tag| *tag == header)
-            .ok_or(Error::Header)?;
+        if reader.line().map_err(|_| Error::Header)? != format.tag {
+            return Err(Error::Header);
+        }
         Ok(reader)
     }
 
@@ -143,11 +124,6 @@ impl<'a> Reader<'a> {
     pub fn with_separator(mut self, separator: char) -> Self {
         self.separator = separator;
         self
-    }
-
-    /// The tag on the header line.
-    pub const fn tag(&self) -> &'static str {
-        self.tag
     }
 
     /// The next line, if any.
@@ -280,7 +256,6 @@ mod tests {
             )
         );
         let mut reader = Reader::new(&text, &formats::BUILD_ATTEMPT).unwrap();
-        assert_eq!(reader.tag(), formats::BUILD_ATTEMPT.tag);
         assert_eq!(reader.field("action"), Ok("00ff"));
         assert_eq!(reader.field("timeout"), Ok("30"));
         assert_eq!(reader.finish(), Ok(()));
@@ -319,24 +294,6 @@ mod tests {
         );
         assert_eq!(
             Reader::new("", &formats::BUILD_ATTEMPT).unwrap_err(),
-            Error::Header
-        );
-        let old = format!("{}\nend\n", formats::LOCK_V1);
-        assert_eq!(
-            Reader::new(&old, &formats::LOCK).unwrap_err(),
-            Error::Header
-        );
-        let reader = Reader::versioned(&old, &formats::LOCK).unwrap();
-        assert_eq!(reader.tag(), formats::LOCK_V1);
-        let current = format!("{}\nend\n", formats::LOCK.tag);
-        assert_eq!(
-            Reader::versioned(&current, &formats::LOCK)
-                .unwrap()
-                .tag(),
-            formats::LOCK.tag
-        );
-        assert_eq!(
-            Reader::versioned(&text, &formats::LOCK).unwrap_err(),
             Error::Header
         );
     }

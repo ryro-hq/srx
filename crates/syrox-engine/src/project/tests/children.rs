@@ -123,7 +123,7 @@ fn external_child_modules_are_imported_from_its_own_root() {
     assert!(
         fs::read(consumer.join(lock::LOCK_FILE_NAME))
             .unwrap()
-            .starts_with(b"syrox-lock-v2\n")
+            .starts_with(b"syrox-lock\n")
     );
     assert!(!consumer.join("Syrox.graph.lock").exists());
     check_project_lock(&consumer).unwrap();

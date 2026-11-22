@@ -189,7 +189,7 @@ fn github_relock_pins_catalog_offline_assets_and_read_only_navigation() {
         LockStatus::Created
     );
     let lock = fs::read_to_string(consumer.join(LOCK_FILE_NAME)).unwrap();
-    assert!(lock.starts_with("syrox-lock-v4\n"));
+    assert!(lock.starts_with("syrox-lock\n"));
     assert!(lock.contains(FIRST));
     assert!(lock.contains(&archive_digest));
     check_project_lock_with(&consumer, &fixture.config).unwrap();

@@ -148,7 +148,8 @@ impl GraphLock {
             return Err(LockFormatError::NonCanonical);
         }
         let text = std::str::from_utf8(data).map_err(|_| LockFormatError::NonCanonical)?;
-        let mut lines = record::Reader::new(text, &formats::GRAPH_LOCK)?;
+        let mut lines = record::Reader::new(text, &formats::GRAPH_LOCK)
+            .map_err(|error| super::earlier_format(text, formats::GRAPH_LOCK.tag, error))?;
         lines.expect("hash sha256")?;
         let [parent] = lines.words("parent")?;
         let parent = digest(parent)?;
@@ -220,7 +221,7 @@ impl GraphLock {
 
 fn graph_digest(parent: &[u8; 32], edges: &[ProjectEdge]) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    framed(&mut hasher, formats::GRAPH_LOCK.tag.as_bytes());
+    framed(&mut hasher, formats::GRAPH_DIGEST.tag.as_bytes());
     framed(&mut hasher, parent);
     hasher.update((edges.len() as u64).to_be_bytes());
     for edge in edges {
@@ -287,6 +288,19 @@ mod tests {
                 vec![edges[0].clone(), edges[0].clone()]
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn pre_reset_graph_lock_is_refused_as_an_earlier_format() {
+        let edges = vec![ProjectEdge::new("a", "path:../a", hash(b"a")).unwrap()];
+        let lock = GraphLock::generate(hash(b"parent"), edges).unwrap();
+        let text = std::str::from_utf8(lock.data()).unwrap();
+        assert!(text.starts_with("syrox-graph-lock\n"));
+        let old = text.replacen("syrox-graph-lock\n", "syrox-graph-lock-v2\n", 1);
+        assert_eq!(
+            GraphLock::parse(old.as_bytes()),
+            Err(LockFormatError::EarlierFormat)
         );
     }
 

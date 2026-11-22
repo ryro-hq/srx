@@ -54,7 +54,7 @@ pub fn prepare(root: &Path, consumer: &str, remote: &str, revision: char) -> Str
     project.update(Sha256::digest(consumer.as_bytes()));
     project.update(0_u64.to_be_bytes());
     format!(
-        "syrox-lock-v4\nhash sha256\nproject {}\nmain {} {}\ninputs 0\nstd absent\nedges 1\ngithub-edge {} {} {} {commit} {digest}\nassets 0\nend\n",
+        "syrox-lock\nhash sha256\nproject {}\nmain {} {}\ninputs 0\nstd absent\nedges 1\ngithub-edge {} {} {} {commit} {digest}\nassets 0\nend\n",
         syrox_encoding::hex(&project.finalize()),
         consumer.len(),
         ContentDigest::sha256(consumer.as_bytes()),

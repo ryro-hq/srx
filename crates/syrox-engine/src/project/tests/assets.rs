@@ -22,7 +22,7 @@ fn child_assets_are_pinned_and_new_files_require_relock() {
     assert!(
         fs::read(child.join(lock::LOCK_FILE_NAME))
             .unwrap()
-            .starts_with(b"syrox-lock-v3\n")
+            .starts_with(b"syrox-lock\n")
     );
     lock_project(&consumer).unwrap();
     check_project_lock(&consumer).unwrap();

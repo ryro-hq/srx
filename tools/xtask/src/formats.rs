@@ -121,7 +121,6 @@ mod tests {
                 format.tag
             );
         }
-        assert!(rendered.contains("| `syrox-lock-v4` | persisted |"));
-        assert!(rendered.contains("`syrox-lock-v3`, `syrox-lock-v2`, `syrox-lock`"));
+        assert!(rendered.contains("| `syrox-lock` | persisted |"));
     }
 }

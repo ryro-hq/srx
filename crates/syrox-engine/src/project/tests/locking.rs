@@ -124,6 +124,42 @@ fn generated_lock_size_failure_has_a_distinct_operation_error() {
 }
 
 #[test]
+fn lock_regenerates_a_lock_written_by_an_earlier_format() {
+    let project = TempProject::new();
+    project.write(
+        "main.srx",
+        "value Number(int); outputs { answer: Number = 42; }",
+    );
+    assert_eq!(
+        lock_project(&project.0).unwrap().status(),
+        lock::LockStatus::Created
+    );
+    let current = fs::read_to_string(project.0.join(lock::LOCK_FILE_NAME)).unwrap();
+    let earlier = current.replacen("edges 0\nassets 0\n", "", 1);
+    project.write(lock::LOCK_FILE_NAME, &earlier);
+    let error = check_project_lock(&project.0).unwrap_err();
+    assert!(matches!(
+        error,
+        ProjectOperationError::MalformedLock {
+            source: lock::LockFormatError::EarlierFormat
+        }
+    ));
+    assert!(
+        error
+            .to_string()
+            .contains("run `srx project lock`")
+    );
+    assert_eq!(
+        lock_project(&project.0).unwrap().status(),
+        lock::LockStatus::Updated
+    );
+    assert_eq!(
+        fs::read_to_string(project.0.join(lock::LOCK_FILE_NAME)).unwrap(),
+        current
+    );
+}
+
+#[test]
 fn lock_refuses_missing_malformed_symlink_nonregular_and_hardlinked_destinations() {
     let project = TempProject::new();
     project.write(
@@ -210,7 +246,7 @@ fn graph_lock_failure_before_rename_preserves_the_whole_previous_manifest() {
     lock_project(&child).unwrap();
     lock_project(&consumer).unwrap();
     let previous = fs::read(consumer.join(lock::LOCK_FILE_NAME)).unwrap();
-    assert!(previous.starts_with(b"syrox-lock-v2\n"));
+    assert!(previous.starts_with(b"syrox-lock\n"));
     assert!(!consumer.join("Syrox.graph.lock").exists());
     fs::write(
         child.join("main.srx"),

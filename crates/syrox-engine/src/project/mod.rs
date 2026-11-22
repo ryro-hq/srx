@@ -953,11 +953,25 @@ fn lock_project_platform(
     )?;
     let checked = analyze::check_loaded(&loaded, configuration)?;
     let expected = expected_lock(&loaded, configuration)?;
-    let existing = read_lock(&loaded)?;
-    let old_graph = read_graph_lock(&loaded)?;
+    // A lock written by an earlier srx format is exactly what this command
+    // replaces, so it is overwritten instead of refused.
+    let (existing, stale_lock) = match read_lock(&loaded) {
+        Err(ProjectOperationError::MalformedLock {
+            source: lock::LockFormatError::EarlierFormat,
+        }) => (None, true),
+        other => (other?, false),
+    };
+    let (old_graph, stale_graph) = match read_graph_lock(&loaded) {
+        Err(ProjectOperationError::MalformedGraphLock {
+            source: lock::LockFormatError::EarlierFormat,
+        }) => (None, true),
+        other => (other?, false),
+    };
     let status = match (&existing, &old_graph) {
-        (None, _) => lock::LockStatus::Created,
-        (Some(existing), None) if existing.data() == expected.data() => lock::LockStatus::Unchanged,
+        (None, _) if !stale_lock => lock::LockStatus::Created,
+        (Some(existing), None) if !stale_graph && existing.data() == expected.data() => {
+            lock::LockStatus::Unchanged
+        }
         _ => lock::LockStatus::Updated,
     };
     if configuration.github.cancellation.is_cancelled() {
@@ -971,7 +985,7 @@ fn lock_project_platform(
         )
         .map_err(map_lock_publication)?;
     }
-    if old_graph.is_some() {
+    if old_graph.is_some() || stale_graph {
         let opened = crate::platform::linux::fd::open_existing_regular(
             loaded.root.fd(),
             Path::new(GRAPH_LOCK_FILE),
