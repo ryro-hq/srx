@@ -9,11 +9,13 @@
 //! each caller maps the failure to its own domain error.
 //!
 //! [`formats`] registers every tag that names a persisted, exchanged or hashed
-//! encoding, so each crate writes and accepts the same bytes.
+//! encoding, so each crate writes and accepts the same bytes. [`record`] frames
+//! the line records that start with one of those tags.
 
 use std::fmt::Write as _;
 
 pub mod formats;
+pub mod record;
 
 /// Encode bytes as lowercase hexadecimal, two characters per byte.
 pub fn hex(bytes: &[u8]) -> String {
