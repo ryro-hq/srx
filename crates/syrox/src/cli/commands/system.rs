@@ -152,7 +152,10 @@ fn hex_value<const LENGTH: usize>(value: &str) -> Result<String, String> {
 }
 
 // Caller-supplied paths must remain escaped in terminal diagnostics.
-#[allow(clippy::unnecessary_debug_formatting)]
+#[expect(
+    clippy::unnecessary_debug_formatting,
+    reason = "Debug formatting escapes caller-supplied paths in terminal diagnostics"
+)]
 fn inspect(
     json: bool,
     builder_directory: Option<&Path>,

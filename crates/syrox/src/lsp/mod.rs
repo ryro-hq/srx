@@ -140,7 +140,10 @@ fn serve(path: Option<PathBuf>, configuration: CheckConfiguration) -> io::Result
 }
 
 #[derive(Debug)]
-#[allow(clippy::struct_excessive_bools)] // Independent negotiated protocol capabilities.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is an independent client capability negotiated by LSP initialize"
+)]
 struct Server {
     workspace_mode: worker::WorkspaceMode,
     root: PathBuf,

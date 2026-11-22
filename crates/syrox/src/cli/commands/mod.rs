@@ -9,7 +9,10 @@ mod catalog_qualification;
 mod catalog_query;
 pub(crate) mod format;
 pub(crate) mod host;
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "self-installation switches the release selection atomically with renameat2 FFI"
+)]
 pub(crate) mod install_self;
 pub(crate) mod project;
 pub(crate) mod run;

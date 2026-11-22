@@ -137,7 +137,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(unsafe_code)] // Linux fixture creation only; path is NUL-terminated and live.
+    #[expect(
+        unsafe_code,
+        reason = "mkfifo FFI creates a Linux FIFO fixture from a live NUL-terminated path"
+    )]
     fn fifo_without_writer_is_rejected_without_blocking() {
         use std::os::unix::ffi::OsStrExt as _;
         let temp = tempfile::tempdir().unwrap();

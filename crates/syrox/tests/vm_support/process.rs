@@ -132,7 +132,11 @@ struct ProcessGroup {
     reaped: bool,
 }
 impl ProcessGroup {
-    #[allow(unsafe_code, clippy::cast_precision_loss)] // wait4 requires FFI; resource counters are approximate telemetry.
+    #[expect(
+        unsafe_code,
+        clippy::cast_precision_loss,
+        reason = "wait4 FFI reaps the owned child; rusage counters are approximate telemetry when converted to f64"
+    )]
     fn reap(&mut self) -> Result<std::process::ExitStatus> {
         let mut status = 0;
         // SAFETY: this owned child remains waitable and unreaped; wait4 initializes
@@ -181,7 +185,10 @@ impl Drop for ProcessGroup {
     }
 }
 
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "sigaction FFI queries the SIGCHLD disposition without changing it"
+)]
 fn require_waitable_children() -> std::io::Result<()> {
     // SAFETY: querying the current signal action does not alter its disposition.
     let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
@@ -197,7 +204,10 @@ fn require_waitable_children() -> std::io::Result<()> {
     Ok(())
 }
 
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "waitid FFI with WNOWAIT observes child exit without reaping it"
+)]
 fn exited_without_reaping(pid: u32) -> std::io::Result<bool> {
     // SAFETY: waitid initializes this siginfo and WNOWAIT preserves the child
     // identity until the group cleanup and the single final wait.
@@ -218,7 +228,7 @@ fn exited_without_reaping(pid: u32) -> std::io::Result<bool> {
     Ok(unsafe { info.si_pid() } != 0)
 }
 
-#[allow(unsafe_code)]
+#[expect(unsafe_code, reason = "kill FFI signals the child's own process group")]
 fn terminate_group(pid: u32) {
     if let Ok(pid) = i32::try_from(pid) {
         // SAFETY: the child was placed in its own group, whose positive ID is

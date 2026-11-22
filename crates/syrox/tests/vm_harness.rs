@@ -766,7 +766,10 @@ fn reports_reject_unknown_status_and_missing_required_gate_fields() {
 }
 
 #[test]
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "isolated child test sets SIGCHLD to SIG_IGN with signal(2) to prove spawn refusal"
+)]
 fn ignored_sigchld_is_refused_before_spawn() {
     if std::env::var_os("SYROX_TEST_IGNORED_SIGCHLD").is_none() {
         let output = Command::new(std::env::current_exe().unwrap())

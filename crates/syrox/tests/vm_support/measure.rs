@@ -135,7 +135,7 @@ fn sample(processes: &mut BTreeMap<(u32, u64), Value>, elapsed: f64) {
     }
 }
 
-#[allow(unsafe_code)]
+#[expect(unsafe_code, reason = "sysconf FFI reads the clock-tick constant")]
 fn clock_ticks() -> libc::c_long {
     // SAFETY: sysconf reads a scalar system constant.
     unsafe { libc::sysconf(libc::_SC_CLK_TCK) }

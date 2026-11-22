@@ -68,7 +68,10 @@ fn bundle_input_shape_is_rejected_before_creating_store() {
 }
 
 #[test]
-#[allow(unsafe_code)] // Create a named pipe fixture; no writer is ever opened.
+#[expect(
+    unsafe_code,
+    reason = "mkfifo FFI creates a named-pipe fixture; no writer is ever opened"
+)]
 fn fifo_bundle_without_a_writer_is_rejected_promptly() {
     use std::os::unix::ffi::OsStrExt as _;
     use std::process::Stdio;

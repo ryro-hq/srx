@@ -8,7 +8,10 @@
 //! changed; no host shell/compiler/PATH lookup is used. Packet/namespace/manager
 //! denial is failure/PENDING, never a skipped pass. These cover owner+foreground
 //! only, not configured services, job control, pipelines, logout or full Shell.
-#![allow(unsafe_code)] // Isolated test PTYs, process descriptors, and pre-exec setup.
+#![expect(
+    unsafe_code,
+    reason = "test PTYs, process descriptors and pre-exec setup require raw libc calls"
+)]
 
 use std::fs::{self, File};
 use std::os::fd::{AsRawFd as _, FromRawFd as _};
@@ -16,7 +19,10 @@ use std::os::unix::process::ExitStatusExt as _;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-#[allow(dead_code)] // Shared fixture encoder; its ELF fixture generator is unused here.
+#[expect(
+    dead_code,
+    reason = "shared fixture module; its ELF fixture generator is unused by the shell tests"
+)]
 #[path = "../bundle/fixtures.rs"]
 mod bundle_fixture;
 #[path = "interactive/driver.rs"]

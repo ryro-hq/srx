@@ -133,7 +133,10 @@ fn execute() -> Result<(), String> {
 }
 
 #[cfg(target_os = "linux")]
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "calls the unsafe runtime helper entry, which requires a dedicated single-threaded process"
+)]
 fn runtime(args: &[std::ffi::OsString]) -> std::io::Result<i32> {
     // SAFETY: this dedicated executable has not started threads or retained
     // borrowed global locks. Channels inherited from the coordinator have no
@@ -141,21 +144,30 @@ fn runtime(args: &[std::ffi::OsString]) -> std::io::Result<i32> {
     unsafe { syrox_engine::worker::runtime_helper(args) }
 }
 
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "calls the unsafe managed runtime helper entry, which requires a dedicated single-threaded process"
+)]
 fn managed_runtime(args: &[std::ffi::OsString]) -> std::io::Result<i32> {
     // SAFETY: dedicated executable, no threads or borrowed global locks; the
     // helper validates and takes ownership of the inherited channel descriptors.
     unsafe { syrox_engine::worker::managed_runtime_helper(args) }
 }
 
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "calls the unsafe managed command guardian entry, which requires a dedicated single-threaded process"
+)]
 fn managed_commands(args: &[std::ffi::OsString]) -> std::io::Result<i32> {
     // SAFETY: dedicated single-threaded executable; the native guardian owns
     // its signal handling, inherited descriptors and descendant cleanup.
     unsafe { syrox_engine::worker::managed_command_runtime_helper(args) }
 }
 
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "calls the unsafe shell command frontend, which forks and changes process signal and job-control state"
+)]
 fn shell_command(args: &[std::ffi::OsString]) -> std::io::Result<i32> {
     let signals = signals::OperationSignals::install()?;
     // SAFETY: dedicated executable before threads; helper completes guardian,
@@ -177,7 +189,10 @@ fn shell_command(args: &[std::ffi::OsString]) -> std::io::Result<i32> {
     }
 }
 
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "calls the unsafe managed build entry, which changes namespaces and credentials of this process"
+)]
 fn managed_build(args: &[std::ffi::OsString]) -> Result<i32, syrox_engine::build::BuildError> {
     let signals =
         signals::OperationSignals::install().map_err(syrox_engine::build::BuildError::Io)?;
@@ -192,7 +207,10 @@ fn managed_build(args: &[std::ffi::OsString]) -> Result<i32, syrox_engine::build
     }
 }
 
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "calls the unsafe managed build IR worker, which installs process-wide confinement policy"
+)]
 fn managed_build_ir(directory: &str, action: &str) -> Result<(), syrox_engine::build::BuildError> {
     // SAFETY: dedicated subprocess, no threads or borrowed global locks. The
     // helper validates its private namespace before installing process policy.
@@ -200,7 +218,10 @@ fn managed_build_ir(directory: &str, action: &str) -> Result<(), syrox_engine::b
 }
 
 #[cfg(target_arch = "x86_64")]
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "calls the unsafe system build payload entry, which installs process-wide confinement policy"
+)]
 fn system_build_ir(args: &[std::ffi::OsString]) -> Result<(), syrox_engine::build::BuildError> {
     // SAFETY: dedicated executable before threads; it exits on return/error.
     // The entry validates its namespace and pinned payload record before policy.
@@ -212,7 +233,10 @@ fn system_build_ir(args: &[std::ffi::OsString]) -> Result<(), syrox_engine::buil
     }
 }
 
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "calls the unsafe session service entry, which requires a dedicated single-threaded process"
+)]
 fn service(args: &[std::ffi::OsString]) -> Result<i32, syrox_engine::worker::ServiceWorkerError> {
     // SAFETY: dedicated executable has started no threads and exits after return.
     unsafe {
@@ -223,7 +247,10 @@ fn service(args: &[std::ffi::OsString]) -> Result<i32, syrox_engine::worker::Ser
     }
 }
 
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "calls the unsafe services worker entry, which requires a dedicated single-threaded process"
+)]
 fn services_worker(
     args: &[std::ffi::OsString],
 ) -> Result<i32, syrox_engine::worker::ServicesWorkerError> {
