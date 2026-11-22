@@ -11,7 +11,10 @@
         reason = "tests assert with unwrap and drive raw syscalls; non-test builds keep both lints"
     )
 )]
-#![allow(unsafe_code)]
+#![expect(
+    unsafe_code,
+    reason = "the root helper adopts its inherited socket fd and checks credentials and fd flags with libc"
+)]
 
 use std::fs::File;
 use std::io;

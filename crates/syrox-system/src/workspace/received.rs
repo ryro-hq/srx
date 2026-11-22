@@ -79,7 +79,10 @@ impl ReceivedWorkspace {
     /// error discard the entire namespace, including a possible first mount;
     /// no retry/fallback is permitted. All roots/files and the namespace must
     /// end before the coordinator requests helper loop/filesystem release.
-    #[allow(unsafe_code)]
+    #[expect(
+        unsafe_code,
+        reason = "unsafe fn: mounting the received roots changes namespace state of the dedicated worker"
+    )]
     pub unsafe fn attach(
         self,
         scratch_target: File,

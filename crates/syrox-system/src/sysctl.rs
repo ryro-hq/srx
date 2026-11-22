@@ -90,7 +90,10 @@ fn read(name: &str, check: &mut impl FnMut() -> io::Result<()>) -> io::Result<St
     read_text(file, check)
 }
 
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "fstatfs FFI proves the opened sysctl file lives on procfs"
+)]
 fn require_procfs(file: &File) -> io::Result<()> {
     let mut stat = std::mem::MaybeUninit::<libc::statfs>::uninit();
     // SAFETY: fixed read-only query; live file and initialized output on success.

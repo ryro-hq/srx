@@ -13,7 +13,10 @@ use std::{
 };
 use syrox_encoding::formats;
 
-#[allow(unsafe_code)]
+#[expect(
+    unsafe_code,
+    reason = "filesystem observation uses fstatfs, fstatvfs, ioctl and quotactl_fd FFI"
+)]
 mod kernel;
 
 #[derive(Clone, Debug, Serialize)]

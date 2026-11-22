@@ -21,7 +21,7 @@ use syrox_system::{
     scratch::DetachedScratch,
 };
 
-#[allow(
+#[expect(
     clippy::needless_pass_by_value,
     reason = "The session owns its activation connection and selected administrator policy until settlement"
 )]

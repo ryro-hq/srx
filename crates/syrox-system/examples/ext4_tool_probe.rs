@@ -6,7 +6,10 @@
     clippy::unwrap_used,
     reason = "qualification probe: a failed step aborts the run"
 )]
-#![allow(unsafe_code)]
+#![expect(
+    unsafe_code,
+    reason = "VM probe observes process identity, rlimits and raw syscalls inside the pinned ext4 tool sandbox"
+)]
 
 use std::fs::{File, OpenOptions};
 use std::io;

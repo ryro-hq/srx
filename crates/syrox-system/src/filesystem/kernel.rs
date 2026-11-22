@@ -104,7 +104,10 @@ pub(super) struct Capacity {
 
 // Native libc counter widths differ between Linux ABIs; widening casts remain
 // intentional on both GNU/musl and 32/64-bit targets.
-#[allow(clippy::unnecessary_cast)]
+#[expect(
+    clippy::unnecessary_cast,
+    reason = "statfs/statvfs field widths differ across libc ABIs; the casts are needed on targets where they are not identity"
+)]
 pub(super) fn capacity(directory: BorrowedFd<'_>) -> io::Result<Capacity> {
     let mut kind = MaybeUninit::<libc::statfs>::uninit();
     let mut capacity = MaybeUninit::<libc::statvfs>::uninit();

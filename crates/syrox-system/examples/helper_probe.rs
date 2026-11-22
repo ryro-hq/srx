@@ -7,7 +7,10 @@
     clippy::unwrap_used,
     reason = "qualification probe: a failed step aborts the run"
 )]
-#![allow(unsafe_code)]
+#![expect(
+    unsafe_code,
+    reason = "VM probe drives unshare, credential, socket, mount and memfd FFI to qualify the helper"
+)]
 
 use sha2::{Digest as _, Sha256};
 use std::fs::{File, OpenOptions};
