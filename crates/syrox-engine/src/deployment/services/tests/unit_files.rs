@@ -387,7 +387,7 @@ fn wrong_namespace_symlinks_hardlinks_and_replaced_authority_are_refused() {
 }
 
 #[test]
-fn canceled_missing_and_world_writable_directories_have_no_publication() {
+fn cancelled_missing_and_world_writable_directories_have_no_publication() {
     let temp = tempfile::tempdir().unwrap();
     let missing = temp.path().join("missing");
     let cancel = Cancellation::default();

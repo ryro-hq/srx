@@ -1,4 +1,4 @@
-//! Run the catalogue's Rust tests against captured core sources and candidates.
+//! Run the catalog's Rust tests against captured core sources and candidates.
 use super::{
     Result, common,
     process::{self, Control},
@@ -21,7 +21,7 @@ fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
         } else if entry.file_type()?.is_file() {
             fs::copy(entry.path(), destination.join(entry.file_name()))?;
         } else {
-            return Err("catalogue fixture must contain regular files and directories".into());
+            return Err("catalog fixture must contain regular files and directories".into());
         }
     }
     Ok(())
@@ -29,7 +29,7 @@ fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
 
 pub fn run(
     core: &Path,
-    catalogue: &Path,
+    catalog: &Path,
     candidates: &Path,
     evidence: &Path,
     control: &Control,
@@ -47,9 +47,9 @@ pub fn run(
         "managed_chain",
         "seed",
     ] {
-        let path = catalogue.join("tests").join(format!("{name}.rs"));
+        let path = catalog.join("tests").join(format!("{name}.rs"));
         if !path.is_file() {
-            return Err(format!("catalogue test missing: {}", path.display()).into());
+            return Err(format!("catalog test missing: {}", path.display()).into());
         }
         write!(
             manifest,
@@ -64,12 +64,9 @@ pub fn run(
     )?;
     let fixture = harness.join("catalog");
     common::private(&fixture)?;
-    fs::copy(
-        catalogue.join("main.srx"),
-        fixture.join("main.srx"),
-    )?;
+    fs::copy(catalog.join("main.srx"), fixture.join("main.srx"))?;
     for name in ["recipes", "assets", "integrations"] {
-        copy_tree(&catalogue.join(name), &fixture.join(name))?;
+        copy_tree(&catalog.join(name), &fixture.join(name))?;
     }
     let binary = candidates.join("srx");
     process::command(
@@ -133,7 +130,7 @@ pub fn run(
         control,
     )?;
     if super::snapshot::digest(&harness.join("Cargo.lock"))? != effective_lock {
-        return Err("catalogue effective Cargo lock changed during checks".into());
+        return Err("catalog effective Cargo lock changed during checks".into());
     }
     Ok(())
 }

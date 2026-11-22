@@ -112,15 +112,15 @@ pub fn guest(evidence: &Path, control: &Control) -> Result<Value> {
             return Err(format!("LSP contract differs: {repository}").into());
         }
     }
-    let catalogue = root.join("syrox-pkgs");
-    super::catalogue::run(
+    let catalog = root.join("syrox-pkgs");
+    super::catalog::run(
         Path::new("/work/src"),
-        &catalogue,
+        &catalog,
         Path::new(common::GUEST_CANDIDATES),
         evidence,
         control,
     )?;
-    results.push(json!({"repository":"syrox-pkgs","status":"passed","scope":"local catalogue tests; ignored artifact/host proofs remain pending"}));
+    results.push(json!({"repository":"syrox-pkgs","status":"passed","scope":"local catalog tests; ignored artifact/host proofs remain pending"}));
     for repository in ["syrox-vscode", "syrox-opencode"] {
         super::process::command(
             Command::new("npm")

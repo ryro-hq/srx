@@ -337,14 +337,14 @@ fn cancelled_expired_and_idle_channels_keep_execution_closed() {
         .prepare_input_resources(40, &Cancellation::default())
         .unwrap();
     let (left, right) = pair();
-    let canceled = Cancellation::default();
-    canceled.cancel();
+    let cancelled = Cancellation::default();
+    cancelled.cancel();
     assert!(matches!(
         SystemBuildInputTransfer::new(left, peer(), NONCE)
             .unwrap()
             .send(
                 &resources,
-                &canceled,
+                &cancelled,
                 Instant::now() + Duration::from_secs(1)
             ),
         Err(BuildError::Cancelled)

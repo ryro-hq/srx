@@ -3,9 +3,9 @@ pub mod cache;
 pub mod candidate_bundle;
 #[cfg(feature = "vm-tests")]
 pub mod candidates;
+pub mod catalog;
 #[cfg(feature = "vm-tests")]
 pub mod catalog_qualification;
-pub mod catalogue;
 pub mod common;
 #[cfg(feature = "vm-tests")]
 pub mod config;
