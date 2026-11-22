@@ -1,1018 +1,1047 @@
-# SRX: construção de sistemas Linux, kernel, boot e armazenamento
+# SRX: building Linux systems, kernel, boot and storage
 
-**Estado:** documento de arquitetura e roteiro de implementação. Além dos incrementos
-registrados abaixo, os contratos, tipos e comandos propostos aguardam implementação.
-**Referência do estudo:** 21 de outubro de 2026.
-**Repositório:** `syrox`; executável: `srx`.
+**Status:** architecture document and implementation roadmap. Apart from the
+increments recorded below, the proposed contracts, types and commands await
+implementation.
+**Study reference date:** October 21, 2026.
+**Repository:** `syrox`; executable: `srx`.
 
-**Primeiro incremento implementado:** o tipo público `Os` foi renomeado para
-`Services`, o planejamento usa `PlanConsumerKind::Services` e os comandos de
-serviços usam `srx services`. Perfis, journals e protocolos persistidos mantêm
-seus formatos e identidades. A [migração](../migrations/services.md) descreve a
-atualização de projetos e locks. As demais etapas permanecem propostas; as
-referências ao `Os` atual abaixo descrevem a base do estudo anterior à migração.
+**First increment implemented:** the public `Os` type was renamed to
+`Services`, planning uses `PlanConsumerKind::Services` and the services
+commands use `srx services`. Profiles, journals and persisted protocols keep
+their formats and identities. The [migration](../migrations/services.md)
+describes how to update projects and locks. The remaining stages are still
+proposals; references below to the current `Os` describe the baseline of the
+study, prior to the migration.
 
-**Fundações de artefatos implementadas:** o módulo
-[`store::chunked`](../../crates/syrox-engine/src/store/chunked.rs) admite e
-reabre fluxos por chunks de 4 MiB com manifest v1, identidade do conteúdo completo
-e verificação limitada em memória. Handles e roots retêm o conjunto completo de
-objetos usando os contratos atuais de retenção, recuperação e GC. O
-[contrato do formato](../artifacts.md#large-streams-in-the-engine-store) descreve
-limites e garantias. A admissão explícita de outputs de sistema usa budgets e resultados v3 com
-bundles v2 e materialização por streaming. A integração de workers, receipts,
-perfil de execução e CLI ainda está pendente; os limites comuns permanecem.
+**Artifact foundations implemented:** the
+[`store::chunked`](../../crates/syrox-engine/src/store/chunked.rs) module
+admits and reopens streams in 4 MiB chunks with a v1 manifest, an identity of
+the complete content and bounded in-memory verification. Handles and roots
+retain the complete set of objects using the current retention, recovery and
+GC contracts. The
+[format contract](../artifacts.md#large-streams-in-the-engine-store) describes
+limits and guarantees. Explicit admission of system outputs uses budgets and
+v3 results with v2 bundles and streaming materialization. Integration of
+workers, receipts, the execution profile and the CLI is still pending; the
+ordinary limits remain.
 
-As interfaces incluem escrita por streaming com finalização verificada e um
-reader com seek e cache de um chunk. A geração de initramfs já usa a escrita
-direta na Store; índices de outputs grandes poderão usar o reader sem carregar
-o artefato inteiro em memória.
+The interfaces include streaming writes with verified finalization and a
+reader with seek and a single-chunk cache. Initramfs generation already uses
+direct writes to the Store; indexes of large outputs will be able to use the
+reader without loading the whole artifact into memory.
 
-A preparação das fontes gerenciadas agora mantém um descritor autenticado e
-retenção granular, revalida identidade/metadados e copia por streaming com hash,
-limite e EOF antes da publicação atômica. A inspeção do worker também verifica a
-fonte sem coletar seu conteúdo inteiro. Cem testes do fluxo gerenciado passaram,
-além de um build real com binutils já produzido por fontes e execução do novo
-resultado. Os envelopes, formatos e limites comuns continuam preservados; o
-perfil completo de sistema permanece pendente.
+Preparation of managed sources now keeps an authenticated descriptor and
+granular retention, revalidates identity/metadata and copies by streaming with
+a hash, a limit and EOF before the atomic publication. Worker inspection also
+verifies the source without collecting its entire content. A hundred tests of
+the managed flow passed, in addition to a real build with binutils already
+produced from sources and execution of the new result. The ordinary envelopes,
+formats and limits remain preserved; the complete system profile is still
+pending.
 
-**Inventário implementado:** `srx system inspect [--json]` observa o kernel,
-firmware, presença do device KVM, dispositivos de bloco, identidades, geometria,
-partições, holders/slaves e mounts do namespace atual. A biblioteca
-[`syrox-system`](../../crates/syrox-system/src/lib.rs) é compartilhável com o
-helper sem depender da linguagem ou do builder. A inspeção não abre dispositivos
-de bloco, não executa utilitários e não cria configuração ou Store.
+**Inventory implemented:** `srx system inspect [--json]` observes the kernel,
+firmware, presence of the KVM device, block devices, identities, geometry,
+partitions, holders/slaves and mounts of the current namespace. The
+[`syrox-system`](../../crates/syrox-system/src/lib.rs) library can be shared
+with the helper without depending on the language or the builder. Inspection
+does not open block devices, does not run utilities and does not create
+configuration or a Store.
 
-**Primitivas de loop verificadas em VM:** a biblioteca configura apenas imagens
-regulares privadas com identidade e tamanho revalidados, geometria fixa e
-AUTOCLEAR. Um executável Rust passou em Fedora CoreOS fixado, iniciado por
-QEMU/OVMF e disco com TCG: escrita limitada, alterações de metadados, liberação
-adiada e nova tentativa após desligamento foram observadas. Não houve rede,
-disco físico ou alteração do boot do host. O [ambiente e as evidências](../test-tools.md#disposable-loop-device-guest)
-estão registrados. A primitiva de montagem ext4 destacada também passou na VM:
-limites de armazenamento e inodes, liberação adiada por um descritor da raiz e
-verificação final com e2fsck foram observados. A integração do worker sem privilégios e
-o enforcement das demais dimensões do orçamento continuam pendentes. O estado
-não confunde ENXIO durante rundown com remoção concluída.
+**Loop primitives verified in a VM:** the library configures only private
+regular images with revalidated identity and size, fixed geometry and
+AUTOCLEAR. A Rust executable passed on a pinned Fedora CoreOS, booted by
+QEMU/OVMF from disk with TCG: bounded writes, metadata changes, deferred
+release and a new attempt after shutdown were observed. There was no network,
+physical disk or change to the host boot. The [environment and evidence](../test-tools.md#disposable-loop-device-guest)
+are recorded. The detached ext4 mount primitive also passed in the VM:
+storage and inode limits, release deferred by a descriptor of the root and a
+final e2fsck verification were observed. Integration of the unprivileged worker
+and enforcement of the remaining budget dimensions are still pending. The state
+does not confuse ENXIO during rundown with completed removal.
 
-**Execução isolada de ferramentas verificada:** mke2fs/e2fsck estáticos e
-autenticados executaram em namespaces privados, por memfds selados, com raiz
-somente leitura, capabilities zeradas e filtro de syscalls. Um probe verificou
-descritores herdados, caminhos, limites e recusas de operações; os checks ext4
-antes/depois, esgotamento e liberação passaram na VM. O
-[registro da qualificação](../test-tools.md#isolated-ext4-tools) distingue as
-tentativas anteriores e o escopo observado. O executável separado
-[`syrox-system-helper`](../system-helper.md) já implementa política do
-administrador, autenticação do peer e ciclo de scratch privado com journal.
-Sua integração com cliente UID/GID 1000 passou na VM: handoff e escrita sem root,
-liberação verificada, recusa sem efeitos de pedidos inválidos, preservação em
-replay e bloqueio de nova formatação após desconexão incerta. Recuperação após
-reset, integração do worker e provisionamento permanecem pendentes. O protocolo
-do helper agora oferece inspeção e reconciliação explícitas do scratch no mesmo
-boot, vinculadas ao hash das evidências. Ele preserva a imagem, bloqueia sessão
-ainda viva, ferramenta sem resultado ou loop ativo e distingue reconciliação de
-saúde verificada. Oito testes locais e 19 cenários em VM passaram, incluindo
-journal alterado, reconciliação com imagem preservada e descritor retido pelo
-cliente. Isso ainda não constitui evidência de recuperação após reset.
+**Isolated tool execution verified:** static, authenticated mke2fs/e2fsck ran
+in private namespaces, from sealed memfds, with a read-only root, zeroed
+capabilities and a syscall filter. A probe verified inherited descriptors,
+paths, limits and refusals of operations; the ext4 checks before/after,
+exhaustion and release passed in the VM. The
+[qualification record](../test-tools.md#isolated-ext4-tools) distinguishes the
+earlier attempts and the observed scope. The separate
+[`syrox-system-helper`](../system-helper.md) executable already implements
+administrator policy, peer authentication and a private scratch lifecycle with
+a journal. Its integration with a UID/GID 1000 client passed in the VM: handoff
+and writes without root, verified release, effect-free refusal of invalid
+requests, preservation on replay and blocking of a new format after an
+uncertain disconnect. Recovery after reset, worker integration and provisioning
+are still pending. The helper protocol now offers explicit inspection and
+reconciliation of the scratch within the same boot, bound to the hash of the
+evidence. It preserves the image, blocks a still-live session, a tool without a
+result or an active loop, and distinguishes reconciliation from verified
+health. Eight local tests and 19 VM scenarios passed, including an altered
+journal, reconciliation with a preserved image and a descriptor retained by the
+client. This does not yet constitute evidence of recovery after reset.
 
-A recepção/anexação do scratch também está implementada na biblioteca. Um
-processo UID/GID 1000 moveu o mount por descritores para seu namespace privado,
-removeu suas capabilities e escreveu no ext4; o helper verificou a liberação e
-o filesystem ao final. A repetição usando `ReceivedScratch` passou nos 20
-cenários da VM, com binários e hashes separados dos probes anteriores. Ainda
-faltam a ligação ao worker de build e o enforcement do orçamento completo.
+Receiving/attaching the scratch is also implemented in the library. A
+UID/GID 1000 process moved the mount through descriptors into its private
+namespace, dropped its capabilities and wrote to the ext4; the helper verified
+the release and the filesystem at the end. The repetition using
+`ReceivedScratch` passed the 20 VM scenarios, with binaries and hashes separate
+from the earlier probes. Binding to the build worker and enforcement of the
+complete budget are still missing.
 
-O gerador puro de ativação do helper pelo systemd também foi implementado. Uma
-nova VM passou nos 24 cenários, incluindo socket seqpacket com fd 3, cliente sem
-root, valores reais dos limites do cgroup, recusa de acesso ao disco virtual da
-VM e recusa de escrita fora do estado autorizado. O teste usou units instaladas
-somente no guest. Esses limites são do helper; o perfil e a configuração do
-builder de sistema ainda precisam ser conectados.
+The pure generator of helper activation by systemd was also implemented. A new
+VM passed the 24 scenarios, including a seqpacket socket on fd 3, a non-root
+client, real cgroup limit values, refusal of access to the VM's virtual disk
+and refusal of writes outside the authorized state. The test used units
+installed only in the guest. These limits belong to the helper; the profile and
+configuration of the System builder still need to be connected.
 
-O cliente tipado do helper e `srx system recover` também passaram numa VM nova,
-com 29 cenários. O coordenador autentica o peer root e os recibos selados, mantém
-o controle fora do namespace do worker e transfere apenas a raiz do scratch.
-A CLI inspeciona uma operação explícita sem efeitos e reconcilia somente o hash
-autorizado; hash incorreto foi recusado e os bytes da imagem foram preservados.
-Essa recuperação é de scratch privado no mesmo boot. Integração do worker de
-build, recuperação após reset e de gerações completas continuam pendentes.
+The typed helper client and `srx system recover` also passed in a new VM, with
+29 scenarios. The coordinator authenticates the root peer and the sealed
+receipts, keeps control outside the worker namespace and transfers only the
+scratch root. The CLI inspects an explicit operation without effects and
+reconciles only the authorized hash; an incorrect hash was refused and the
+image bytes were preserved. This recovery covers private scratch within the
+same boot. Build worker integration, recovery after reset and recovery of
+complete generations are still pending.
 
-**Observação de filesystem e quotas implementada:** a biblioteca compartilhada
-consulta capacidade, inodes, projeto herdado, accounting, enforcement e limites
-por descritor. A consulta fixa `FS_IOC_GETFSUUID` acrescenta o UUID externo como
-observação suplementar, sem mudar o fingerprint existente ou conferir ownership.
-`srx system inspect --builder-directory PATH [--json]` expõe essas
-observações sem criar diretórios ou alterar quotas. Ausência de suporte ou
-privilégio é explícita. O [contrato dos builders](../system-builders.md) separa
-essa evidência da preparação e execução ainda pendentes.
+**Filesystem and quota observation implemented:** the shared library queries
+capacity, inodes, inherited project, accounting, enforcement and limits by
+descriptor. The fixed `FS_IOC_GETFSUUID` query adds the external UUID as a
+supplementary observation, without changing the existing fingerprint or
+checking ownership. `srx system inspect --builder-directory PATH [--json]`
+exposes these observations without creating directories or changing quotas.
+Missing support or privilege is explicit. The
+[builder contract](../system-builders.md) separates this evidence from the
+preparation and execution that are still pending.
 
-**Primitivas compartilhadas e importação offline implementadas:** o engine
-reutiliza a biblioteca de descritores para caminhos restritos, locks e transporte
-de FDs e snapshots selados de credenciais, preservando o protocolo, limite de
-64 KiB e verificações de identidade existentes.
-`srx project import-source` admite um arquivo explicitamente selecionado contra
-o SHA e limite da fonte no projeto autenticado, sem alterar URL ou lock. O
-[contrato de importação](../source-import.md) descreve validação e retenção.
-O catálogo recebeu uma receita experimental de e2fsprogs estático com semente
-host explícita. Um build nativo pelo SRX, a criação/verificação de uma imagem
-ext4 regular de 64 MiB no sandbox e a execução das três ferramentas pelo runtime
-foram realizados. O resultado retém fonte, inventário da semente, action,
-artefato e receipt. As ferramentas também foram executadas na qualificação
-da primitiva ext4 montada em VM. Isso não qualifica uma toolchain própria,
-executor de sistemas ou provisionamento; essas integrações continuam pendentes.
+**Shared primitives and offline import implemented:** the engine reuses the
+descriptor library for restricted paths, locks and FD transport and for sealed
+credential snapshots, preserving the existing protocol, 64 KiB limit and
+identity checks.
+`srx project import-source` admits an explicitly selected file against the
+source's SHA and limit in the authenticated project, without changing the URL
+or the lock. The [import contract](../source-import.md) describes validation
+and retention. The catalog received an experimental static e2fsprogs recipe
+with an explicit host seed. A native build by SRX, creation/verification of a
+regular 64 MiB ext4 image in the sandbox and execution of the three tools by
+the runtime were carried out. The result retains the source, the seed
+inventory, the action, the artifact and the receipt. The tools were also run in
+the qualification of the mounted ext4 primitive in a VM. This does not qualify
+an own toolchain, a system executor or provisioning; those integrations are
+still pending.
 
-**Contratos de orçamento e armazenamento implementados:** a mesma biblioteca
-valida solicitações de recursos contra limites explícitos do administrador e
-observações de capacidade, e planeja grafos GPT/ESP, RAID1/10, LUKS2, LVM,
-filesystems e mounts. O grafo resolve discos por WWID/serial, rejeita alvos
-ambíguos, uso observado, ciclos, sobreposição, composições incompatíveis e
-overcommit. A CLI `srx system plan PROJECT#OUTPUT` conecta as declarações
-autenticadas ao inventário, compara os sysctls solicitados e tenta resolver os
-discos. Distingue binding não resolvido, provisionamento destrutivo, reboot de
-geração e restauração de parâmetro ainda não verificada. O relatório identifica
-os namespaces atuais e mantém `can_apply: false`; seu hash registra evidência,
-sem autorizar escrita. O novo perfil de execução de sistema e a aplicação
-privilegiada ainda precisam ser implementados. Esses contratos e observações
-não constituem qualificação das pilhas de armazenamento.
+**Budget and storage contracts implemented:** the same library validates
+resource requests against explicit administrator limits and capacity
+observations, and plans GPT/ESP, RAID1/10, LUKS2, LVM, filesystem and mount
+graphs. The graph resolves disks by WWID/serial and rejects ambiguous targets,
+observed use, cycles, overlap, incompatible compositions and overcommit. The
+`srx system plan PROJECT#OUTPUT` CLI connects the authenticated declarations to
+the inventory, compares the requested sysctls and attempts to resolve the
+disks. It distinguishes an unresolved binding, destructive provisioning, a
+generation reboot and a parameter restore not yet verified. The report
+identifies the current namespaces and keeps `can_apply: false`; its hash
+records evidence without authorizing writes. The new system execution profile
+and the privileged application still need to be implemented. These contracts
+and observations do not constitute qualification of the storage stacks.
 
-**Composição e initramfs implementados na biblioteca:** árvores com produtores,
-ownership, permissões e links explícitos são validadas e versionadas. O escritor
-`newc` verifica arquivos por streaming; o engine consome outputs autenticados,
-admite o arquivo em chunks e retém árvore, proveniência e fontes. O
-[contrato de imagens](../system-images.md) registra limites e verificações.
-Ainda não há kernel/PID 1 próprios, UKI ou boot de sistema qualificado.
+**Composition and initramfs implemented in the library:** trees with explicit
+producers, ownership, permissions and links are validated and versioned. The
+`newc` writer verifies files by streaming; the engine consumes authenticated
+outputs, admits the archive in chunks and retains the tree, provenance and
+sources. The [images contract](../system-images.md) records limits and checks.
+There is not yet an own kernel/PID 1, a UKI or a qualified system boot.
 
-**Árvore dm-verity implementada na biblioteca:** o escritor Rust emite formato
-1 com SHA-256, blocos de 4 KiB, salt explícito e níveis em ordem de raiz.
-O engine gera níveis por streaming na Store e retém dados, árvore e parâmetros.
-Uma comparação com `veritysetup` fixado verificou bytes e raiz em sete tamanhos,
-incluindo transições de níveis e o caso de um bloco sem árvore. Essa evidência
-é de formato em userspace; ativação no kernel, assinatura da UKI e boot continuam
-pendentes. O [contrato de imagens](../system-images.md#dm-verity-hash-devices)
-define limites e retenção.
+**dm-verity tree implemented in the library:** the Rust writer emits format 1
+with SHA-256, 4 KiB blocks, an explicit salt and levels in root order. The
+engine generates levels by streaming into the Store and retains data, tree and
+parameters. A comparison with a pinned `veritysetup` verified bytes and root
+for seven sizes, including level transitions and the single-block case with no
+tree. This evidence covers the format in userspace; kernel activation, UKI
+signing and boot are still pending. The
+[images contract](../system-images.md#dm-verity-hash-devices) defines limits and
+retention.
 
-**Declarações de sistema implementadas:** a std oferece `System` e
-`HostConfiguration`, projetados separadamente dos consumers de serviços. O
-planejador valida referências a outputs, budgets, papéis A/B/ESP, estrutura de
-armazenamento, identidade, exposições, serviços/saúde e seleções de kernel/host.
-O [contrato das declarações](../system-declarations.md) descreve o uso e as
-verificações ainda pendentes, incluindo Kconfig upstream e aplicação privilegiada.
-As projeções tipadas preservam opções Kconfig, identidade/usuários, referências
-de credenciais, boot, saúde e compatibilidade dos dados persistentes para os
-construtores e executores posteriores.
+**System declarations implemented:** the std offers `System` and
+`HostConfiguration`, projected separately from the services consumers. The
+planner validates references to outputs, budgets, A/B/ESP roles, storage
+structure, identity, exposures, services/health and kernel/host selections.
+The [declarations contract](../system-declarations.md) describes usage and the
+checks still pending, including upstream Kconfig and privileged application.
+The typed projections preserve Kconfig options, identity/users, credential
+references, boot, health and persistent data compatibility for the later
+builders and executors.
 
-**Bootstrap de binutils exercitado:** o catálogo constrói as ferramentas 2.47
-para `x86_64-srx-linux-gnu` a partir da fonte upstream autenticada, com semente
-host explícita. Nove executáveis passaram pela inspeção ELF estática. Um segundo
-build gerenciado consumiu esse output, montou/ligou/executou uma fonte assembly
-fixada com `toolchain none` e produziu um bundle executado offline. Os receipts
-retêm a dependência da semente original; compilador, sysroot e cadeia Rust
-próprios ainda precisam ser construídos e qualificados.
+**binutils bootstrap exercised:** the catalog builds the 2.47 tools for
+`x86_64-srx-linux-gnu` from the authenticated upstream source, with an explicit
+host seed. Nine executables passed static ELF inspection. A second managed
+build consumed that output, assembled/linked/ran a pinned assembly source with
+`toolchain none` and produced a bundle run offline. The receipts retain the
+dependency on the original seed; an own compiler, sysroot and Rust chain still
+need to be built and qualified.
 
-**Bootstrap de make exercitado:** GNU make 4.4.1 foi construído com semente
-explícita e orçamento Standard inalterado. Um consumer gerenciado usou make e
-binutils produzidos das fontes para gerar assembly, ligar e executar o resultado,
-com `toolchain none`; seu bundle também passou no runtime offline. A assinatura
-histórica do make reporta `EXPKEYSIG`, com validade criptográfica registrada:
-a política temporal de admissão permanece uma pendência de qualificação e essa
-receita está fora da matriz de publicação. O catálogo registra identidades,
-limites e essa restrição nas evidências de desenvolvimento.
+**make bootstrap exercised:** GNU make 4.4.1 was built with an explicit seed
+and an unchanged Standard budget. A managed consumer used make and binutils
+produced from sources to generate assembly, link and run the result, with
+`toolchain none`; its bundle also passed in the offline runtime. The historical
+make signature reports `EXPKEYSIG`, with its cryptographic validity recorded:
+the time-based admission policy remains an open qualification item and this
+recipe is outside the publication matrix. The catalog records identities,
+limits and this restriction in the development evidence.
 
-**Escritor RAW/GPT implementado na biblioteca:** layouts validados recebem
-imagens de partições com SHA e tamanho explícitos e geram MBR protetor, GPT
-primária/secundária, payloads e preenchimento determinístico por streaming.
-O engine publica chunks e manifest somente após verificar os inputs e retém a
-união dos objetos. `sfdisk` fixado reconheceu imagens regulares com setores de
-512/4096 bytes e a cópia secundária após corrupção da primária. Essa evidência
-estabelece interoperabilidade GPT em userspace; ainda não representa rootfs, ESP ou disco
-inicializável. O [contrato de imagens](../system-images.md#gpt-raw-disk-images)
-registra os limites e o trabalho restante.
+**RAW/GPT writer implemented in the library:** validated layouts receive
+partition images with explicit SHA and size and generate a protective MBR,
+primary/secondary GPT, payloads and deterministic padding by streaming. The
+engine publishes chunks and the manifest only after verifying the inputs and
+retains the union of the objects. A pinned `sfdisk` recognized regular images
+with 512/4096-byte sectors and the secondary copy after corruption of the
+primary. This evidence establishes GPT interoperability in userspace; it does
+not yet represent a rootfs, ESP or bootable disk. The
+[images contract](../system-images.md#gpt-raw-disk-images) records the limits
+and the remaining work.
 
-**Conversão qcow2 implementada na biblioteca:** um escritor Rust gera qcow2 v3
-autocontido, por streaming, com clusters de 64 KiB e refcounts de 16 bits.
-O engine consome `BuiltRaw`, retém sua proveniência e as partições transitivas,
-e publica a conversão somente após verificar comprimento e SHA. Uma fixture
-assinada de `qemu-img` foi preparada no workspace, sem instalar pacotes no host.
-Os testes verificam refcounts e comparam a conversão de volta para RAW; a fixture
-ainda depende de bibliotecas do host e não qualifica o ambiente de boot.
-O [contrato](../system-images.md#standalone-qcow2) e os
-[inputs de teste](../test-tools.md) registram essas distinções.
+**qcow2 conversion implemented in the library:** a Rust writer generates a
+self-contained qcow2 v3, by streaming, with 64 KiB clusters and 16-bit
+refcounts. The engine consumes `BuiltRaw`, retains its provenance and the
+transitive partitions, and publishes the conversion only after verifying length
+and SHA. A signed `qemu-img` fixture was prepared in the workspace, without
+installing packages on the host. The tests verify refcounts and compare the
+conversion back to RAW; the fixture still depends on host libraries and does
+not qualify the boot environment.
+The [contract](../system-images.md#standalone-qcow2) and the
+[test inputs](../test-tools.md) record these distinctions.
 
-**Preparação de componentes System implementada:** o engine verifica a pertença
-do componente à closure do System autenticado, sua receita, fonte, worker e
-inputs, incluindo resultados v3. A nova action v1 registra orçamento, política,
-limite de fonte e protocolos próprios; não entra no parser v5 comum. A retenção
-granular permite GC e preserva inputs cujos roots foram retirados. O adaptador
-de limites deriva propriedades finitas de systemd do orçamento da action e
-permite observar o contrato completo da unidade. O
-[contrato dos builders](../system-builders.md#prepare-a-system-component-and-its-action)
-separa essa preparação de execução, scratch, settlement e receipts de sistema,
-que ainda precisam ser integrados. A solicitação explícita de scratch também
-foi ligada à action e à retenção dos inputs: o controle fica no coordenador,
-somente a raiz pode ser duplicada e a liberação requer checks independentes do
-helper. Essa ligação passou na VM descartável `v10`, com 33 cenários, escrita
-por descritor, GC mantendo a fonte e liberação com filesystem e loop verificados.
-Isso ainda não inicia um worker nem qualifica o executor completo.
-Os limites dos builds comuns permanecem.
+**System component preparation implemented:** the engine verifies the
+component's membership in the authenticated System closure, its recipe,
+source, worker and inputs, including v3 results. The new v1 action records the
+budget, policy, source limit and its own protocols; it does not enter the
+ordinary v5 parser. Granular retention allows GC and preserves inputs whose
+roots were removed. The limits adapter derives finite systemd properties from
+the action's budget and allows observing the complete unit contract. The
+[builder contract](../system-builders.md#prepare-a-system-component-and-its-action)
+separates this preparation from execution, scratch, settlement and system
+receipts, which still need to be integrated. The explicit scratch request was
+also bound to the action and to input retention: control stays in the
+coordinator, only the root can be duplicated and release requires independent
+checks by the helper. This binding passed in the disposable VM `v10`, with 33
+scenarios, writes through a descriptor, GC keeping the source and release with
+verified filesystem and loop.
+This does not yet start a worker nor qualify the complete executor.
+The limits of ordinary builds remain.
 
-**Inputs grandes por descritores implementados:** a preparação de System exporta
-manifest e chunks CAS deduplicados sob um limite explícito de FDs. O novo reader
-verifica papéis, metadados, hashes dos chunks e hash lógico completo, oferece seek
-com um único cache de 4 MiB e não usa caminhos da Store. Um fluxo real de 1 GiB +
-17 bytes passou com quatro descritores; o caso de input v3 também passou depois
-da retirada do root por GC. O transporte autenticado, retenção do receptor e
-pacote de recursos do novo worker ainda precisam ser conectados. Isso não muda
-o formato dos manifests nem faz o worker comum aceitar inputs v3.
+**Large inputs through descriptors implemented:** System preparation exports
+the manifest and deduplicated CAS chunks under an explicit FD limit. The new
+reader verifies roles, metadata, chunk hashes and the complete logical hash,
+offers seek with a single 4 MiB cache and does not use Store paths. A real
+stream of 1 GiB + 17 bytes passed with four descriptors; the v3 input case also
+passed after its root was removed by GC. The authenticated transport, receiver
+retention and resource package of the new worker still need to be connected.
+This does not change the manifest format nor make the ordinary worker accept v3
+inputs.
 
-**Handoff completo de inputs implementado:** a preparação conta os FDs de todos
-os inputs e a reserva do executor antes de criar retenção adicional. O pacote
-versionado inclui views, artefatos comuns/chunked e uma descrição de retenção
-independente. O receptor verifica hash/metadados, referências e conteúdo, adquire
-o lock do interesse e preserva a custódia após a saída do remetente e retirada
-dos roots por GC. O transporte seqpacket separado valida credenciais do kernel,
-nonce, hashes, offsets e lotes antes de confirmar o recebimento. Um teste entre
-processos passou com 33 inputs mistos e 84 descritores, mantendo os dados após
-GC no pai. Ainda faltam a ligação à identidade executável/manager, FDSTORE,
-workspace gravável, gate, settlement e receipts para um executor System completo.
+**Complete input handoff implemented:** preparation counts the FDs of all
+inputs and the executor's reserve before creating additional retention. The
+versioned package includes views, ordinary/chunked artifacts and an independent
+retention description. The receiver verifies hash/metadata, references and
+content, acquires the interest lock and preserves custody after the sender
+exits and the roots are removed by GC. The separate seqpacket transport
+validates kernel credentials, nonce, hashes, offsets and batches before
+confirming receipt. A cross-process test passed with 33 mixed inputs and 84
+descriptors, keeping the data after GC in the parent. Binding to the
+executable/manager identity, FDSTORE, a writable workspace, gate, settlement
+and receipts are still missing for a complete System executor.
 
-**Volumes de trabalho e saída separados implementados:** o layout deriva dois
-filesystems ext4 do mesmo orçamento admitido e divide o teto global de inodes
-proporcionalmente aos bytes. A saída pode ser maior que o scratch sem forjar uma
-nova admissão. As primitivas verificam identidades distintas, papéis dos
-descritores, geometria, ownership e alvos antes de anexar os mounts. Em 2 de
-novembro de 2026, a VM QEMU/OVMF passou pelos 33 casos anteriores e dez novos:
-scratch de 64 MiB, saída de 128 MiB, 1.008 inodes efetivos dentro do teto de 1.024,
-esgotamento separado, worker UID/GID 1000 sem capabilities após attachment e
-liberação independente dos loops, seguida de duas verificações ext4. A fixture
-`tests/fixtures/system-build/system-workspace-vm.json` registra pins e evidência.
-Essa primeira qualificação utilizou o protocolo anterior de scratch único para
-os testes do helper e exercitou o par de volumes diretamente pelas primitivas.
-Capacidade do filesystem limita espaço alocado; comprimentos
-lógicos de arquivos sparse exigem limites e validação de resultados separados.
+**Separate work and output volumes implemented:** the layout derives two ext4
+filesystems from the same admitted budget and splits the global inode ceiling
+in proportion to the bytes. The output can be larger than the scratch without
+forging a new admission. The primitives verify distinct identities, descriptor
+roles, geometry, ownership and targets before attaching the mounts. On
+November 2, 2026, the QEMU/OVMF VM passed the 33 earlier cases and ten new
+ones: 64 MiB scratch, 128 MiB output, 1,008 effective inodes within the 1,024
+ceiling, separate exhaustion, a UID/GID 1000 worker without capabilities after
+attachment and independent release of the loops, followed by two ext4 checks.
+The `tests/fixtures/system-build/system-workspace-vm.json` fixture records pins
+and evidence. This first qualification used the earlier single-scratch protocol
+for the helper tests and exercised the volume pair directly through the
+primitives. Filesystem capacity limits allocated space; logical lengths of
+sparse files require separate limits and result validation.
 
-**Workspace do componente e helper de dois volumes implementados:** operações
-separadas de preparação, liberação, inspeção e recuperação agora mantêm as duas
-imagens num único journal. A política root admite o mesmo pedido independentemente
-da política do coordenador. A liberação exige teardown dos dois loops e duas
-verificações finais; a reconciliação no mesmo boot preserva as imagens e não
-afirma saúde do filesystem. `SystemBuildInputs::prepare_workspace` mantém a
-custódia dos inputs durante a concessão e revalida os dois papéis antes de exportar
-FDs. A VM `v14` passou por 59 casos distintos, incluindo preparação real de um
-componente declarado, escrita/fsync nos dois volumes, GC, revalidação dos inputs
-e liberação sem criar um build ou receipt. Também verificou recusa de orçamento,
-hash incorreto, desconexão e descritor retido bloqueando recuperação. Os dois
-ensaios anteriores sem qualificação permanecem registrados separadamente.
-`tests/fixtures/system-build/system-workspace-rpc-vm.json` contém pins, escopo e
-evidência. Ainda faltam gate e custódia no manager/FDSTORE, execução das receitas,
-enforcement completo e receipts de System.
+**Component workspace and two-volume helper implemented:** separate
+preparation, release, inspection and recovery operations now keep both images
+in a single journal. The root policy admits the same request independently of
+the coordinator's policy. Release requires teardown of both loops and two final
+checks; reconciliation within the same boot preserves the images and does not
+assert filesystem health. `SystemBuildInputs::prepare_workspace` keeps custody
+of the inputs during the grant and revalidates both roles before exporting
+FDs. The VM `v14` passed 59 distinct cases, including real preparation of a
+declared component, write/fsync on both volumes, GC, input revalidation and
+release without creating a build or receipt. It also verified budget refusal,
+an incorrect hash, disconnect and a retained descriptor blocking recovery. The
+two earlier non-qualifying runs remain recorded separately.
+`tests/fixtures/system-build/system-workspace-rpc-vm.json` contains pins, scope
+and evidence. Still missing are the gate and custody in the manager/FDSTORE,
+recipe execution, complete enforcement and System receipts.
 
-**Recuperação de workspace pela CLI implementada:** `srx system recover` exige
-exatamente um seletor, `--scratch-operation` ou `--workspace-operation`, além do
-socket explícito. A VM `v15` passou pelos 59 casos anteriores e cinco novos da
-CLI: abandono, inspeção, hash incorreto, reconciliação autorizada e estado
-terminal. Os hashes das duas imagens foram preservados; a recuperação não
-afirmou saúde do filesystem. A fixture
-`tests/fixtures/system-build/system-workspace-cli-vm.json` registra os 64 casos,
-os binários e o encerramento normal. Não há fallback entre os tipos de operação,
-reboot automático, recuperação de gerações nem execução de receitas neste fluxo.
+**Workspace recovery through the CLI implemented:** `srx system recover`
+requires exactly one selector, `--scratch-operation` or
+`--workspace-operation`, plus the explicit socket. The VM `v15` passed the 59
+earlier cases and five new CLI ones: abandonment, inspection, incorrect hash,
+authorized reconciliation and terminal state. The hashes of both images were
+preserved; recovery did not assert filesystem health. The
+`tests/fixtures/system-build/system-workspace-cli-vm.json` fixture records the
+64 cases, the binaries and the normal shutdown. There is no fallback between
+operation kinds, automatic reboot, recovery of generations or recipe execution
+in this flow.
 
-**Extração de fontes grandes de System implementada:** um envelope separado
-deriva expansão, arquivo individual e entradas da geometria/inodes do scratch
-admitido; o transporte compactado mantém o teto de blob de 1 GiB. O reader usa
-offsets próprios e detecta mudança de comprimento. Inspeção e extração compartilham
-o parser seguro; os limites e subsets dos perfis comuns permanecem. A inspeção
-dos inputs preparados verifica o pin antes/depois e não cria build nem chama o
-helper. Passaram 28 testes, além do subprocesso com 1 GiB + 17 bytes sob limite
-de endereço de 256 MiB; 65.537 entradas também passaram no caminho System e foram
-recusadas pelo limite comum. A evidência nativa está em
-`tests/fixtures/system-build/native-system-source-archive.json`. Ainda é necessário
-selecionar esse caminho na entrada e no namespace autorizados do worker System;
-o ensaio não executa receita nem qualifica o perfil completo.
+**Extraction of large System sources implemented:** a separate envelope
+derives expansion, individual file and entry limits from the geometry/inodes of
+the admitted scratch; compressed transport keeps the 1 GiB blob ceiling. The
+reader uses its own offsets and detects length changes. Inspection and
+extraction share the safe parser; the limits and subsets of the ordinary
+profiles remain. Inspection of the prepared inputs verifies the pin
+before/after and neither creates a build nor calls the helper. 28 tests passed,
+in addition to the subprocess with 1 GiB + 17 bytes under a 256 MiB address
+limit; 65,537 entries also passed on the System path and were refused by the
+ordinary limit. The native evidence is in
+`tests/fixtures/system-build/native-system-source-archive.json`. This path
+still needs to be selected at the entry point and in the authorized namespace
+of the System worker; the run does not execute a recipe nor qualify the
+complete profile.
 
-## 1. Objetivo
+## 1. Goal
 
-Expandir o SRX para atender dois usos:
+Expand SRX to serve two uses:
 
-1. Construir um sistema Linux completo a partir de fontes e gerar imagens inicializáveis.
-2. Gerenciar recursos selecionados de instalações Linux existentes.
+1. Build a complete Linux system from sources and generate bootable images.
+2. Manage selected resources of existing Linux installations.
 
-O usuário deverá conseguir declarar kernel, parâmetros, módulos, boot,
-armazenamento e serviços em `.srx`, verificar os tipos, inspecionar um plano e
-autorizar sua aplicação.
+The user should be able to declare kernel, parameters, modules, boot, storage
+and services in `.srx`, check the types, inspect a plan and authorize its
+application.
 
-O objetivo inclui tornar visíveis as consequências das mudanças. O plano precisa
-distinguir uma alteração reversível de configuração, uma mudança que exige reboot
-e uma operação que destrói dados.
+The goal includes making the consequences of changes visible. The plan needs to
+distinguish a reversible configuration change, a change that requires a reboot
+and an operation that destroys data.
 
-A primeira entrega completa será qualificada em VMs descartáveis. O suporte a
-hardware real virá depois dessa qualificação.
+The first complete delivery will be qualified in disposable VMs. Support for
+real hardware will come after that qualification.
 
-## 2. Decisões estabelecidas
+## 2. Settled decisions
 
-| Área | Decisão |
+| Area | Decision |
 |---|---|
-| Construção do sistema | Componentes distribuídos construídos pelo SRX a partir de fontes |
-| Bootstrap | Toolchain gerenciada própria antes da construção da base |
-| Atualização do sistema completo | Gerações imutáveis |
-| Primeiro ambiente | VM descartável |
-| Arquitetura inicial | Linux x86_64 |
-| Firmware e boot | UEFI e systemd-boot |
-| Perfil inicial | Console, rede e SSH |
-| Segurança inicial | Secure Boot e LUKS2 |
-| Filesystem inicial | ext4 |
-| Gerenciamento de volumes | LVM |
-| RAID inicial | RAID1 e RAID10 |
-| Adoção de instalações existentes | Arch, Debian e Ubuntu |
-| Compatibilidade de APIs | Breaking changes permitidos, com migração documentada |
-| TPM2 e desktop | Etapas posteriores |
+| System construction | Distributed components built by SRX from sources |
+| Bootstrap | Own managed toolchain before building the base |
+| Full-system update | Immutable generations |
+| First environment | Disposable VM |
+| Initial architecture | Linux x86_64 |
+| Firmware and boot | UEFI and systemd-boot |
+| Initial profile | Console, network and SSH |
+| Initial security | Secure Boot and LUKS2 |
+| Initial filesystem | ext4 |
+| Volume management | LVM |
+| Initial RAID | RAID1 and RAID10 |
+| Adoption of existing installations | Arch, Debian and Ubuntu |
+| API compatibility | Breaking changes allowed, with documented migration |
+| TPM2 and desktop | Later stages |
 
-Essas decisões definem um Linux mínimo funcional. A expansão para desktop, outras
-arquiteturas e outras pilhas de armazenamento será construída sobre essa base.
+These decisions define a minimal functional Linux. Expansion to desktop, other
+architectures and other storage stacks will be built on this base.
 
-## 3. Estado atual do projeto
+## 3. Current project status
 
-O SRX já fornece partes importantes da fundação:
+SRX already provides important parts of the foundation:
 
-- Linguagem tipada, módulos e configuração declarativa.
-- Autenticação de projetos, assets e biblioteca padrão.
-- Locks e aquisição de fontes com identidade explícita.
-- Receitas, dependências e execução de builds.
-- Store com verificação de conteúdo, retenção e recuperação.
-- Planejamento anterior aos efeitos.
-- Execução de aplicações com suas dependências.
-- Preparação e aplicação de gerações de serviços.
-- Integração com systemd e observação de capacidades do Linux.
-- Journal e recuperação de operações interrompidas.
+- Typed language, modules and declarative configuration.
+- Authentication of projects, assets and the standard library.
+- Locks and source acquisition with explicit identity.
+- Recipes, dependencies and build execution.
+- Store with content verification, retention and recovery.
+- Planning prior to effects.
+- Execution of applications with their dependencies.
+- Preparation and application of services generations.
+- systemd integration and observation of Linux capabilities.
+- Journal and recovery of interrupted operations.
 
-O `Os` atual contém pacotes e serviços. Ele opera sobre um Linux existente e não
-representa uma instalação completa com kernel, boot e discos. Os contratos atuais
-estão descritos em [perfis de instalação](../services-profiles.md) e
-[seleção de artefatos](../artifacts.md).
+The current `Os` contains packages and services. It operates on an existing
+Linux and does not represent a complete installation with kernel, boot and
+disks. The current contracts are described in
+[installation profiles](../services-profiles.md) and
+[artifact selection](../artifacts.md).
 
-Os perfis atuais também exigem uma identidade de execução sem root. Essa restrição
-deve continuar protegendo o fluxo de serviços e builds. A nova autoridade de
-sistema será uma capacidade separada.
+The current profiles also require a non-root execution identity. This
+restriction must keep protecting the services and builds flow. The new system
+authority will be a separate capability.
 
-Existem limitações concretas para construir sistemas maiores:
+There are concrete limitations for building larger systems:
 
-| Limite atual | Valor |
+| Current limit | Value |
 |---|---:|
-| Fonte compactada no perfil Large | 32 MiB |
-| Fonte Raw no perfil Large | 128 MiB |
-| Saída individual | 128 MiB |
-| Resultado agregado | 512 MiB |
-| Blob individual no Store | 1 GiB |
-| Duração máxima de build | 30 minutos |
-| Scratch do perfil Large | Aproximadamente 1 GiB em tmpfs |
+| Compressed source in the Large profile | 32 MiB |
+| Raw source in the Large profile | 128 MiB |
+| Individual output | 128 MiB |
+| Aggregate result | 512 MiB |
+| Individual blob in the Store | 1 GiB |
+| Maximum build duration | 30 minutes |
+| Large profile scratch | Approximately 1 GiB in tmpfs |
 
-Esses limites foram conferidos em
+These limits were checked in
 [`build`](../../crates/syrox-engine/src/build/mod.rs),
 [`BuildProgram`](../../crates/syrox-engine/src/build/program.rs),
 [`artifact`](../../crates/syrox-engine/src/result/artifact.rs),
-[`result`](../../crates/syrox-engine/src/result/mod.rs) e
-[`store`](../../crates/syrox-engine/src/store/mod.rs). A restrição de identidade
-dos perfis está em
+[`result`](../../crates/syrox-engine/src/result/mod.rs) and
+[`store`](../../crates/syrox-engine/src/store/mod.rs). The profiles' identity
+restriction is in
 [`deployment::services::profile`](../../crates/syrox-engine/src/deployment/services/profile.rs).
 
-Kernel, compiladores e imagens ultrapassam parte desses limites. A implementação
-precisa evoluir o modelo de artefatos e recursos antes de adicionar suas receitas.
+Kernel, compilers and images exceed some of these limits. The implementation
+needs to evolve the artifact and resource model before adding their recipes.
 
-## 4. Separação dos conceitos públicos
+## 4. Separation of the public concepts
 
-A API deverá distinguir três operações de natureza diferente.
+The API should distinguish three operations of different nature.
 
 ### `Services`
 
-Representa o papel atual de `Os`: pacotes e serviços gerenciados sobre um sistema
-existente.
+Represents the current role of `Os`: packages and services managed on top of an
+existing system.
 
-Os perfis de usuário continuam sem autoridade para modificar boot, partições ou
-configurações globais.
+User profiles remain without authority to modify boot, partitions or global
+settings.
 
 ### `System`
 
-Representa um sistema completo:
+Represents a complete system:
 
-- Plataforma.
-- Kernel e módulos.
+- Platform.
+- Kernel and modules.
 - Userspace.
-- Identidade e usuários.
-- Configuração de sistema.
+- Identity and users.
+- System configuration.
 - Boot.
-- Armazenamento.
-- Serviços.
-- Política de saúde e atualização.
+- Storage.
+- Services.
+- Health and update policy.
 
-Um `System` precisa fornecer informações suficientes para construir uma geração
-inicializável.
+A `System` needs to provide enough information to build a bootable generation.
 
 ### `HostConfiguration`
 
-Representa recursos que o SRX poderá gerenciar numa distribuição existente.
+Represents resources that SRX will be able to manage on an existing
+distribution.
 
-A configuração seleciona explicitamente quais recursos pertencem ao SRX. Isso
-permite adotar sysctls, mounts, serviços ou um kernel sem assumir a propriedade de
-toda a instalação.
+The configuration explicitly selects which resources belong to SRX. This allows
+adopting sysctls, mounts, services or a kernel without taking ownership of the
+whole installation.
 
-Os três conceitos compartilharão tipos de domínio, mas terão validações e
-operações próprias.
+The three concepts will share domain types, but will have their own validations
+and operations.
 
-## 5. Responsabilidades entre core, std e catálogo
+## 5. Responsibilities across core, std and catalog
 
 ### Core
 
-O core deverá implementar:
+The core should implement:
 
-- Planejamento e validação das operações.
-- Inspeção de capacidades e dispositivos.
-- Verificação e transferência dos artefatos.
-- Autoridade de execução.
-- Journal, recuperação e retenção.
-- Aplicação das operações privilegiadas.
-- Observação de boot e saúde.
-- Contratos consumidos pelos backends.
+- Planning and validation of operations.
+- Inspection of capabilities and devices.
+- Verification and transfer of artifacts.
+- Execution authority.
+- Journal, recovery and retention.
+- Application of privileged operations.
+- Observation of boot and health.
+- Contracts consumed by the backends.
 
-### Biblioteca padrão
+### Standard library
 
-A std deverá oferecer os tipos e construtores utilizados no `.srx`, incluindo:
+The std should offer the types and constructors used in `.srx`, including:
 
 - `Services`.
 - `System`.
 - `HostConfiguration`.
-- Kernel e configuração de kernel.
+- Kernel and kernel configuration.
 - Boot.
-- Grafo de armazenamento.
-- Filesystems e mounts.
-- Referências a credenciais.
-- Política de saúde e persistência.
+- Storage graph.
+- Filesystems and mounts.
+- Credential references.
+- Health and persistence policy.
 
-Avaliar esses valores continuará sendo uma operação sem efeitos sobre a máquina.
+Evaluating these values will remain an operation without effects on the
+machine.
 
-### Catálogo
+### Catalog
 
-O catálogo deverá conter as receitas e os contratos dos componentes:
+The catalog should contain the recipes and contracts of the components:
 
-- Compiladores e ferramentas.
-- Linux e headers.
-- libc e bibliotecas.
-- systemd, udev e componentes de boot.
-- Shell e utilitários.
-- Rede e OpenSSH.
-- Ferramentas de particionamento, filesystem, criptografia, LVM e RAID.
+- Compilers and tools.
+- Linux and headers.
+- libc and libraries.
+- systemd, udev and boot components.
+- Shell and utilities.
+- Networking and OpenSSH.
+- Partitioning, filesystem, encryption, LVM and RAID tools.
 
-Versões, fontes, patches, licenças e combinações qualificadas continuarão
-pertencendo ao catálogo.
+Versions, sources, patches, licenses and qualified combinations will continue
+to belong to the catalog.
 
-As operações do core não devem conter ramificações por nome de pacote para
-executar essas receitas.
+Core operations must not contain branches by package name to execute these
+recipes.
 
-## 6. Bootstrap e construção a partir de fontes
+## 6. Bootstrap and building from sources
 
-Construir a base inteira exige uma cadeia de bootstrap explícita.
+Building the entire base requires an explicit bootstrap chain.
 
-O primeiro compilador e suas ferramentas serão entradas autenticadas. A partir
-delas, o SRX construirá sua toolchain gerenciada, que será utilizada para produzir
-os componentes distribuídos.
+The first compiler and its tools will be authenticated inputs. From them, SRX
+will build its managed toolchain, which will be used to produce the distributed
+components.
 
-O fluxo será:
+The flow will be:
 
-1. Admitir a semente de ferramentas e registrar sua identidade.
-2. Construir os compiladores, binutils, sysroot e ferramentas necessárias.
-3. Validar a toolchain gerenciada.
-4. Construir o userspace e o kernel com essa toolchain.
-5. Verificar que a construção não depende de ferramentas ambientais não declaradas.
-6. Produzir os artefatos de sistema e sua proveniência.
+1. Admit the tool seed and record its identity.
+2. Build the compilers, binutils, sysroot and required tools.
+3. Validate the managed toolchain.
+4. Build the userspace and the kernel with that toolchain.
+5. Verify that the build does not depend on undeclared environment tools.
+6. Produce the system artifacts and their provenance.
 
-A toolchain deverá declarar compilador C/C++, linker, assembler, headers,
-bibliotecas e ferramentas auxiliares. O suporte necessário à construção do próprio
-SRX também deverá entrar nessa cadeia.
+The toolchain should declare the C/C++ compiler, linker, assembler, headers,
+libraries and auxiliary tools. The support needed to build SRX itself should
+also enter this chain.
 
-A construção gerenciada não poderá recorrer silenciosamente a `/usr/bin`, headers
-ou bibliotecas do host.
+The managed build must not silently fall back to the host's `/usr/bin`, headers
+or libraries.
 
-Imagens das distribuições existentes poderão ser utilizadas como fixtures de
-adoção. Elas serão identificadas, fixadas e registradas como ambientes de teste.
+Images of existing distributions may be used as adoption fixtures. They will be
+identified, pinned and recorded as test environments.
 
-Dependências upstream implementadas em Python ou shell serão empacotadas
-normalmente. A manutenção e a orquestração próprias do projeto continuarão em Rust.
+Upstream dependencies implemented in Python or shell will be packaged normally.
+The project's own maintenance and orchestration will remain in Rust.
 
-## 7. Artefatos grandes e recursos de build
+## 7. Large artifacts and build resources
 
-Introduzir uma nova versão dos artefatos para representar saídas maiores sem
-exigir blobs gigantes ou carregar imagens inteiras em memória.
+Introduce a new artifact version to represent larger outputs without requiring
+giant blobs or loading whole images into memory.
 
-O formato utilizará:
+The format will use:
 
-- Chunks de 4 MiB.
-- Hashes de conteúdo.
-- Manifests versionados.
-- Transferência e verificação por streaming.
-- Referências transitivas para retenção e GC.
-- Publicação somente depois da verificação completa.
+- 4 MiB chunks.
+- Content hashes.
+- Versioned manifests.
+- Streaming transfer and verification.
+- Transitive references for retention and GC.
+- Publication only after complete verification.
 
-O GC deverá compreender a relação entre manifests, chunks, gerações instaladas e
-operações pendentes.
+GC should understand the relationship between manifests, chunks, installed
+generations and pending operations.
 
-Criar um perfil de build de sistema com orçamento explícito de:
+Create a system build profile with an explicit budget for:
 
-- Memória.
+- Memory.
 - CPU.
-- Processos e descritores.
-- Scratch em disco.
-- Quantidade de arquivos.
-- Saída.
-- Duração.
+- Processes and descriptors.
+- Disk scratch.
+- Number of files.
+- Output.
+- Duration.
 
-O administrador do builder definirá os limites admitidos. Um orçamento
-incompatível deverá falhar antes de iniciar a construção.
+The builder administrator will define the admitted limits. An incompatible
+budget should fail before the build starts.
 
-Os perfis existentes manterão seus limites. A mudança não deverá tornar ilimitada
-a execução de receitas comuns.
+The existing profiles will keep their limits. The change must not make the
+execution of ordinary recipes unbounded.
 
-## 8. Configuração do kernel
+## 8. Kernel configuration
 
-Configurar o kernel envolve quatro camadas.
+Configuring the kernel involves four layers.
 
-| Camada | Exemplos | Momento |
+| Layer | Examples | When |
 |---|---|---|
-| Kconfig | Drivers, filesystems, segurança, recursos de namespaces | Compilação |
-| Linha de comando | Console, root, parâmetros de inicialização | Boot |
-| Módulos | Inclusão, carregamento e parâmetros | Initramfs ou execução |
-| Parâmetros em execução | sysctl e ajustes suportados de dispositivos | Sistema em funcionamento |
+| Kconfig | Drivers, filesystems, security, namespace features | Compilation |
+| Command line | Console, root, boot parameters | Boot |
+| Modules | Inclusion, loading and parameters | Initramfs or runtime |
+| Runtime parameters | sysctl and supported device settings | Running system |
 
-Essas camadas deverão aparecer separadas na API e no plano.
+These layers should appear separately in the API and in the plan.
 
 ### Kconfig
 
-Gerar contratos por versão e arquitetura, oferecendo:
+Generate contracts per version and architecture, offering:
 
-- Autocomplete dos símbolos.
-- Tipos booleano, tristate, inteiro, hexadecimal e texto.
-- Diagnóstico de nomes desconhecidos.
-- Referência ao campo de origem no `.srx`.
-- Identidade da configuração efetiva.
+- Symbol autocompletion.
+- Boolean, tristate, integer, hexadecimal and string types.
+- Diagnostics for unknown names.
+- Reference to the originating field in the `.srx`.
+- Identity of the effective configuration.
 
-A resolução das dependências utilizará o Kconfig upstream. Depois dela, comparar
-a configuração final com os valores solicitados e diagnosticar opções que não
-puderam ser satisfeitas. Referência:
-[documentação Kconfig](https://docs.kernel.org/kbuild/kconfig.html).
+Dependency resolution will use upstream Kconfig. After it, compare the final
+configuration with the requested values and diagnose options that could not be
+satisfied. Reference:
+[Kconfig documentation](https://docs.kernel.org/kbuild/kconfig.html).
 
-### Identidade do kernel
+### Kernel identity
 
-A identidade deverá vincular fonte, patches, configuração, arquitetura,
-toolchain, kernel, módulos e headers.
+The identity should bind source, patches, configuration, architecture,
+toolchain, kernel, modules and headers.
 
-Módulos de configurações incompatíveis não poderão ser misturados. O release
-utilizado em runtime deverá distinguir os kernels produzidos pelo SRX.
+Modules from incompatible configurations must not be mixed. The release used at
+runtime should distinguish the kernels produced by SRX.
 
-As versões de referência registradas no estudo são Linux LTS `6.18.57` e systemd
-`262.1`. Elas são candidatas do roteiro, sem admissão automática no catálogo:
-sua admissão exige fontes verificadas e locks explícitos. Referências:
-[Linux](https://www.kernel.org/) e
+The reference versions recorded in the study are Linux LTS `6.18.57` and
+systemd `262.1`. They are roadmap candidates, without automatic admission to
+the catalog: their admission requires verified sources and explicit locks.
+References:
+[Linux](https://www.kernel.org/) and
 [systemd](https://github.com/systemd/systemd/releases/tag/v262.1).
 
-### Parâmetros em execução
+### Runtime parameters
 
-Cada ajuste deverá declarar sua forma de aplicação e verificação.
+Each setting should declare how it is applied and verified.
 
-Alterações que não admitem restauração confiável serão classificadas no plano.
-Configurações que dependem de reboot não serão tratadas como mudanças instantâneas.
+Changes that do not allow reliable restoration will be classified in the plan.
+Settings that depend on a reboot will not be treated as instantaneous changes.
 
-Os parâmetros de boot derivados do armazenamento serão gerados a partir do grafo
-validado, evitando contradições entre a raiz declarada e a linha de comando.
+Boot parameters derived from storage will be generated from the validated
+graph, avoiding contradictions between the declared root and the command line.
 
-## 9. Userspace e árvore do sistema
+## 9. Userspace and system tree
 
-A base inicial deverá fornecer:
+The initial base should provide:
 
-- systemd como PID 1.
+- systemd as PID 1.
 - udev.
-- Shell e utilitários essenciais.
-- Rede para a VM.
+- Shell and essential utilities.
+- Networking for the VM.
 - OpenSSH.
-- SRX e seus componentes de sistema.
-- Ferramentas necessárias ao armazenamento.
-- Serviços essenciais de inicialização e diagnóstico.
+- SRX and its system components.
+- Tools required for storage.
+- Essential boot and diagnostic services.
 
-A composição da imagem deverá registrar:
+The image composition should record:
 
-- Caminhos.
-- Tipo de entrada.
+- Paths.
+- Entry type.
 - Ownership.
-- Permissões.
+- Permissions.
 - Links.
-- Origem de cada arquivo.
-- Conteúdo e identidade dos componentes.
+- Origin of each file.
+- Content and identity of the components.
 
-Os prefixos dos pacotes em `/syrox/store/` serão preservados. As exposições em
-`/usr`, `/etc` e demais diretórios serão declaradas e verificadas.
+Package prefixes under `/syrox/store/` will be preserved. The exposures in
+`/usr`, `/etc` and other directories will be declared and verified.
 
-Colisões entre componentes deverão ser diagnosticadas antes da geração da imagem.
-A composição não poderá incorporar arquivos do host por descoberta implícita.
+Collisions between components should be diagnosed before the image is
+generated. The composition must not incorporate host files through implicit
+discovery.
 
-A imagem deverá funcionar sem o diretório de build, checkout original ou caches
-externos.
+The image should work without the build directory, the original checkout or
+external caches.
 
-## 10. Imagens e inicialização
+## 10. Images and boot
 
-Produzir os artefatos necessários a:
+Produce the artifacts required for:
 
 - Rootfs.
 - Initramfs.
 - UKI.
-- Imagem RAW.
-- Imagem qcow2.
-- ISO UEFI de instalação e resgate.
+- RAW image.
+- qcow2 image.
+- UEFI installation and rescue ISO.
 
-Utilizar UKIs assinadas para reunir kernel, initramfs, parâmetros e metadados de
-boot. A raiz imutável será verificada por dm-verity, com seu hash vinculado à
-geração autorizada. Referências:
-[UKI](https://www.freedesktop.org/software/systemd/man/latest/ukify.html) e
+Use signed UKIs to bundle kernel, initramfs, parameters and boot metadata. The
+immutable root will be verified by dm-verity, with its hash bound to the
+authorized generation. References:
+[UKI](https://www.freedesktop.org/software/systemd/man/latest/ukify.html) and
 [dm-verity](https://docs.kernel.org/admin-guide/device-mapper/verity.html).
 
-As partes determinísticas terão verificação de reprodutibilidade. Identidade de
-máquina, entropia e material criptográfico serão produzidos por instalação.
+The deterministic parts will have reproducibility verification. Machine
+identity, entropy and cryptographic material will be produced per
+installation.
 
-Volumes LUKS de instalações diferentes não compartilharão chaves geradas pela
-imagem. Imagens de instalação transportarão os artefatos e ferramentas para
-provisionar a instância.
+LUKS volumes of different installations will not share keys generated by the
+image. Installation images will carry the artifacts and tools to provision the
+instance.
 
-## 11. Gerações imutáveis e confirmação de boot
+## 11. Immutable generations and boot confirmation
 
-O sistema completo utilizará raiz A/B.
+The complete system will use an A/B root.
 
-Uma atualização deverá:
+An update should:
 
-1. Verificar os novos artefatos.
-2. Preparar o slot inativo.
-3. Verificar seu conteúdo.
-4. Publicar o kernel e a entrada de boot correspondentes.
-5. Registrar a geração como candidata.
-6. Programar uma tentativa de boot.
-7. Confirmar a geração somente após observar sua saúde.
+1. Verify the new artifacts.
+2. Prepare the inactive slot.
+3. Verify its content.
+4. Publish the corresponding kernel and boot entry.
+5. Record the generation as a candidate.
+6. Schedule a boot attempt.
+7. Confirm the generation only after observing its health.
 
-A confirmação deverá considerar kernel, raiz, volumes persistentes e serviços
-essenciais.
+Confirmation should take into account the kernel, root, persistent volumes and
+essential services.
 
-A geração saudável anterior continuará disponível durante a tentativa. O
-bootloader utilizará contagem de tentativas e fallback. Referência:
+The previous healthy generation will remain available during the attempt. The
+bootloader will use attempt counting and fallback. Reference:
 [Automatic Boot Assessment](https://systemd.io/AUTOMATIC_BOOT_ASSESSMENT/).
 
-Um travamento pode exigir watchdog ou novo reset para ocorrer outra tentativa. Os
-testes e os relatórios deverão identificar o mecanismo utilizado.
+A hang may require a watchdog or a new reset for another attempt to occur. The
+tests and reports should identify the mechanism used.
 
-O estado deverá distinguir geração construída, preparada, selecionada,
-inicializada e confirmada.
+The state should distinguish a built, prepared, selected, booted and confirmed
+generation.
 
-## 12. Dados persistentes e rollback
+## 12. Persistent data and rollback
 
-Kernel, userspace e configuração de sistema pertencem à geração. Dados
-persistentes têm um ciclo de vida separado.
+Kernel, userspace and system configuration belong to the generation.
+Persistent data has a separate lifecycle.
 
-Isso inclui:
+This includes:
 
-- Dados de aplicações.
-- Diretórios pessoais.
-- Credenciais.
-- Identidade da instalação.
+- Application data.
+- Home directories.
+- Credentials.
+- Installation identity.
 - Journal.
-- Estado necessário à recuperação.
+- State required for recovery.
 
-Rollback selecionará uma geração anterior do sistema e sua configuração.
+Rollback will select a previous system generation and its configuration.
 
-Migrações de dados deverão declarar compatibilidade com as gerações envolvidas.
-Uma atualização incompatível exigirá uma estratégia explícita; selecionar uma
-raiz anterior não será apresentado como restauração dos dados.
+Data migrations should declare compatibility with the generations involved. An
+incompatible update will require an explicit strategy; selecting a previous
+root will not be presented as restoring the data.
 
-A retenção deverá proteger a geração em execução, a candidata pendente e a geração
-saudável necessária ao fallback.
+Retention should protect the running generation, the pending candidate and the
+healthy generation required for fallback.
 
-## 13. Modelo de armazenamento
+## 13. Storage model
 
-Representar o armazenamento como um grafo de recursos.
+Represent storage as a resource graph.
 
-A primeira implementação deverá cobrir:
+The first implementation should cover:
 
 ```text
-Disco
-  └─ Partição GPT
+Disk
+  └─ GPT partition
        ├─ ESP
-       └─ Dados
-            └─ RAID opcional
-                 └─ LUKS2 opcional
-                      └─ LVM opcional
+       └─ Data
+            └─ Optional RAID
+                 └─ Optional LUKS2
+                      └─ Optional LVM
                            └─ Filesystem ext4
                                 └─ Mount
 ```
 
-O grafo também deverá representar os múltiplos membros das composições RAID;
-a árvore acima apresenta a ordem das camadas de uma pilha.
+The graph should also represent the multiple members of RAID compositions; the
+tree above shows the layer order of a single stack.
 
-O validador deverá detectar ciclos, referências inválidas, sobreposição,
-capacidade insuficiente e composições não suportadas.
+The validator should detect cycles, invalid references, overlap, insufficient
+capacity and unsupported compositions.
 
-A declaração selecionará discos por identidade e propriedades observadas. Nomes
-como `/dev/sda` poderão aparecer no diagnóstico, mas não serão a única autoridade
-para executar uma escrita.
+The declaration will select disks by identity and observed properties. Names
+such as `/dev/sda` may appear in diagnostics, but will not be the sole
+authority for performing a write.
 
-A resolução deverá exigir um alvo inequívoco e revalidar identidade, geometria e
-metadados antes das alterações.
+Resolution should require an unambiguous target and revalidate identity,
+geometry and metadata before changes.
 
-### Particionamento e filesystems
+### Partitioning and filesystems
 
-Gerenciar GPT, ESP e ext4 com ferramentas upstream autenticadas.
+Manage GPT, ESP and ext4 with authenticated upstream tools.
 
-`systemd-repart` poderá ser utilizado onde sua semântica atende à operação. Ele
-adiciona e cresce partições, mas não oferece redução, movimentação ou remoção como
-reconciliação geral. Referência:
-[documentação do repart](https://www.freedesktop.org/software/systemd/man/latest/systemd-repart.html).
+`systemd-repart` may be used where its semantics fit the operation. It adds and
+grows partitions, but does not offer shrinking, moving or removal as general
+reconciliation. Reference:
+[repart documentation](https://www.freedesktop.org/software/systemd/man/latest/systemd-repart.html).
 
 ### LUKS2
 
-Gerenciar criação, abertura, referência e verificação de volumes LUKS2.
+Manage creation, opening, referencing and verification of LUKS2 volumes.
 
-Credenciais serão resolvidas por canais privados. O plano deverá mostrar
-referências e efeitos sem revelar senhas ou chaves.
+Credentials will be resolved through private channels. The plan should show
+references and effects without revealing passwords or keys.
 
-A recuperação deverá continuar disponível quando o desbloqueio habitual falhar.
-TPM2 será uma expansão posterior. Referência:
-[credenciais LUKS2](https://www.freedesktop.org/software/systemd/man/latest/systemd-cryptenroll.html).
+Recovery should remain available when the usual unlocking fails. TPM2 will be a
+later expansion. Reference:
+[LUKS2 credentials](https://www.freedesktop.org/software/systemd/man/latest/systemd-cryptenroll.html).
 
 ### LVM
 
-A primeira implementação utilizará volumes tradicionais com identidade e
-capacidade verificadas.
+The first implementation will use traditional volumes with verified identity
+and capacity.
 
-Remover uma declaração não apagará automaticamente um volume.
+Removing a declaration will not automatically erase a volume.
 
 ### RAID
 
-Qualificar:
+Qualify:
 
-- RAID1 com duas unidades.
-- RAID10 com quatro unidades.
+- RAID1 with two drives.
+- RAID10 with four drives.
 
-Verificar montagem, perda de membro, reconstrução e retorno ao estado saudável.
-As ESPs permanecerão independentes, com conteúdo de boot consistente.
+Verify assembly, member loss, rebuild and return to a healthy state. The ESPs
+will remain independent, with consistent boot content.
 
-Redundância de armazenamento e recuperação de gerações serão verificadas como
-propriedades distintas.
+Storage redundancy and generation recovery will be verified as distinct
+properties.
 
-## 14. Autoridade privilegiada
+## 14. Privileged authority
 
-Adicionar um helper privilegiado pequeno em Rust.
+Add a small privileged helper in Rust.
 
-O compilador, avaliador e builder continuarão fora desse processo. O helper
-receberá operações estruturadas e referências a artefatos já preparados.
+The compiler, evaluator and builder will remain outside this process. The
+helper will receive structured operations and references to already prepared
+artifacts.
 
-Ele deverá:
+It should:
 
-- Validar o plano e a autoridade do solicitante.
-- Reabrir e verificar os recursos reais.
-- Restringir as operações ao escopo autorizado.
-- Executar ferramentas e operações admitidas.
-- Registrar intenção e resultado.
-- Verificar o estado observado.
-- Preservar operações incertas para recuperação.
+- Validate the plan and the requester's authority.
+- Reopen and verify the real resources.
+- Restrict operations to the authorized scope.
+- Run admitted tools and operations.
+- Record intent and result.
+- Verify the observed state.
+- Preserve uncertain operations for recovery.
 
-O helper não aceitará shell arbitrário fornecido pelo projeto.
+The helper will not accept arbitrary shell supplied by the project.
 
-Serviços privilegiados serão recursos explícitos do sistema autorizado, com seus
-executáveis e configuração vinculados ao plano.
+Privileged services will be explicit resources of the authorized system, with
+their executables and configuration bound to the plan.
 
-Primitivas Linux compartilhadas deverão ficar numa biblioteca que permita ao
-helper operar sem carregar a linguagem e os componentes de build.
+Shared Linux primitives should live in a library that allows the helper to
+operate without loading the language and the build components.
 
-## 15. Operações destrutivas e recuperação
+## 15. Destructive operations and recovery
 
-Provisionamento será uma operação explícita.
+Provisioning will be an explicit operation.
 
-Seu plano deverá mostrar:
+Its plan should show:
 
-- Dispositivos selecionados.
-- Identidades observadas.
-- Layout anterior.
-- Layout pretendido.
-- Dados que serão sobrescritos.
-- Credenciais necessárias.
-- Pré-condições.
-- Etapas irreversíveis.
-- Procedimento de recuperação.
+- Selected devices.
+- Observed identities.
+- Previous layout.
+- Intended layout.
+- Data that will be overwritten.
+- Required credentials.
+- Preconditions.
+- Irreversible steps.
+- Recovery procedure.
 
-A autorização será vinculada ao hash desse plano.
+Authorization will be bound to the hash of that plan.
 
-Mudanças de dispositivo, metadados ou estado relevante invalidarão o plano.
-Operações incompatíveis com discos em uso deverão ser rejeitadas.
+Changes to devices, metadata or relevant state will invalidate the plan.
+Operations incompatible with disks in use should be rejected.
 
-O journal deverá permitir observar o que ocorreu após interrupções. A recuperação
-não poderá repetir formatação automaticamente para resolver uma dúvida sobre o
-resultado anterior.
+The journal should allow observing what happened after interruptions. Recovery
+must not automatically repeat a format to resolve doubt about the previous
+result.
 
-Quando a evidência for insuficiente, a operação permanecerá incerta e exigirá
-reconciliação explícita.
+When the evidence is insufficient, the operation will remain uncertain and
+will require explicit reconciliation.
 
-## 16. Adoção de Arch, Debian e Ubuntu
+## 16. Adoption of Arch, Debian and Ubuntu
 
-A adoção gerenciará recursos selecionados, preservando a raiz e o gerenciamento de
-pacotes da distribuição.
+Adoption will manage selected resources, preserving the distribution's root and
+package management.
 
-O fluxo será:
+The flow will be:
 
-1. Inspecionar a instalação.
-2. Descobrir capacidades.
-3. Identificar recursos existentes e conflitos.
-4. Selecionar o que ficará sob gerenciamento do SRX.
-5. Registrar ownership.
-6. Produzir o plano.
-7. Aplicar e verificar os efeitos autorizados.
+1. Inspect the installation.
+2. Discover capabilities.
+3. Identify existing resources and conflicts.
+4. Select what will be under SRX management.
+5. Record ownership.
+6. Produce the plan.
+7. Apply and verify the authorized effects.
 
-Os primeiros recursos serão configurações de kernel em execução, módulos,
-mounts, serviços e kernels gerenciados.
+The first resources will be runtime kernel settings, modules, mounts, services
+and managed kernels.
 
-Kernels novos utilizarão módulos e UKIs em espaços próprios, com entrada UEFI de
-teste e preservação do boot anterior. A seleção persistente dependerá da
-confirmação de um boot saudável.
+New kernels will use modules and UKIs in their own locations, with a test UEFI
+entry and preservation of the previous boot. Persistent selection will depend
+on confirmation of a healthy boot.
 
-Converter uma instalação adotada num sistema SRX completo será uma operação
-separada de migração e provisionamento.
+Converting an adopted installation into a complete SRX system will be a
+separate migration and provisioning operation.
 
-Cada distribuição deverá ser qualificada em fixtures fixadas e com suas
-capacidades observadas.
+Each distribution should be qualified on pinned fixtures and with its
+capabilities observed.
 
-## 17. CLI proposta
+## 17. Proposed CLI
 
-As interfaces abaixo são propostas para implementação; sua presença nesta tabela
-não indica disponibilidade no executável atual.
+The interfaces below are proposed for implementation; their presence in this
+table does not indicate availability in the current executable.
 
-| Operação | Interface |
+| Operation | Interface |
 |---|---|
-| Verificar declarações | `srx project check` |
-| Atualizar pins explicitamente | `srx project lock` |
-| Inspecionar máquina ou imagem | `srx system inspect` |
-| Comparar configuração e estado observado | `srx system plan` |
-| Construir imagens | `srx system build` |
-| Registrar recursos de uma instalação existente | `srx system adopt` |
-| Criar armazenamento e instalar | `srx system provision` |
-| Aplicar configuração ou preparar geração | `srx system apply` |
-| Consultar estado | `srx system status` |
-| Selecionar geração anterior | `srx system rollback` |
-| Reconciliar operação interrompida | `srx system recover` |
-| Gerenciar o atual conjunto de serviços | `srx services …` |
+| Check declarations | `srx project check` |
+| Update pins explicitly | `srx project lock` |
+| Inspect a machine or image | `srx system inspect` |
+| Compare configuration and observed state | `srx system plan` |
+| Build images | `srx system build` |
+| Register resources of an existing installation | `srx system adopt` |
+| Create storage and install | `srx system provision` |
+| Apply configuration or prepare a generation | `srx system apply` |
+| Query status | `srx system status` |
+| Select a previous generation | `srx system rollback` |
+| Reconcile an interrupted operation | `srx system recover` |
+| Manage the current set of services | `srx services …` |
 
-Construir uma imagem não autorizará sua instalação. Planejar não aplicará
-alterações. Preparar uma geração não implicará reboot automático.
+Building an image will not authorize its installation. Planning will not apply
+changes. Preparing a generation will not imply an automatic reboot.
 
-## 18. Breaking changes e migração
+## 18. Breaking changes and migration
 
-A expansão permitirá reorganizar a API, mantendo uma migração verificável.
+The expansion will allow reorganizing the API, while keeping a verifiable
+migration.
 
-Mudanças principais:
+Main changes:
 
-- Renomear o atual `Os` para `Services`.
-- Migrar comandos de serviços para `srx services`.
-- Introduzir `System` e `HostConfiguration`.
-- Versionar manifests, protocolos de build, artefatos e perfis afetados.
-- Evoluir os contratos de toolchain.
-- Atualizar std, catálogo, exemplos, diagnóstico e autocomplete.
-- Atualizar locks explicitamente.
+- Rename the current `Os` to `Services`.
+- Migrate services commands to `srx services`.
+- Introduce `System` and `HostConfiguration`.
+- Version the affected manifests, build protocols, artifacts and profiles.
+- Evolve the toolchain contracts.
+- Update std, catalog, examples, diagnostics and autocompletion.
+- Update locks explicitly.
 
-Perfis antigos terão um caminho de migração documentado. A conversão preservará
-identidade da instalação e histórico, sem introduzir autoridade privilegiada.
+Old profiles will have a documented migration path. The conversion will
+preserve installation identity and history, without introducing privileged
+authority.
 
-Artefatos publicados não serão silenciosamente reidentificados. Mudanças na
-construção produzirão novas identidades, mantendo as evidências anteriores
-disponíveis.
+Published artifacts will not be silently reidentified. Build changes will
+produce new identities, keeping the earlier evidence available.
 
-## 19. Estratégia de testes
+## 19. Testing strategy
 
-A microVM atual continuará cobrindo os contratos existentes do engine.
+The current microVM will continue covering the existing engine contracts.
 
-A qualificação do sistema completo adicionará QEMU e OVMF, inicializando pelo
-firmware e pelo disco. Os testes de boot não utilizarão `-kernel`, pois isso
-contorna parte da cadeia que precisa ser verificada.
+Qualification of the complete system will add QEMU and OVMF, booting through
+the firmware and the disk. Boot tests will not use `-kernel`, since it bypasses
+part of the chain that needs to be verified.
 
-### Testes de linguagem e planejamento
+### Language and planning tests
 
-- Tipos e campos importados.
-- Autocomplete de Kconfig.
-- Símbolos desconhecidos e valores incompatíveis.
-- Grafos de armazenamento inválidos.
-- Colisões de arquivos.
-- Ownership e permissões.
-- Planejamento sem efeitos.
+- Imported types and fields.
+- Kconfig autocompletion.
+- Unknown symbols and incompatible values.
+- Invalid storage graphs.
+- File collisions.
+- Ownership and permissions.
+- Effect-free planning.
 
-### Artefatos e builders
+### Artifacts and builders
 
-- Streaming e limites.
-- Chunks ausentes ou corrompidos.
-- Cancelamento.
-- Retenção e GC.
-- Recuperação.
-- Construção sem dependências ambientais.
-- Verificação das partes determinísticas.
+- Streaming and limits.
+- Missing or corrupted chunks.
+- Cancellation.
+- Retention and GC.
+- Recovery.
+- Building without environment dependencies.
+- Verification of the deterministic parts.
 
-### Boot e gerações
+### Boot and generations
 
-- Primeiro boot.
-- Atualização A→B.
-- Confirmação.
-- Candidato defeituoso.
-- Retorno à geração anterior.
-- UKI adulterada ou não confiável.
-- Raiz modificada.
-- Interrupções durante publicação e seleção.
+- First boot.
+- A→B update.
+- Confirmation.
+- Faulty candidate.
+- Return to the previous generation.
+- Tampered or untrusted UKI.
+- Modified root.
+- Interruptions during publication and selection.
 
-### Armazenamento
+### Storage
 
-- Disco simples.
-- LUKS2 com LVM.
-- RAID1 com LUKS2 e LVM.
-- RAID10 com LUKS2 e LVM.
-- Credencial incorreta.
-- Mudança de identidade do dispositivo.
-- Perda e reconstrução de membro.
-- Preservação de dados não autorizados.
-- Interrupções em etapas destrutivas.
+- Single disk.
+- LUKS2 with LVM.
+- RAID1 with LUKS2 and LVM.
+- RAID10 with LUKS2 and LVM.
+- Incorrect credential.
+- Device identity change.
+- Member loss and rebuild.
+- Preservation of unauthorized data.
+- Interruptions in destructive steps.
 
-### Adoção
+### Adoption
 
-Executar os cenários relevantes em Arch, Debian e Ubuntu, verificando boot
-anterior, recursos não gerenciados, configurações em conflito e rollback do kernel.
+Run the relevant scenarios on Arch, Debian and Ubuntu, verifying the previous
+boot, unmanaged resources, conflicting settings and kernel rollback.
 
-A falta de KVM ou de outra capacidade necessária será registrada como impedimento
-àquela qualificação.
+Missing KVM or another required capability will be recorded as an impediment to
+that qualification.
 
-## 20. Etapas de implementação
+## 20. Implementation stages
 
-| Etapa | Resultado verificável |
+| Stage | Verifiable result |
 |---|---|
-| 1. Fundações | Artefatos grandes, budgets, manifests, primitivas compartilhadas e inventário somente leitura |
-| 2. Bootstrap | Toolchain gerenciada construída e validada |
-| 3. Base própria | Userspace e kernel produzidos pelas receitas |
-| 4. Boot experimental | Rootfs, initramfs e UKI inicializando em QEMU/OVMF |
-| 5. Provisionamento | Helper, journal e pilhas de armazenamento funcionando em discos virtuais |
-| 6. Gerações | Atualização, confirmação, fallback, rollback e retenção comprovados |
-| 7. Adoção | Arch, Debian e Ubuntu qualificados |
-| 8. Publicação | Imagens, fontes, licenças, SBOM, vulnerabilidades e attestations verificáveis |
+| 1. Foundations | Large artifacts, budgets, manifests, shared primitives and read-only inventory |
+| 2. Bootstrap | Managed toolchain built and validated |
+| 3. Own base | Userspace and kernel produced by the recipes |
+| 4. Experimental boot | Rootfs, initramfs and UKI booting in QEMU/OVMF |
+| 5. Provisioning | Helper, journal and storage stacks working on virtual disks |
+| 6. Generations | Update, confirmation, fallback, rollback and retention proven |
+| 7. Adoption | Arch, Debian and Ubuntu qualified |
+| 8. Publication | Verifiable images, sources, licenses, SBOM, vulnerabilities and attestations |
 
-Cada etapa terá PRs e critérios próprios. Um primeiro boot experimental será
-evidência de progresso, sem antecipar a qualificação das etapas seguintes.
+Each stage will have its own PRs and criteria. A first experimental boot will
+be evidence of progress, without anticipating the qualification of the
+following stages.
 
-O objetivo completo continua aberto. O estado atual é:
+The complete goal remains open. The current status is:
 
-| Etapa | Evidência atual | Trabalho obrigatório restante |
+| Stage | Current evidence | Remaining required work |
 |---|---|---|
-| Fundações | Migração Services; Store em chunks; resultados v3 e bundles v2 de sistema; produtor de saídas grandes a partir de diretórios e protocolo próprio de transferência worker/coordenador verificado com dois processos; admissão dos oito budgets por configuração local e plano CLI; inventário e comparação de sysctls/binding de discos pela CLI; validadores de orçamento/grafo; System e HostConfiguration na std e planejamento | Perfil de sistema com enforcement e integração do protocolo ao executor; receipts/autorizações de catálogo; integração dos planos com aplicação e builds de sistema |
-| Bootstrap | Toolchain gerenciada atual disponível para receitas comuns | Semente autenticada e cadeia completa de compiladores, sysroot e Rust qualificada |
-| Base própria | Sem userspace/kernel próprios qualificados | Receitas e builds de todos os componentes mínimos |
-| Boot experimental | Composição, initramfs, dm-verity, GPT RAW e qcow2 por streaming na Store; sem sistema próprio inicializável | Pipeline System/CLI, rootfs, initramfs funcional, UKI assinada, ISO e boot por OVMF/disco |
-| Provisionamento | Validação de layouts; helper de scratch privado e journal/recuperação no mesmo boot verificados em VM | Operações privilegiadas de provisionamento; ferramentas das pilhas, credenciais e testes destrutivos em discos virtuais |
-| Gerações | Gerações atuais de serviços preservadas | Raiz A/B, saúde, confirmação, fallback, rollback e retenção de sistemas completos |
-| Adoção | Inventário e comparação somente leitura de sysctls declarados pela CLI de planos | Ownership, contratos de aplicação/restauração, módulos, mounts, serviços e fixtures de Arch, Debian e Ubuntu |
-| Publicação | Identidades CAS existentes preservadas | Imagens qualificadas, fontes/licenças/SBOM, assinaturas, vulnerabilidades e attestations |
+| Foundations | Services migration; chunked Store; system v3 results and v2 bundles; producer of large outputs from directories and own worker/coordinator transfer protocol verified with two processes; admission of the eight budgets through local configuration and the CLI plan; inventory and comparison of sysctls/disk binding through the CLI; budget/graph validators; System and HostConfiguration in the std and planning | System profile with enforcement and integration of the protocol into the executor; catalog receipts/authorizations; integration of the plans with application and system builds |
+| Bootstrap | Current managed toolchain available for ordinary recipes | Authenticated seed and qualified complete chain of compilers, sysroot and Rust |
+| Own base | No qualified own userspace/kernel | Recipes and builds of all minimal components |
+| Experimental boot | Composition, initramfs, dm-verity, GPT RAW and qcow2 by streaming into the Store; no bootable own system | System/CLI pipeline, rootfs, functional initramfs, signed UKI, ISO and boot through OVMF/disk |
+| Provisioning | Layout validation; private scratch helper and same-boot journal/recovery verified in a VM | Privileged provisioning operations; stack tools, credentials and destructive tests on virtual disks |
+| Generations | Current services generations preserved | A/B root, health, confirmation, fallback, rollback and retention of complete systems |
+| Adoption | Read-only inventory and comparison of declared sysctls through the plan CLI | Ownership, application/restore contracts, modules, mounts, services and Arch, Debian and Ubuntu fixtures |
+| Publication | Existing CAS identities preserved | Qualified images, sources/licenses/SBOM, signatures, vulnerabilities and attestations |
 
-O ambiente observado continua sem `/dev/kvm` e sem QEMU no `PATH`. A leitura de
-sysfs/proc e as fixtures de validação não substituem a qualificação por firmware,
-disco e boot. As etapas independentes dessas capacidades continuam autorizadas.
+The observed environment still has no `/dev/kvm` and no QEMU on `PATH`.
+Reading sysfs/proc and the validation fixtures do not replace qualification
+through firmware, disk and boot. The stages that do not depend on these
+capabilities remain authorized.
 
-## 21. Publicação e manutenção
+## 21. Publication and maintenance
 
-As imagens deverão incluir evidências de:
+The images should include evidence of:
 
-- Revisão do core e catálogo.
-- Fontes, patches e configurações.
-- Toolchain e semente.
-- Dependências e licenças.
+- Review of the core and catalog.
+- Sources, patches and configurations.
+- Toolchain and seed.
+- Dependencies and licenses.
 - SBOM.
-- Verificação de vulnerabilidades.
-- Testes e ambientes.
+- Vulnerability scanning.
+- Tests and environments.
 - Checksums.
-- Proveniência.
-- Verificação das assinaturas.
+- Provenance.
+- Signature verification.
 
-As políticas atuais de locks explícitos, identidade de artefatos e publicação
-qualificada serão estendidas aos componentes do sistema.
+The current policies of explicit locks, artifact identity and qualified
+publication will be extended to the system components.
 
-Mudanças no kernel, configuração, toolchain, armazenamento ou boot produzirão
-novas identidades e exigirão a qualificação correspondente.
+Changes to the kernel, configuration, toolchain, storage or boot will produce
+new identities and will require the corresponding qualification.
 
-## 22. Limites do primeiro ciclo
+## 22. Limits of the first cycle
 
-O primeiro ciclo contempla x86_64, UEFI, systemd, console, rede, SSH, gerações
-imutáveis, Secure Boot, ext4, LUKS2, LVM, RAID1 e RAID10.
+The first cycle covers x86_64, UEFI, systemd, console, network, SSH, immutable
+generations, Secure Boot, ext4, LUKS2, LVM, RAID1 and RAID10.
 
-Ficam para expansões posteriores:
+Left for later expansions:
 
-- Desktop gráfico e integração de GPU/áudio.
-- ARM64 e outras arquiteturas.
-- BIOS legado.
+- Graphical desktop and GPU/audio integration.
+- ARM64 and other architectures.
+- Legacy BIOS.
 - TPM2.
-- Btrfs e ZFS.
-- RAID0, RAID5 e RAID6.
-- Redução e movimentação de volumes.
-- Atualização de firmware da máquina.
-- Migração automática da raiz de uma distribuição.
-- Qualificação de hardware físico.
+- Btrfs and ZFS.
+- RAID0, RAID5 and RAID6.
+- Shrinking and moving volumes.
+- Machine firmware updates.
+- Automatic migration of a distribution's root.
+- Physical hardware qualification.
 
-O ambiente local observado em 21 de outubro de 2026 não tem `/dev/kvm`. A
-implementação precisará de um builder e ambiente de teste com recursos adequados
-antes de afirmar a qualificação do sistema completo.
+The local environment observed on October 21, 2026 has no `/dev/kvm`. The
+implementation will need a builder and test environment with adequate resources
+before claiming qualification of the complete system.
