@@ -18,8 +18,9 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     io::{self, Read, Write},
 };
+use syrox_encoding::formats;
 
-const HEADER: &[u8] = b"syrox-system-worker-outputs-v1\n";
+const HEADER: &[u8] = formats::SYSTEM_WORKER_OUTPUTS_LINE.as_bytes();
 
 /// Transfer an exact output set from already settled, explicitly pinned trees.
 /// Preflight charges all frames, including duplicate content, against one
@@ -251,7 +252,7 @@ fn validate_names<'a>(names: impl Iterator<Item = &'a str>) -> Result<(), Result
 
 fn budget_pin(budget: &AdmittedBudget) -> ContentDigest {
     let mut hash = Sha256::new();
-    hash.update(b"syrox-system-output-budget-v1\n");
+    hash.update(formats::SYSTEM_OUTPUT_BUDGET_LINE);
     hash.update(budget.policy_fingerprint());
     let request = budget.request();
     for value in [

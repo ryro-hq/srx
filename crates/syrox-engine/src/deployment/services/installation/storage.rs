@@ -6,8 +6,9 @@ use std::os::fd::BorrowedFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+use syrox_encoding::formats;
 
-const ID_HEADER: &str = "syrox-os-installation-v1\n";
+const ID_HEADER: &str = formats::SERVICES_INSTALLATION_LINE;
 #[cfg(test)]
 thread_local! {
     static WAIT_SIGNAL: std::cell::RefCell<Option<std::sync::mpsc::Sender<()>>> = const { std::cell::RefCell::new(None) };

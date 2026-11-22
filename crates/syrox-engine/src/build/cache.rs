@@ -6,6 +6,7 @@ use std::io::Read as _;
 use std::ops::Deref;
 use std::path::Path;
 use std::time::{Duration, Instant};
+use syrox_encoding::formats;
 
 use super::records::{Action, BuildDescription, MAX_RECORD_BYTES, Receipt, invalid};
 
@@ -697,7 +698,7 @@ pub(crate) fn rebuild(store: &Store) -> Result<BuildIndexReport, BuildError> {
 }
 
 fn current_receipt(bytes: &[u8]) -> bool {
-    bytes.starts_with(b"syrox-build-result-v4\n")
+    bytes.starts_with(formats::BUILD_RESULT_LINE.as_bytes())
 }
 
 fn prune_stale(
@@ -833,7 +834,7 @@ fn read_index_bytes(
 }
 
 fn encode_index(action: ContentDigest, entries: &[Candidate]) -> Vec<u8> {
-    let mut text = format!("syrox-build-index\naction {action}\n");
+    let mut text = format!("{}\naction {action}\n", formats::BUILD_INDEX.tag);
     for entry in entries {
         writeln!(text, "result {} {}", entry.receipt, entry.root)
             .expect("String writes are infallible");
@@ -847,7 +848,7 @@ fn parse_index(action: ContentDigest, bytes: &[u8]) -> Result<Vec<Candidate>, Bu
     }
     let text = std::str::from_utf8(bytes).map_err(problem)?;
     let mut lines = text.lines();
-    if lines.next() != Some("syrox-build-index")
+    if lines.next() != Some(formats::BUILD_INDEX.tag)
         || lines.next() != Some(format!("action {action}").as_str())
     {
         return Err(invalid("wrong action index identity"));

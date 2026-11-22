@@ -16,6 +16,7 @@ use std::{
     io,
     time::{Duration, Instant},
 };
+use syrox_encoding::formats;
 
 /// Standalone qcow2 plus the complete supplied RAW/GPT provenance closure.
 /// No boot, installation or signing authority follows from this handle.
@@ -161,7 +162,7 @@ pub fn build_qcow2(
         image_sha256: image.manifest().content_digest().to_string(),
         image_bytes: written.bytes,
     };
-    let mut bytes = b"syrox-qcow2-image-v1\n".to_vec();
+    let mut bytes = formats::QCOW2_IMAGE_LINE.as_bytes().to_vec();
     serde_json::to_writer(&mut bytes, &metadata).map_err(io::Error::other)?;
     bytes.push(b'\n');
     let manifest = ContentDigest::sha256(&bytes);

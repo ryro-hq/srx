@@ -11,8 +11,9 @@ use std::{
     collections::BTreeMap,
     io::{Read, Write},
 };
+use syrox_encoding::formats;
 
-const HEADER: &[u8] = b"syrox-system-bundle-v2\n";
+const HEADER: &[u8] = formats::SYSTEM_BUNDLE_LINE.as_bytes();
 
 /// Every object is ordered by its digest, including chunk manifests. The result
 /// is pinned separately and travels first. Receipt/source/toolchain closures are

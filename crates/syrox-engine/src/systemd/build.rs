@@ -5,6 +5,7 @@ use super::{
 };
 use crate::{cancellation::Cancellation, store::ContentDigest};
 use std::time::Duration;
+use syrox_encoding::formats;
 
 pub(crate) struct ObservedBuildUnit {
     pub(crate) manager: SystemdManagerIdentity,
@@ -52,7 +53,9 @@ impl SystemdManager {
                 // property, including ExecStartEx, is validated again.
                 return Ok(None);
             }
-            let mut bytes = b"syrox-observed-build-unit-v1\n".to_vec();
+            let mut bytes = formats::OBSERVED_BUILD_UNIT_LINE
+                .as_bytes()
+                .to_vec();
             bytes.extend(serde_json::to_vec(&first).map_err(|_| changed())?);
             budget.check()?;
             Ok(Some(ObservedBuildUnit {

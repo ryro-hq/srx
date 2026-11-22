@@ -4,6 +4,7 @@ use std::os::fd::{AsFd as _, AsRawFd as _, BorrowedFd};
 use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::process::ExitStatusExt as _;
 use std::process::ExitStatus;
+use syrox_encoding::formats;
 
 use serde::{Deserialize, Serialize};
 
@@ -75,7 +76,7 @@ impl EntryMetadata {
 
     pub(crate) fn encode(&self) -> io::Result<String> {
         let value = WireMetadata {
-            domain: "syrox-command-execution".into(),
+            domain: formats::COMMAND_EXECUTION.tag.into(),
             version: 2,
             context: String::from_utf8(self.context.canonical_bytes()?).map_err(|_| invalid())?,
             execution: self.execution.to_string(),
@@ -96,7 +97,7 @@ impl EntryMetadata {
             return Err(invalid());
         }
         let value: WireMetadata = serde_json::from_str(text).map_err(|_| invalid())?;
-        if value.domain != "syrox-command-execution" || value.version != 2 {
+        if value.domain != formats::COMMAND_EXECUTION.tag || value.version != 2 {
             return Err(invalid());
         }
         let parsed = Self {
@@ -213,7 +214,9 @@ fn arguments_pin(arguments: &[OsString]) -> io::Result<ContentDigest> {
     if arguments.len() > MAX_ARGUMENTS {
         return Err(invalid());
     }
-    let mut canonical = b"syrox-command-root-arguments-v1\n".to_vec();
+    let mut canonical = formats::COMMAND_ROOT_ARGUMENTS_LINE
+        .as_bytes()
+        .to_vec();
     canonical.extend_from_slice(&(arguments.len() as u64).to_le_bytes());
     let mut total = 0;
     for argument in arguments {

@@ -4,6 +4,7 @@ use std::io;
 use std::os::fd::{AsFd as _, BorrowedFd, OwnedFd};
 use std::os::unix::ffi::{OsStrExt as _, OsStringExt as _};
 use std::path::{Path, PathBuf};
+use syrox_encoding::formats;
 
 use serde::{Deserialize, Serialize};
 
@@ -109,7 +110,9 @@ impl ProxyRequest {
                 .collect(),
             cwd: self.cwd.as_os_str().as_bytes().to_vec(),
         };
-        let mut bytes = b"syrox-shell-command-request-v1\n".to_vec();
+        let mut bytes = formats::SHELL_COMMAND_REQUEST_LINE
+            .as_bytes()
+            .to_vec();
         serde_json::to_writer(&mut bytes, &wire).map_err(|_| invalid())?;
         bytes.push(b'\n');
         if bytes.len() > MAX_REQUEST_BYTES {
@@ -123,7 +126,7 @@ impl ProxyRequest {
             return Err(invalid());
         }
         let body = bytes
-            .strip_prefix(b"syrox-shell-command-request-v1\n")
+            .strip_prefix(formats::SHELL_COMMAND_REQUEST_LINE.as_bytes())
             .ok_or_else(invalid)?;
         let wire: WireRequest = serde_json::from_slice(body).map_err(|_| invalid())?;
         if wire.version != 1 {

@@ -13,6 +13,7 @@
 use std::io::{self, Read};
 use std::path::Path;
 use std::sync::Arc;
+use syrox_encoding::formats;
 
 #[cfg(test)]
 thread_local! {
@@ -51,7 +52,7 @@ pub const MAX_RECOVERY_CANDIDATES: u64 = 1_000_000;
 pub const MAX_RECOVERY_WORK: u64 = 2_000_000;
 
 #[cfg(target_os = "linux")]
-const ROOT_HEADER: &str = "syrox-root\n";
+const ROOT_HEADER: &str = formats::STORE_ROOT_LINE;
 #[cfg(target_os = "linux")]
 const OBJECT_TEMP_PREFIX: &str = ".syrox-store.tmp.";
 #[cfg(target_os = "linux")]

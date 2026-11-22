@@ -4,8 +4,9 @@ use super::{
 };
 use serde::{Deserialize, Serialize};
 use std::io::Read as _;
+use syrox_encoding::formats;
 
-const HEADER: &[u8] = b"syrox-system-build-payload-v1\n";
+const HEADER: &[u8] = formats::SYSTEM_BUILD_PAYLOAD_LINE.as_bytes();
 const MAX_RECORD: u64 = 8192;
 
 /// Carries the coordinator's already selected policy and helper observation.

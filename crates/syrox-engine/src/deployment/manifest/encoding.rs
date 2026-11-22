@@ -3,11 +3,12 @@ use crate::{result::OutputIdentity, result::OutputOrigin, store::ContentDigest};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
+use syrox_encoding::formats;
 
 pub(in crate::deployment) const MAX_BYTES: usize = 64 * 1024 * 1024;
 pub(in crate::deployment) const MAX_ITEMS: usize = 65_536;
-const HEADER: &[u8] = b"syrox-generation-v2\n";
-const SHELL_HEADER: &[u8] = b"syrox-shell-session-v2\n";
+const HEADER: &[u8] = formats::GENERATION_LINE.as_bytes();
+const SHELL_HEADER: &[u8] = formats::SHELL_SESSION_LINE.as_bytes();
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

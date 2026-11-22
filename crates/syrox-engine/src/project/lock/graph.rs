@@ -1,5 +1,6 @@
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
+use syrox_encoding::formats;
 
 use super::{
     LockFormatError, MAX_LOCK_BYTES, decode_hex, digest, ensure_sorted_unique, framed, hash,
@@ -148,7 +149,7 @@ impl GraphLock {
         }
         let text = std::str::from_utf8(data).map_err(|_| LockFormatError::NonCanonical)?;
         let mut lines = text[..text.len() - 1].split('\n');
-        if next_line(&mut lines)? != "syrox-graph-lock-v2"
+        if next_line(&mut lines)? != formats::GRAPH_LOCK.tag
             || next_line(&mut lines)? != "hash sha256"
         {
             return Err(LockFormatError::UnknownRecord);
@@ -196,7 +197,8 @@ impl GraphLock {
 
     fn encode(&self) -> Result<Vec<u8>, LockFormatError> {
         let mut output = super::LockEncoder::new(MAX_LOCK_BYTES);
-        output.push_str("syrox-graph-lock-v2\nhash sha256\nparent ")?;
+        output.push_str(formats::GRAPH_LOCK.tag)?;
+        output.push_str("\nhash sha256\nparent ")?;
         hex_into(&mut output, &self.parent)?;
         output.push_str("\ngraph ")?;
         hex_into(
@@ -221,7 +223,7 @@ impl GraphLock {
 
 fn graph_digest(parent: &[u8; 32], edges: &[ProjectEdge]) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    framed(&mut hasher, b"syrox-graph-lock-v2");
+    framed(&mut hasher, formats::GRAPH_LOCK.tag.as_bytes());
     framed(&mut hasher, parent);
     hasher.update((edges.len() as u64).to_be_bytes());
     for edge in edges {

@@ -7,6 +7,7 @@
 use std::fs;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
+use syrox_encoding::formats;
 
 use super::{
     BuildError, BuildRecoveryEntry, BuildRecoveryReport, BuildRecoveryState, BuildResult, sandbox,
@@ -20,9 +21,9 @@ pub(super) mod managed;
 pub(super) const MAX_OPERATIONS: usize = 1024;
 const MAX_FILES: usize = 32;
 pub(super) const TEMP_PREFIX: &str = ".syrox-build.tmp.";
-const AUTHORIZED: &[u8] = b"syrox-build-authorized\n";
-const REVOKED: &[u8] = b"syrox-build-revoked\n";
-const CLEANED: &[u8] = b"syrox-build-cleaned\n";
+const AUTHORIZED: &[u8] = formats::BUILD_AUTHORIZED_LINE.as_bytes();
+const REVOKED: &[u8] = formats::BUILD_REVOKED_LINE.as_bytes();
+const CLEANED: &[u8] = formats::BUILD_CLEANED_LINE.as_bytes();
 
 /// Producer-owned budget, persisted before admission releases its namespace
 /// lock. It is not part of the reusable result or mounted into the payload.
@@ -45,8 +46,10 @@ impl Attempt {
 
     fn encode(self) -> String {
         format!(
-            "syrox-build-attempt-v1\naction {}\ntimeout {}\n",
-            self.action, self.timeout_seconds
+            "{}\naction {}\ntimeout {}\n",
+            formats::BUILD_ATTEMPT.tag,
+            self.action,
+            self.timeout_seconds
         )
     }
 
@@ -59,7 +62,7 @@ impl Attempt {
     fn parse(bytes: &[u8]) -> Result<Self, BuildError> {
         let text = std::str::from_utf8(bytes).map_err(problem)?;
         let mut lines = text.lines();
-        if lines.next() != Some("syrox-build-attempt-v1") {
+        if lines.next() != Some(formats::BUILD_ATTEMPT.tag) {
             return Err(invalid("unsupported build attempt"));
         }
         let action = lines
@@ -263,15 +266,18 @@ impl Operation {
     ) -> Result<BuildResult, BuildError> {
         let text = match &result {
             Ok(result) => format!(
-                "syrox-build-outcome\npublished {} {}\n",
-                result.root, result.receipt
+                "{}published {} {}\n",
+                formats::BUILD_OUTCOME_LINE,
+                result.root,
+                result.receipt
             ),
             Err(error) => {
                 let message = error.to_string();
                 // UTF-8 diagnostic text is informational, never recovery authority.
                 let end = message.floor_char_boundary(2048.min(message.len()));
                 format!(
-                    "syrox-build-outcome\nfailed\n{}\n",
+                    "{}failed\n{}\n",
+                    formats::BUILD_OUTCOME_LINE,
                     &message[..end]
                 )
             }
@@ -373,8 +379,10 @@ pub(super) fn enter_gate(path: &Path) -> Result<LaunchGate, BuildError> {
         &directory,
         "cgroup",
         format!(
-            "syrox-build-cgroup\n{relative}\n{} {}\n",
-            id.device, id.inode
+            "{}{relative}\n{} {}\n",
+            formats::BUILD_CGROUP_LINE,
+            id.device,
+            id.inode
         )
         .as_bytes(),
     )?;
@@ -531,8 +539,12 @@ pub(super) fn terminal_settlement(directory: &OpenedPath) -> Result<bool, BuildE
 
 fn identity(name: &str, boot: &str, parent: FileIdentity, directory: FileIdentity) -> String {
     let fields = format!(
-        "syrox-build-operation\n{name}\n{boot}\n{} {}\n{} {}\n",
-        parent.device, parent.inode, directory.device, directory.inode
+        "{}{name}\n{boot}\n{} {}\n{} {}\n",
+        formats::BUILD_OPERATION_LINE,
+        parent.device,
+        parent.inode,
+        directory.device,
+        directory.inode
     );
     format!(
         "{fields}sha256 {}\n",
@@ -628,7 +640,7 @@ fn prove_empty(directory: &OpenedPath, name: &str) -> Result<(), BuildError> {
     let text = std::str::from_utf8(&bytes).map_err(problem)?;
     let lines: Vec<_> = text.lines().collect();
     if lines.len() != 3
-        || lines[0] != "syrox-build-cgroup"
+        || lines[0] != formats::BUILD_CGROUP.tag
         || !text.ends_with('\n')
         || !valid_group(lines[1], name)
     {

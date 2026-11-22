@@ -17,10 +17,11 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::os::fd::AsFd as _;
 use std::time::Instant;
+use syrox_encoding::formats;
 
 mod execution;
 pub use execution::{CapturedManagedBuildOutput, CommittedManagedBuild};
-const DOMAIN: &[u8] = b"syrox-managed-build-namespace-processed-v2\n";
+const DOMAIN: &[u8] = formats::MANAGED_BUILD_NAMESPACE_PROCESSED_LINE.as_bytes();
 const NAME: &str = "syrox-build-namespace";
 const RAW_O_LARGEFILE: u32 = 0x8000;
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]

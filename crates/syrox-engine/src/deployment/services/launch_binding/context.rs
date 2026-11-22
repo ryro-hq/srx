@@ -3,6 +3,7 @@ use crate::{store::ContentDigest, systemd::SystemdScope};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use syrox_encoding::formats;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -108,7 +109,8 @@ impl ServicesLaunchContext {
         let bytes = serde_json::to_vec(&(&self.manager, self.uid, self.gid))
             .expect("fixed context serialization");
         format!(
-            "syrox-os-scope-v1:{}",
+            "{}:{}",
+            formats::SERVICES_SCOPE.tag,
             ContentDigest::sha256(&bytes)
         )
     }

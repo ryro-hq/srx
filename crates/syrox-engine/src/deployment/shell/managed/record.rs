@@ -1,11 +1,12 @@
 use std::path::{Component, Path, PathBuf};
+use syrox_encoding::formats;
 
 use crate::platform::linux::boot::BootId;
 use crate::store::ContentDigest;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-const HEADER: &[u8] = b"syrox-shell-operation-v2\n";
+const HEADER: &[u8] = formats::SHELL_OPERATION_LINE.as_bytes();
 const MAX_METADATA_BYTES: usize = 16 * 1024;
 const MAX_SNAPSHOT_BYTES: usize = 64 * 1024 * 1024;
 

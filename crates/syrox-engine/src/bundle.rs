@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::io::{Read, Write};
+use syrox_encoding::formats;
 
 use thiserror::Error;
 
@@ -9,7 +10,7 @@ use crate::{
     store::StoreError,
 };
 
-const HEADER: &[u8] = b"syrox-runtime-bundle-v1\n";
+const HEADER: &[u8] = formats::RUNTIME_BUNDLE_LINE.as_bytes();
 pub const MAX_BUNDLE_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 mod system;

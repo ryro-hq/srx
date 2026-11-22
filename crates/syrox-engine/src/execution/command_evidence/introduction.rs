@@ -2,6 +2,7 @@ use std::io::{self, Read as _};
 use std::os::fd::{AsFd as _, BorrowedFd, OwnedFd};
 use std::path::Path;
 use std::time::Instant;
+use syrox_encoding::formats;
 
 use serde::{Deserialize, Serialize};
 
@@ -34,7 +35,7 @@ impl MonitorAnnouncement {
             return Err(invalid());
         }
         Ok(Self {
-            domain: "syrox-command-monitor".into(),
+            domain: formats::COMMAND_MONITOR.tag.into(),
             version: 1,
             sequence: 0,
             session: expected.session.clone(),
@@ -65,7 +66,8 @@ impl MonitorAnnouncement {
     }
     pub(crate) fn acknowledgment(&self) -> io::Result<Vec<u8>> {
         Ok(format!(
-            "syrox-command-monitor-ack-v1 {}\n",
+            "{} {}\n",
+            formats::COMMAND_MONITOR_ACK.tag,
             ContentDigest::sha256(&self.encode()?)
         )
         .into_bytes())

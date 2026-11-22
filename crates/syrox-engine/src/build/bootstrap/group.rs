@@ -3,12 +3,13 @@ use crate::result::artifact;
 use std::collections::BTreeMap;
 use std::io::Read as _;
 use std::path::Path;
+use syrox_encoding::formats;
 
 use super::records::NamedOutput;
 use super::{BuildError, MAX_OUTPUT_BYTES};
 use crate::store::ContentDigest;
 
-const HEADER: &[u8] = b"syrox-output-group\n";
+const HEADER: &[u8] = formats::OUTPUT_GROUP_LINE.as_bytes();
 pub(in crate::build) const MAX_GROUP_BYTES: u64 = 2 * MAX_OUTPUT_BYTES + 4096;
 
 /// A metadata manifest fixes each frame length; payload bytes are read once.

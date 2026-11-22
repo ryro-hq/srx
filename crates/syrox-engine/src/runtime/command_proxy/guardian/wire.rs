@@ -1,8 +1,9 @@
 use crate::runtime::command_proxy::wire::CommandProxyExit;
 use serde::{Deserialize, Serialize};
 use std::io;
+use syrox_encoding::formats;
 
-const DOMAIN: &[u8] = b"syrox-command-guardian-v2\n";
+const DOMAIN: &[u8] = formats::COMMAND_GUARDIAN_LINE.as_bytes();
 const MAX_BYTES: usize = 512;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

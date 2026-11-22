@@ -14,6 +14,7 @@ use crate::cancellation::{CancellableReader, Cancellation, cancellation_io, is_c
 use sha2::{Digest as _, Sha256};
 use std::collections::BTreeSet;
 use std::io::{self, Read, Write};
+use syrox_encoding::formats;
 
 mod writer;
 pub use writer::ChunkedStaging;
@@ -28,7 +29,7 @@ pub const CHUNK_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_CHUNKS: usize = 65_535;
 const _: () = assert!((MAX_CHUNKS as u64) < super::MAX_ROOT_REFERENCES);
 pub const MAX_ARTIFACT_BYTES: u64 = CHUNK_BYTES as u64 * MAX_CHUNKS as u64;
-const HEADER: &[u8] = b"syrox-chunked-artifact-v1\n";
+const HEADER: &[u8] = formats::CHUNKED_ARTIFACT_LINE.as_bytes();
 const FIXED_FIELDS: usize = 4 + 8 + 32 + 4;
 const MAX_MANIFEST_BYTES: usize = HEADER.len() + FIXED_FIELDS + 32 * MAX_CHUNKS;
 const IO_BYTES: usize = 64 * 1024;

@@ -10,6 +10,7 @@ use sha2::{Digest as _, Sha256};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
+use syrox_encoding::formats;
 
 #[derive(Debug, thiserror::Error)]
 #[error("Services manager effect failed during {stage}{detail}", detail = .source.as_ref().map(|error| format!(": {error}")).unwrap_or_default())]
@@ -642,7 +643,7 @@ pub(super) fn reload_target(contracts: &[&ServicesUnitContract]) -> ContentDiges
         .map(|contract| (contract.unit().as_str(), contract.file_digest()))
         .collect();
     let mut hash = Sha256::new();
-    hash.update(b"syrox-os-reload-target-v1\n");
+    hash.update(formats::SERVICES_RELOAD_TARGET_LINE);
     for (unit, pin) in sorted {
         hash.update(unit.as_bytes());
         hash.update([0]);

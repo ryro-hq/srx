@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::sync::OnceLock;
 use std::time::Duration;
+use syrox_encoding::formats;
 
 const PROPERTIES_INTERFACE: &str = "org.freedesktop.DBus.Properties";
 pub(super) type Members = BTreeMap<String, BTreeMap<String, String>>;
@@ -327,7 +328,7 @@ pub fn interface_contract() -> Result<SystemdInterfaceContract, SystemdError> {
     managed.retain(|_, members| !members.is_empty());
     Ok(SystemdInterfaceContract {
         schema: 1,
-        id: "syrox-systemd-v1",
+        id: formats::SYSTEMD_CONTRACT.tag,
         provider: "host",
         profiles: BTreeMap::from([
             (

@@ -16,6 +16,7 @@ use std::{
     io::{self, Read},
     time::{Duration, Instant},
 };
+use syrox_encoding::formats;
 
 /// Bind an already authenticated stream to one explicit GPT entry number.
 #[derive(Clone, Debug)]
@@ -204,7 +205,7 @@ pub fn build_raw(
         image_bytes: written.bytes,
         partitions: sources_manifest,
     };
-    let mut bytes = b"syrox-raw-image-v1\n".to_vec();
+    let mut bytes = formats::RAW_IMAGE_LINE.as_bytes().to_vec();
     serde_json::to_writer(&mut bytes, &metadata).map_err(io::Error::other)?;
     bytes.push(b'\n');
     let manifest = ContentDigest::sha256(&bytes);

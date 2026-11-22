@@ -2,9 +2,10 @@ use super::{AttemptBinding, AttemptId, OwnershipError, SessionId};
 use crate::store::ContentDigest;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use syrox_encoding::formats;
 
 pub(super) const MAX_BYTES: usize = 1024 * 1024;
-const HEADER: &[u8] = b"syrox-session-state-v2\n";
+const HEADER: &[u8] = formats::SESSION_STATE_LINE.as_bytes();
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -1,8 +1,9 @@
 use super::*;
+use syrox_encoding::formats;
 
 mod reopen;
 
-const DURABLE_HEADER: &[u8] = b"syrox-durable-interest-v1\n";
+const DURABLE_HEADER: &[u8] = formats::DURABLE_INTEREST_LINE.as_bytes();
 
 pub(crate) struct DurableInterest {
     inner: Arc<StoreInner>,

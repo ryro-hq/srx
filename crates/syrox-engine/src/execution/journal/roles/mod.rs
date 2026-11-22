@@ -12,6 +12,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::time::Instant;
+use syrox_encoding::formats;
 
 pub(crate) mod retention;
 
@@ -54,7 +55,7 @@ impl RoleBinding {
     }
     /// Stable pin excludes mutable authorization and the current attempt head.
     pub(crate) fn digest(&self) -> ContentDigest {
-        let mut bytes = b"syrox-service-role-v1\n".to_vec();
+        let mut bytes = formats::SERVICE_ROLE_LINE.as_bytes().to_vec();
         for field in [
             self.session.as_str(),
             self.name(),

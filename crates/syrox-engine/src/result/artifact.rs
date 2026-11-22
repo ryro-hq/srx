@@ -7,6 +7,7 @@ use std::io::Read as _;
 use std::io::SeekFrom;
 use std::os::unix::fs::MetadataExt as _;
 use std::path::Path;
+use syrox_encoding::formats;
 
 pub(crate) const MAX_OUTPUT_BYTES: u64 = 128 * 1024 * 1024;
 
@@ -33,7 +34,7 @@ pub(crate) fn relative_path(path: &str) -> bool {
         })
 }
 
-pub(crate) const HEADER: &[u8] = b"syrox-artifact\n";
+pub(crate) const HEADER: &[u8] = formats::ARTIFACT_LINE.as_bytes();
 pub(crate) const MAX_FILES: usize = 16_384;
 
 /// Payload and expanded alias bytes have independent bounds. Only the system

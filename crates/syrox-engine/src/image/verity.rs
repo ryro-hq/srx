@@ -17,6 +17,7 @@ use std::{
     io::{self, Read as _},
     time::{Duration, Instant},
 };
+use syrox_encoding::formats;
 
 /// A data stream and separate root-first hash device, with pinned parameters.
 /// This handle proves artifact identity, not a signed boot or installation.
@@ -231,7 +232,7 @@ pub fn build_verity(
         root_hash: root_hash.to_string(),
         salt: ContentDigest::from_sha256_hash(salt).to_string(),
     };
-    let mut bytes = b"syrox-verity-image-v1\n".to_vec();
+    let mut bytes = formats::VERITY_IMAGE_LINE.as_bytes().to_vec();
     serde_json::to_writer(&mut bytes, &metadata).map_err(io::Error::other)?;
     bytes.push(b'\n');
     let manifest = ContentDigest::sha256(&bytes);

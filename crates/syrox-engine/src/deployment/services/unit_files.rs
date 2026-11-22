@@ -13,12 +13,13 @@ use std::os::fd::BorrowedFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+use syrox_encoding::formats;
 
 const MAX_UNIT: usize = 64 * 1024;
 const MAX_LEDGER: usize = 128 * 1024;
 const MAX_UNITS: usize = 256;
-const HEADER: &[u8] = b"syrox-unit-ownership-v1\n";
-const MARKER: &[u8] = b"# syrox-os-unit-v1\n";
+const HEADER: &[u8] = formats::UNIT_OWNERSHIP_LINE.as_bytes();
+const MARKER: &[u8] = formats::SERVICES_UNIT_MARKER.as_bytes();
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum UnitFilesError {

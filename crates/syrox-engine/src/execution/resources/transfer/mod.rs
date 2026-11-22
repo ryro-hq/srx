@@ -9,13 +9,14 @@ use serde::{Deserialize, Serialize};
 use std::os::fd::AsFd as _;
 use std::os::fd::{BorrowedFd, OwnedFd};
 use std::time::Instant;
+use syrox_encoding::formats;
 
 mod receiver;
 pub(crate) use receiver::ResourceReceiver;
 
-const OFFER: &[u8] = b"syrox-service-offer-v1\n";
-const CHUNK: &[u8] = b"syrox-service-chunk-v1\n";
-const RESOURCES: &[u8] = b"syrox-service-resources-v1";
+const OFFER: &[u8] = formats::SERVICE_OFFER_LINE.as_bytes();
+const CHUNK: &[u8] = formats::SERVICE_CHUNK_LINE.as_bytes();
+const RESOURCES: &[u8] = formats::SERVICE_RESOURCES.tag.as_bytes();
 const CHUNK_BYTES: usize = crate::execution::transport::MAX_BYTES - CHUNK.len() - 4;
 
 #[derive(Debug)]

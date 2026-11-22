@@ -3,9 +3,10 @@ use crate::{
     build::BuildProgram, result::OutputOrigin, store::ContentDigest, system::budget::BuildBudget,
 };
 use serde::{Deserialize, Serialize};
+use syrox_encoding::formats;
 
-const HEADER: &[u8] = b"syrox-system-build-action-v1\n";
-const PROFILE: &str = "syrox-system-managed-x86_64-v1";
+const HEADER: &[u8] = formats::SYSTEM_BUILD_ACTION_LINE.as_bytes();
+const PROFILE: &str = formats::SYSTEM_MANAGED_PROFILE.tag;
 const MAX_BYTES: usize = 2 * crate::build::MAX_BUILD_PROGRAM_BYTES + 64 * 1024;
 
 #[derive(Serialize, Deserialize)]
@@ -137,7 +138,7 @@ impl SystemBuildAction {
             program: syrox_encoding::hex(&self.template.program.encode()),
             budget: *self.budget.request(),
             policy: syrox_encoding::hex(self.budget.policy_fingerprint()),
-            output_protocol: "syrox-system-worker-outputs-v1".into(),
+            output_protocol: formats::SYSTEM_WORKER_OUTPUTS.tag.into(),
             settlement: "subreaper-echild".into(),
         };
         let mut bytes = HEADER.to_vec();
@@ -158,7 +159,7 @@ impl SystemBuildAction {
         if wire.profile != PROFILE
             || wire.budget != *budget.request()
             || wire.policy != syrox_encoding::hex(budget.policy_fingerprint())
-            || wire.output_protocol != "syrox-system-worker-outputs-v1"
+            || wire.output_protocol != formats::SYSTEM_WORKER_OUTPUTS.tag
             || wire.settlement != "subreaper-echild"
         {
             return Err(BuildError::InvalidRequest);

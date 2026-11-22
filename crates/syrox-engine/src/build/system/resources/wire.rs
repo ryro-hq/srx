@@ -1,8 +1,9 @@
 use super::{BuildError, ContentDigest, SystemBuildAction};
 use crate::result::artifact::ArtifactLimits;
 use serde::{Deserialize, Serialize};
+use syrox_encoding::formats;
 
-const HEADER: &[u8] = b"syrox-system-input-resources-v1\n";
+const HEADER: &[u8] = formats::SYSTEM_INPUT_RESOURCES_LINE.as_bytes();
 pub(super) const MAX_BYTES: usize = 32 * 1024;
 pub(super) const MINIMUM_RESERVE: u32 = 32;
 

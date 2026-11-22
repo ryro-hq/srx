@@ -15,6 +15,7 @@ use std::{
     io::{Read, Seek, SeekFrom},
     path::Path,
 };
+use syrox_encoding::formats;
 
 mod authorize;
 mod selection;
@@ -334,7 +335,7 @@ fn fingerprints(prepared: &PreparedPlan) -> Result<BTreeMap<PlanPackageId, Strin
                 ])
             });
         let value = serde_json::json!([
-            "syrox-artifact-recipe-v1",
+            formats::ARTIFACT_RECIPE.tag,
             owner,
             id.as_str(),
             sources,

@@ -3,6 +3,7 @@ use crate::store::ContentDigest;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::time::Duration;
+use syrox_encoding::formats;
 
 #[derive(Clone, Debug)]
 pub(crate) struct ServicesUnitInput {
@@ -94,8 +95,9 @@ impl ServicesUnitContract {
         ContentDigest::sha256(&self.render())
     }
     pub(crate) fn render(&self) -> Vec<u8> {
-        let mut result = String::from(
-            "# syrox-os-unit-v1\n[Unit]\nDefaultDependencies=yes\nCollectMode=inactive\nStopWhenUnneeded=no\n\n[Service]\nType=notify\nExitType=cgroup\nKillMode=mixed\nNotifyAccess=main\nFileDescriptorStoreMax=1\nFileDescriptorStorePreserve=no\nSendSIGKILL=yes\nKillSignal=SIGTERM\nFinalKillSignal=SIGKILL\nNoNewPrivileges=yes\nUMask=0077\nRemainAfterExit=no\nDelegate=no\nDynamicUser=no\nWorkingDirectory=/\nRootDirectory=\nRootImage=\nEnvironment=\nEnvironmentFile=\nPassEnvironment=\nUnsetEnvironment=\nStandardInput=null\nStandardOutput=journal\nStandardError=journal\n",
+        let mut result = String::from(formats::SERVICES_UNIT_MARKER);
+        result.push_str(
+            "[Unit]\nDefaultDependencies=yes\nCollectMode=inactive\nStopWhenUnneeded=no\n\n[Service]\nType=notify\nExitType=cgroup\nKillMode=mixed\nNotifyAccess=main\nFileDescriptorStoreMax=1\nFileDescriptorStorePreserve=no\nSendSIGKILL=yes\nKillSignal=SIGTERM\nFinalKillSignal=SIGKILL\nNoNewPrivileges=yes\nUMask=0077\nRemainAfterExit=no\nDelegate=no\nDynamicUser=no\nWorkingDirectory=/\nRootDirectory=\nRootImage=\nEnvironment=\nEnvironmentFile=\nPassEnvironment=\nUnsetEnvironment=\nStandardInput=null\nStandardOutput=journal\nStandardError=journal\n",
         );
         let (restart, delay, window, burst) = self.restart_properties();
         writeln!(result, "Restart={restart}\nRestartSec={delay}us\nRestartPreventExitStatus=78\nRestartForceExitStatus=\nSuccessExitStatus=").expect("String write");

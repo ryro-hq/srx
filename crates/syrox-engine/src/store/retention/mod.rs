@@ -9,8 +9,9 @@ use std::fmt::Write as _;
 use std::fs::File;
 use std::io::Write as _;
 use std::os::unix::fs::PermissionsExt as _;
+use syrox_encoding::formats;
 
-const HEADER: &str = "syrox-interest-v1\n";
+const HEADER: &str = formats::INTEREST_LINE;
 const MAX_INTEREST_BYTES: u64 = MAX_ROOT_BYTES * 2;
 const MAX_INTERESTS: u64 = MAX_GC_ROOTS;
 

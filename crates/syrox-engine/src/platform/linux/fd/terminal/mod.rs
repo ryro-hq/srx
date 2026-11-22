@@ -8,6 +8,7 @@ use std::fmt;
 use std::io;
 use std::mem::MaybeUninit;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
+use syrox_encoding::formats;
 
 mod relay;
 pub(crate) use relay::{RelayControl, RelayExit, RelayOptions, relay_controlled};
@@ -82,7 +83,7 @@ impl TerminalAttributes {
     pub(crate) fn fingerprint(&self) -> crate::store::ContentDigest {
         use sha2::{Digest as _, Sha256};
         let mut hash = Sha256::new();
-        hash.update(b"syrox-terminal-attributes-v1\0");
+        hash.update(formats::TERMINAL_ATTRIBUTES_NUL);
         for field in [
             self.0.c_iflag,
             self.0.c_oflag,

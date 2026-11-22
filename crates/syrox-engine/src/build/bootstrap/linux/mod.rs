@@ -7,6 +7,7 @@ use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, mpsc};
 use std::time::Duration;
+use syrox_encoding::formats;
 
 use sha2::{Digest as _, Sha256};
 
@@ -307,7 +308,8 @@ fn prepare_action(
         description,
         timeout_seconds: request.timeout_seconds,
         origin: format!(
-            "syrox-build-origin\nlock {}\npackage {}\ndomain {}\npath {:?}\n",
+            "{}lock {}\npackage {}\ndomain {}\npath {:?}\n",
+            formats::BUILD_ORIGIN_LINE,
             ContentDigest::from_sha256_hash(*plan.lock_digest()),
             request.package,
             request.package.domain(),

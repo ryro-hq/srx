@@ -18,6 +18,7 @@ mod worker_output;
 pub use worker_output::{receive_system_outputs, write_system_outputs};
 mod transport;
 use std::collections::{BTreeMap, BTreeSet};
+use syrox_encoding::formats;
 pub(crate) use transport::ArtifactReader;
 pub use transport::ChunkedOutput;
 
@@ -33,12 +34,12 @@ use crate::{
 /// Largest admitted manifest; legacy v2 remains capped at 1 MiB.
 pub const MAX_RESULT_MANIFEST_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_LEGACY_MANIFEST_BYTES: u64 = 1024 * 1024;
-const SYSTEM_HEADER: &[u8] = b"syrox-result-v3\n";
+const SYSTEM_HEADER: &[u8] = formats::RESULT_LINE.as_bytes();
 pub const MAX_RESULT_OUTPUTS: usize = 128;
 pub const MAX_RESULT_ARTIFACT_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_COMMANDS: usize = 128;
 const MAX_COMMAND_ROLES: usize = 1024;
-const HEADER: &[u8] = b"syrox-result-v2\n";
+const HEADER: &[u8] = formats::RESULT_V2_LINE.as_bytes();
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

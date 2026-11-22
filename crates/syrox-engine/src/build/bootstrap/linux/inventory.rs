@@ -1,4 +1,5 @@
 use super::*;
+use syrox_encoding::formats;
 
 pub(in crate::build) fn toolchain_inventory(
     root: &Path,
@@ -104,7 +105,7 @@ fn serialize_inventory(
     jobs: &mpsc::SyncSender<InventoryJob>,
     replies: &mpsc::Receiver<InventoryReply>,
 ) -> Result<(Vec<u8>, Vec<PathBuf>), BuildError> {
-    let mut bytes = b"syrox-host-toolchain\n".to_vec();
+    let mut bytes = formats::HOST_TOOLCHAIN_LINE.as_bytes().to_vec();
     let mut total = 0_u64;
     let mut blocked = Vec::new();
     let mut queue = InventoryQueue {

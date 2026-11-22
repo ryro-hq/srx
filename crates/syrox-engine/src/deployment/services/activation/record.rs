@@ -3,11 +3,12 @@ use crate::platform::linux::boot::BootId;
 use crate::{store::ContentDigest, systemd::SystemdUnitName};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use syrox_encoding::formats;
 
 pub(super) const MAX_OPERATIONS: usize = 128;
 pub(super) const MAX_RESOURCES: usize = 1024;
 pub(super) const MAX_ATTEMPTS: usize = 4096;
-const HEADER: &[u8] = b"syrox-os-activation-v1\n";
+const HEADER: &[u8] = formats::SERVICES_ACTIVATION_LINE.as_bytes();
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

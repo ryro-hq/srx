@@ -6,6 +6,7 @@ use super::{
 use crate::store::ContentDigest;
 use serde::Serialize;
 use std::time::Duration;
+use syrox_encoding::formats;
 
 const MAX_OBSERVATION: usize = 64 * 1024;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -119,7 +120,9 @@ impl SystemdManager {
                     continue;
                 }
                 budget.check()?;
-                let mut bytes = b"syrox-loaded-os-unit-v1\n".to_vec();
+                let mut bytes = formats::LOADED_SERVICES_UNIT_LINE
+                    .as_bytes()
+                    .to_vec();
                 bytes.extend(
                     serde_json::to_vec(&(
                         manager.fingerprint().to_string(),

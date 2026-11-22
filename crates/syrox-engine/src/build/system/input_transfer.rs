@@ -11,11 +11,12 @@ use crate::{
     store::ContentDigest,
 };
 use std::{os::fd::OwnedFd, time::Instant};
+use syrox_encoding::formats;
 
-const READY: &[u8] = b"syrox-system-input-ready-v1\n";
-const MANIFEST: &[u8] = b"syrox-system-input-manifest-v1\n";
-const BATCH: &[u8] = b"syrox-system-input-batch-v1\n";
-const ACCEPTED: &[u8] = b"syrox-system-input-accepted-v1\n";
+const READY: &[u8] = formats::SYSTEM_INPUT_READY_LINE.as_bytes();
+const MANIFEST: &[u8] = formats::SYSTEM_INPUT_MANIFEST_LINE.as_bytes();
+const BATCH: &[u8] = formats::SYSTEM_INPUT_BATCH_LINE.as_bytes();
+const ACCEPTED: &[u8] = formats::SYSTEM_INPUT_ACCEPTED_LINE.as_bytes();
 const FRAGMENT_BYTES: usize = 1024;
 const BATCH_FDS: usize = 64;
 

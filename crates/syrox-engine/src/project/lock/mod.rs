@@ -11,6 +11,7 @@ use std::mem::size_of;
 use std::os::unix::ffi::OsStrExt as _;
 
 use sha2::{Digest, Sha256};
+use syrox_encoding::formats;
 use thiserror::Error;
 
 use crate::{
@@ -187,10 +188,10 @@ impl LockManifest {
         let text = std::str::from_utf8(data).map_err(|_| LockFormatError::NonCanonical)?;
         let mut lines = text[..text.len() - 1].split('\n');
         let version = match next_line(&mut lines)? {
-            "syrox-lock" => 1,
-            "syrox-lock-v2" => 2,
-            "syrox-lock-v3" => 3,
-            "syrox-lock-v4" => 4,
+            formats::LOCK_V1 => 1,
+            formats::LOCK_V2 => 2,
+            formats::LOCK_V3 => 3,
+            formats::LOCK_V4 => 4,
             _ => return Err(LockFormatError::UnknownRecord),
         };
         expect_line(&mut lines, "hash sha256")?;
@@ -338,14 +339,15 @@ impl LockManifest {
             .iter()
             .any(|edge| edge.github_pin().is_some());
         output.push_str(if github {
-            "syrox-lock-v4\nhash sha256\nproject "
+            formats::LOCK_V4
         } else if !self.assets.is_empty() {
-            "syrox-lock-v3\nhash sha256\nproject "
+            formats::LOCK_V3
         } else if self.edges.is_empty() {
-            "syrox-lock\nhash sha256\nproject "
+            formats::LOCK_V1
         } else {
-            "syrox-lock-v2\nhash sha256\nproject "
+            formats::LOCK_V2
         })?;
+        output.push_str("\nhash sha256\nproject ")?;
         hex_into(&mut output, &self.project_digest)?;
         write!(&mut output, "\nmain {} ", self.main.size).map_err(|_| LockFormatError::TooLarge)?;
         hex_into(&mut output, &self.main.digest)?;
@@ -453,7 +455,7 @@ pub enum LockFormatError {
 
 pub(crate) fn standard_library_digest(sources: &[AuthenticatedStandardSource]) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    framed(&mut hasher, b"syrox-std");
+    framed(&mut hasher, formats::STD_DIGEST.tag.as_bytes());
     hasher.update((sources.len() as u64).to_be_bytes());
     for source in sources {
         framed(&mut hasher, source.name().as_bytes());
@@ -474,7 +476,7 @@ fn framed(hasher: &mut Sha256, bytes: &[u8]) {
 
 fn input_digest(name: &[u8], locator: &[u8], files: &[LockedFile]) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    framed(&mut hasher, b"syrox-input");
+    framed(&mut hasher, formats::INPUT_DIGEST.tag.as_bytes());
     framed(&mut hasher, name);
     framed(&mut hasher, locator);
     hasher.update((files.len() as u64).to_be_bytes());
@@ -488,7 +490,10 @@ fn input_digest(name: &[u8], locator: &[u8], files: &[LockedFile]) -> [u8; 32] {
 
 fn project_digest(main: &LockedFile, inputs: &[LockedInput]) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    framed(&mut hasher, b"syrox-project");
+    framed(
+        &mut hasher,
+        formats::PROJECT_DIGEST.tag.as_bytes(),
+    );
     hasher.update(main.size.to_be_bytes());
     framed(&mut hasher, &main.digest);
     hasher.update((inputs.len() as u64).to_be_bytes());
@@ -502,7 +507,7 @@ fn project_digest(main: &LockedFile, inputs: &[LockedInput]) -> [u8; 32] {
 
 fn standard_digest(files: &[LockedFile]) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    framed(&mut hasher, b"syrox-std");
+    framed(&mut hasher, formats::STD_DIGEST.tag.as_bytes());
     hasher.update((files.len() as u64).to_be_bytes());
     for file in files {
         framed(&mut hasher, &file.path);

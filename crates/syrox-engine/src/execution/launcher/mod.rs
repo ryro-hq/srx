@@ -12,10 +12,10 @@ pub(crate) mod coordinator;
 pub(crate) mod owner;
 #[allow(unsafe_code)]
 pub(crate) mod services;
-pub(crate) const RETENTION: &[u8] = b"syrox-owner-v1 retention";
-pub(crate) const PROCESSED: &[u8] = b"syrox-owner-v1 processed";
-pub(crate) const COMMIT: &[u8] = b"syrox-owner-v1 commit";
-pub(crate) const CLOSE: &[u8] = b"syrox-owner-v1 close";
+pub(crate) const RETENTION: &[u8] = syrox_encoding::formats::OWNER_RETENTION.as_bytes();
+pub(crate) const PROCESSED: &[u8] = syrox_encoding::formats::OWNER_PROCESSED.as_bytes();
+pub(crate) const COMMIT: &[u8] = syrox_encoding::formats::OWNER_COMMIT.as_bytes();
+pub(crate) const CLOSE: &[u8] = syrox_encoding::formats::OWNER_CLOSE.as_bytes();
 #[allow(unsafe_code)]
 pub(crate) mod rendezvous;
 #[allow(unsafe_code)]

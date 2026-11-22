@@ -9,9 +9,10 @@ use crate::{cancellation::Cancellation, store::ContentDigest};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::os::fd::AsFd as _;
 use std::time::Instant;
+use syrox_encoding::formats;
 
-const OFFER_DOMAIN: &[u8] = b"syrox-managed-build-resources-v1\n";
-const BATCH_DOMAIN: &[u8] = b"syrox-managed-build-resource-batch-v1\n";
+const OFFER_DOMAIN: &[u8] = formats::MANAGED_BUILD_RESOURCES_LINE.as_bytes();
+const BATCH_DOMAIN: &[u8] = formats::MANAGED_BUILD_RESOURCE_BATCH_LINE.as_bytes();
 const MAX_PACKET: usize = 4096;
 const MAX_MANIFEST: usize = 1024;
 const BATCH_FDS: usize = 64;

@@ -23,6 +23,7 @@ use crate::{
     store::{ContentDigest, RootName, Store, StoreError},
 };
 use std::path::{Path, PathBuf};
+use syrox_encoding::formats;
 use thiserror::Error;
 pub mod bootstrap;
 pub(crate) mod cache;
@@ -58,8 +59,8 @@ pub(crate) const MAX_SOURCE_BYTES: u64 = 16 * 1024 * 1024;
 pub(crate) const MAX_LARGE_SOURCE_BYTES: u64 = 32 * 1024 * 1024;
 // Large raw binaries do not pass through an archive decoder.
 pub(crate) const MAX_LARGE_RAW_SOURCE_BYTES: u64 = 128 * 1024 * 1024;
-pub(crate) const MANAGED_PROFILE: &str = "syrox-managed-program-x86_64-v2";
-pub(crate) const PROFILE: &str = "syrox-host-program-x86_64-v3";
+pub(crate) const MANAGED_PROFILE: &str = formats::MANAGED_PROGRAM_PROFILE.tag;
+pub(crate) const PROFILE: &str = formats::HOST_PROGRAM_PROFILE.tag;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BuildResources {

@@ -12,6 +12,7 @@ use crate::{
 };
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
+use syrox_encoding::formats;
 
 pub(crate) const MAX_RECORD_BYTES: u64 = 2 * super::MAX_BUILD_PROGRAM_BYTES as u64 + 32 * 1024;
 
@@ -122,7 +123,8 @@ impl Action {
         let profile = profile_name(self.program.profile);
         let envelope = envelope(self.program.resources);
         let mut text = format!(
-            "syrox-build-action-v5\nprofile {profile}\nsource {}\ntoolchain {}\nworker {}\ndirectory {}\nenvelope {envelope}\n",
+            "{}\nprofile {profile}\nsource {}\ntoolchain {}\nworker {}\ndirectory {}\nenvelope {envelope}\n",
+            formats::BUILD_ACTION.tag,
             self.source,
             optional_pin(self.toolchain),
             self.worker,
@@ -156,7 +158,7 @@ impl Action {
     pub(crate) fn parse(bytes: &[u8]) -> Result<Self, BuildError> {
         let text = record_text(bytes)?;
         let mut lines = text.lines();
-        if lines.next() != Some("syrox-build-action-v5") {
+        if lines.next() != Some(formats::BUILD_ACTION.tag) {
             return Err(invalid("unsupported action format"));
         }
         let profile = field(&mut lines, "profile ")?;
@@ -562,7 +564,8 @@ impl Receipt {
     }
     pub(crate) fn encode(&self) -> Vec<u8> {
         let mut text = format!(
-            "syrox-build-result-v4\naction {}\nsource {}\ntoolchain {}\ninputs {}\n",
+            "{}action {}\nsource {}\ntoolchain {}\ninputs {}\n",
+            formats::BUILD_RESULT_LINE,
             self.action,
             self.source,
             optional_pin(self.toolchain),
@@ -607,7 +610,7 @@ impl Receipt {
     pub(crate) fn parse(bytes: &[u8]) -> Result<Self, BuildError> {
         let text = record_text(bytes)?;
         let mut lines = text.lines();
-        if lines.next() != Some("syrox-build-result-v4") {
+        if lines.next() != Some(formats::BUILD_RESULT.tag) {
             return Err(invalid("unsupported receipt format"));
         }
         let action = digest(field(&mut lines, "action ")?)?;

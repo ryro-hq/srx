@@ -21,8 +21,9 @@ use serde::{Deserialize, Serialize};
 use std::os::fd::AsFd as _;
 use std::path::Path;
 use std::time::Instant;
+use syrox_encoding::formats;
 
-const DOMAIN: &[u8] = b"syrox-managed-build-hello-v1\n";
+const DOMAIN: &[u8] = formats::MANAGED_BUILD_HELLO_LINE.as_bytes();
 const MAX_HELLO: usize = 1024;
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

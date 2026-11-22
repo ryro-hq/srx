@@ -1,4 +1,5 @@
 use super::*;
+use syrox_encoding::formats;
 
 impl Store {
     /// Identity of permanent Store anchors, stable across reopening this Store.
@@ -70,7 +71,9 @@ impl DurableInterest {
     }
 }
 fn anchor(inner: &StoreInner) -> ContentDigest {
-    let mut bytes = b"syrox-durable-store-anchor-v1\n".to_vec();
+    let mut bytes = formats::DURABLE_STORE_ANCHOR_LINE
+        .as_bytes()
+        .to_vec();
     for identity in [
         inner.objects_parent.metadata().identity(),
         inner.objects.metadata().identity(),

@@ -4,6 +4,7 @@ use std::os::fd::AsFd;
 use std::os::unix::process::ExitStatusExt as _;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+use syrox_encoding::formats;
 
 use super::service_spec::{ServiceSpecError, receive_resources};
 use super::transport::PacketChannel;
@@ -14,13 +15,13 @@ use crate::{
 };
 use thiserror::Error;
 
-pub(super) const PROCESSED: &[u8] = b"syrox-service-v2 processed";
-pub(super) const NAMESPACE: &[u8] = b"syrox-service-v2 namespace";
-pub(super) const COMMIT: &[u8] = b"syrox-service-v2 commit";
+pub(super) const PROCESSED: &[u8] = formats::SERVICE_PROCESSED.as_bytes();
+pub(super) const NAMESPACE: &[u8] = formats::SERVICE_NAMESPACE.as_bytes();
+pub(super) const COMMIT: &[u8] = formats::SERVICE_COMMIT.as_bytes();
 
 mod protocol;
 pub(crate) use protocol::{ServiceAttemptChallenge, ServiceLaunchHello, ServiceLaunchRequest};
-pub(super) const DENIED: &[u8] = b"syrox-service-v2 denied";
+pub(super) const DENIED: &[u8] = formats::SERVICE_DENIED.as_bytes();
 
 #[derive(Debug, Error)]
 pub enum ServiceWorkerError {

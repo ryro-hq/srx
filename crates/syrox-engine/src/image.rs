@@ -20,6 +20,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     io::{self, Read},
 };
+use syrox_encoding::formats;
 
 mod verity;
 pub use verity::{BuiltVerity, build_verity};
@@ -209,7 +210,7 @@ pub fn build_initramfs(
     }
     let archive = staging.finish(ContentDigest::from_sha256_hash(written.sha256))?;
     let manifest = ImageManifest {
-        format: "syrox-initramfs-v1",
+        format: formats::INITRAMFS.tag,
         tree_sha256: ContentDigest::from_sha256_hash(written.tree_sha256).to_string(),
         tree_manifest_sha256: tree_manifest.to_string(),
         content_sha256: archive.manifest().content_digest().to_string(),
@@ -217,7 +218,7 @@ pub fn build_initramfs(
         bytes: written.bytes,
         components: provenance.into_iter().collect(),
     };
-    let mut manifest_bytes = b"syrox-system-image-v1\n".to_vec();
+    let mut manifest_bytes = formats::SYSTEM_IMAGE_LINE.as_bytes().to_vec();
     serde_json::to_writer(&mut manifest_bytes, &manifest).map_err(io::Error::other)?;
     manifest_bytes.push(b'\n');
     if manifest_bytes.len() as u64 > MAX_METADATA_BYTES {

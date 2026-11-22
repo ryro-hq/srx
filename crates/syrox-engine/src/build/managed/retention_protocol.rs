@@ -17,9 +17,10 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::os::fd::{AsFd as _, BorrowedFd};
 use std::time::Instant;
-const DOMAIN: &[u8] = b"syrox-managed-build-retention-processed-v1\n";
+use syrox_encoding::formats;
+const DOMAIN: &[u8] = formats::MANAGED_BUILD_RETENTION_PROCESSED_LINE.as_bytes();
 pub(in crate::build) const NAME: &str = "syrox-build-retention";
-const OBSERVED_DOMAIN: &[u8] = b"syrox-managed-build-retention-observed-v1\n";
+const OBSERVED_DOMAIN: &[u8] = formats::MANAGED_BUILD_RETENTION_OBSERVED_LINE.as_bytes();
 const RAW_O_LARGEFILE: u32 = 0x8000;
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]

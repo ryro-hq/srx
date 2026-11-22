@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::io::{self, Read};
 use std::path::Path;
 use std::time::Instant;
+use syrox_encoding::formats;
 
 use super::{GenerationManifest, PreparedGeneration};
 use crate::{
@@ -30,7 +31,7 @@ mod tests;
 const MAX_CANDIDATES: usize = 1024;
 const MAX_MANIFEST_BYTES: usize = super::manifest::MAX_BYTES;
 const MAX_LAUNCHER_BYTES: u64 = 128 * 1024 * 1024;
-const RECORD_HEADER: &[u8] = b"syrox-os-candidate-v1\n";
+const RECORD_HEADER: &[u8] = formats::SERVICES_CANDIDATE_LINE.as_bytes();
 
 #[derive(Debug, Error)]
 pub(crate) enum InstallationError {
@@ -566,7 +567,11 @@ fn metadata_root(id: &str, pin: ContentDigest) -> Result<RootName> {
 }
 fn root(id: &str, pin: ContentDigest, role: &str) -> Result<RootName> {
     let digest = ContentDigest::sha256(
-        format!("syrox-generation-root-v1\n{id}\n{pin}\n{role}\n").as_bytes(),
+        format!(
+            "{}{id}\n{pin}\n{role}\n",
+            formats::GENERATION_ROOT_LINE
+        )
+        .as_bytes(),
     );
     RootName::new(format!("os_{id}_{digest}"))
         .map_err(|_| InstallationError::Invalid("invalid generation root"))

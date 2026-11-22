@@ -8,12 +8,13 @@ use super::{activation::ExecutionEpoch, manifest::LauncherIdentity};
 use crate::{store::ContentDigest, systemd::SystemdUnitName};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use syrox_encoding::formats;
 use thiserror::Error;
 
 mod context;
 pub(crate) use context::ServicesLaunchContext;
 
-const HEADER: &[u8] = b"syrox-os-launch-v3\n";
+const HEADER: &[u8] = formats::SERVICES_LAUNCH_LINE.as_bytes();
 pub(crate) const MAX_LAUNCH_BINDING_BYTES: usize = 32 * 1024;
 #[derive(Debug, Error)]
 #[error("invalid Services launch binding: {0}")]

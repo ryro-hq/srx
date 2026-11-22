@@ -30,6 +30,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
+use syrox_encoding::formats;
 
 use crate::cancellation::Cancellation;
 use thiserror::Error;
@@ -344,7 +345,8 @@ impl SystemdManagerIdentity {
     }
     fn new(scope: SystemdScope, bus_guid: String, owner: String) -> Result<Self, SystemdError> {
         let bytes = format!(
-            "syrox-systemd-manager-v1\n{}\n{bus_guid}\n{owner}\n",
+            "{}{}\n{bus_guid}\n{owner}\n",
+            formats::SYSTEMD_MANAGER_LINE,
             scope.address()?
         );
         let fingerprint = crate::store::ContentDigest::sha256(bytes.as_bytes());

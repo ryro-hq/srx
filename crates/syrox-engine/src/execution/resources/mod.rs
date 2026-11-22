@@ -13,6 +13,7 @@ use std::ffi::OsString;
 use std::io;
 use std::os::fd::{AsRawFd as _, BorrowedFd, OwnedFd};
 use std::path::Path;
+use syrox_encoding::formats;
 use thiserror::Error;
 
 mod transfer;
@@ -24,7 +25,7 @@ pub(crate) const MAX_SERVICE_FDS: usize = 126;
 pub(crate) const MAX_SERVICE_ARGUMENTS: usize = 256;
 pub(crate) const MAX_SERVICE_ARGUMENT_BYTES: usize = 4096;
 pub(crate) const MAX_SPEC_BYTES: usize = 8 * 1024 * 1024;
-const HEADER: &[u8] = b"syrox-service-body-v1\n";
+const HEADER: &[u8] = formats::SERVICE_BODY_LINE.as_bytes();
 
 #[derive(Debug, Error)]
 pub(crate) enum ServiceSpecError {

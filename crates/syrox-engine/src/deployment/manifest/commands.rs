@@ -1,5 +1,6 @@
 use crate::result::valid_name;
 use std::collections::BTreeMap;
+use syrox_encoding::formats;
 
 use super::{ConsumerCommandKey, DeploymentError};
 
@@ -52,7 +53,9 @@ impl<'a> PreparedCommandIndex<'a> {
     /// Coordinator-only representation. The public context carries its digest,
     /// never this mapping; the broker retains the actual prepared authority.
     pub(crate) fn canonical_bytes(&self) -> Vec<u8> {
-        let mut bytes = b"syrox-shell-command-index-v1\n".to_vec();
+        let mut bytes = formats::SHELL_COMMAND_INDEX_LINE
+            .as_bytes()
+            .to_vec();
         for (alias, (service, command)) in self.exposures {
             append(&mut bytes, alias);
             bytes.push(u8::from(service.is_some()));

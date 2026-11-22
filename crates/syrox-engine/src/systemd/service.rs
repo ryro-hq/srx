@@ -5,6 +5,7 @@ use super::{
 };
 use crate::{cancellation::Cancellation, store::ContentDigest, systemd::SystemdUnitName};
 use std::time::Duration;
+use syrox_encoding::formats;
 
 pub(crate) struct ObservedServiceUnit {
     pub(crate) manager: SystemdManagerIdentity,
@@ -52,7 +53,9 @@ impl SystemdManager {
             manager == self.observe_identity_with(&budget)?,
             revision == self.bus.configuration_revision(),
         )?;
-        let mut bytes = b"syrox-observed-shell-service-v1\n".to_vec();
+        let mut bytes = formats::OBSERVED_SHELL_SERVICE_LINE
+            .as_bytes()
+            .to_vec();
         bytes.extend(
             serde_json::to_vec(&(
                 manager.fingerprint().to_string(),

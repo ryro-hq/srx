@@ -1,4 +1,5 @@
 use super::{BuildError, BuildResources, relative_path};
+use syrox_encoding::formats;
 
 pub const MAX_BUILD_PROGRAM_BYTES: usize = 256 * 1024;
 const MAX_STEPS: usize = 512;
@@ -364,7 +365,7 @@ impl BuildProgram {
 
     /// Canonical versioned encoding; graph-local IDs and resolved mount paths are absent.
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = Encoder(b"SRXBUILD\x02".to_vec());
+        let mut out = Encoder(formats::BUILD_PROGRAM_MAGIC.as_bytes().to_vec());
         out.byte(match self.profile {
             BuildProfile::HostBootstrap => 0,
             BuildProfile::Managed => 1,
@@ -458,7 +459,7 @@ impl BuildProgram {
         }
         let mut input = Decoder(
             bytes
-                .strip_prefix(b"SRXBUILD\x02")
+                .strip_prefix(formats::BUILD_PROGRAM_MAGIC.as_bytes())
                 .ok_or(BuildError::InvalidRequest)?,
         );
         let profile = match input.byte()? {

@@ -20,10 +20,11 @@ use std::fs::File;
 use std::os::fd::BorrowedFd;
 use std::os::unix::process::ExitStatusExt as _;
 use std::time::{Duration, Instant};
+use syrox_encoding::formats;
 
-const COMMIT: &[u8] = b"syrox-managed-build-commit-v1\n";
-const EXIT: &[u8] = b"syrox-managed-build-exit-v1\n";
-const ACK: &[u8] = b"syrox-managed-build-exit-observed-v1\n";
+const COMMIT: &[u8] = formats::MANAGED_BUILD_COMMIT_LINE.as_bytes();
+const EXIT: &[u8] = formats::MANAGED_BUILD_EXIT_LINE.as_bytes();
+const ACK: &[u8] = formats::MANAGED_BUILD_EXIT_OBSERVED_LINE.as_bytes();
 const ACK_TIMEOUT: Duration = Duration::from_secs(5);
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]

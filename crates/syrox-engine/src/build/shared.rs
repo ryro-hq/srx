@@ -7,6 +7,7 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use syrox_encoding::formats;
 
 use super::journal::{Attempt, Operation};
 use super::records::Action;
@@ -14,7 +15,7 @@ use super::{BuildError, BuildExecution, BuildResult, Cancellation, cache, journa
 use crate::platform::linux::fd::{self as fd, FlockMode, OpenedPath};
 use crate::{store::OperationLease, store::RootName, store::Store};
 
-pub(super) const CLOSING: &[u8] = b"syrox-build-closing\n";
+pub(super) const CLOSING: &[u8] = formats::BUILD_CLOSING_LINE.as_bytes();
 const POLL: Duration = Duration::from_millis(25);
 const WAIT_SETTLEMENT_MARGIN: Duration = Duration::from_mins(2);
 
