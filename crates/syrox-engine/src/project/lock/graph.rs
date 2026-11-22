@@ -1,11 +1,8 @@
-use sha2::{Digest, Sha256};
-use std::fmt::Write as _;
-use syrox_encoding::{formats, record};
+//! Edges from a project to the child projects whose locks it pins.
 
-use super::{
-    LockFormatError, MAX_LOCK_BYTES, decode_hex, digest, ensure_sorted_unique, framed, hash,
-    hex_into, is_canonical_logical_path,
-};
+use std::fmt::Write as _;
+
+use super::{LockFormatError, hex_into, is_canonical_logical_path};
 
 pub(crate) const MAX_PROJECT_EDGES: usize = 1024;
 
@@ -102,231 +99,18 @@ fn valid_origin(origin: &[u8]) -> bool {
         .is_some_and(is_canonical_logical_path)
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct GraphLock {
-    parent: [u8; 32],
-    edges: Vec<ProjectEdge>,
-    data: Vec<u8>,
-    digest: [u8; 32],
-}
-
-impl GraphLock {
-    pub(crate) fn generate(
-        parent: [u8; 32],
-        mut edges: Vec<ProjectEdge>,
-    ) -> Result<Self, LockFormatError> {
-        if edges.len() > MAX_PROJECT_EDGES
-            || edges
-                .iter()
-                .any(|edge| edge.github_pin().is_some())
-        {
-            return Err(LockFormatError::InvalidField);
-        }
-        edges.sort_by(|left, right| left.alias.cmp(&right.alias));
-        ensure_sorted_unique(edges.iter().map(|edge| edge.alias.as_slice()))?;
-        let mut manifest = Self {
-            parent,
-            edges,
-            data: Vec::new(),
-            digest: [0; 32],
-        };
-        manifest.data = manifest.encode()?;
-        manifest.digest = hash(&manifest.data);
-        Ok(manifest)
-    }
-
-    pub(crate) fn parse(data: &[u8]) -> Result<Self, LockFormatError> {
-        if data.len() > MAX_LOCK_BYTES {
-            return Err(LockFormatError::TooLarge);
-        }
-        if data.is_empty()
-            || !data.ends_with(b"\n")
-            || data
-                .iter()
-                .any(|byte| !byte.is_ascii() || *byte == b'\r' || *byte == b'\t')
-        {
-            return Err(LockFormatError::NonCanonical);
-        }
-        let text = std::str::from_utf8(data).map_err(|_| LockFormatError::NonCanonical)?;
-        let mut lines = record::Reader::new(text, &formats::GRAPH_LOCK)
-            .map_err(|error| super::earlier_format(text, formats::GRAPH_LOCK.tag, error))?;
-        lines.expect("hash sha256")?;
-        let [parent] = lines.words("parent")?;
-        let parent = digest(parent)?;
-        let [claimed] = lines.words("graph")?;
-        let claimed = digest(claimed)?;
-        let count = super::count_field(&mut lines, "edges")?;
-        if count > MAX_PROJECT_EDGES {
-            return Err(LockFormatError::InvalidField);
-        }
-        let mut edges = Vec::with_capacity(count);
-        for _ in 0..count {
-            let [alias, origin, child] = lines.words("edge")?;
-            let alias = decode_hex(alias)?;
-            let origin = decode_hex(origin)?;
-            let edge = ProjectEdge::new(
-                std::str::from_utf8(&alias).map_err(|_| LockFormatError::InvalidField)?,
-                std::str::from_utf8(&origin).map_err(|_| LockFormatError::InvalidField)?,
-                digest(child)?,
-            )?;
-            edges.push(edge);
-        }
-        lines.expect("end")?;
-        lines.finish()?;
-        ensure_sorted_unique(edges.iter().map(|edge| edge.alias.as_slice()))?;
-        if graph_digest(&parent, &edges) != claimed {
-            return Err(LockFormatError::InconsistentDigest);
-        }
-        let manifest = Self::generate(parent, edges)?;
-        if manifest.data != data {
-            return Err(LockFormatError::NonCanonical);
-        }
-        Ok(manifest)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn data(&self) -> &[u8] {
-        &self.data
-    }
-    #[cfg(test)]
-    pub(crate) const fn digest(&self) -> &[u8; 32] {
-        &self.digest
-    }
-
-    fn encode(&self) -> Result<Vec<u8>, LockFormatError> {
-        let mut output = super::LockEncoder::new(MAX_LOCK_BYTES);
-        output.push_str(formats::GRAPH_LOCK.tag)?;
-        output.push_str("\nhash sha256\nparent ")?;
-        hex_into(&mut output, &self.parent)?;
-        output.push_str("\ngraph ")?;
-        hex_into(
-            &mut output,
-            &graph_digest(&self.parent, &self.edges),
-        )?;
-        write!(&mut output, "\nedges {}\n", self.edges.len())
-            .map_err(|_| LockFormatError::TooLarge)?;
-        for edge in &self.edges {
-            output.push_str("edge ")?;
-            hex_into(&mut output, &edge.alias)?;
-            output.push_str(" ")?;
-            hex_into(&mut output, &edge.origin)?;
-            output.push_str(" ")?;
-            hex_into(&mut output, &edge.child_lock)?;
-            output.push_str("\n")?;
-        }
-        output.push_str("end\n")?;
-        Ok(output.finish())
-    }
-}
-
-fn graph_digest(parent: &[u8; 32], edges: &[ProjectEdge]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    framed(&mut hasher, formats::GRAPH_DIGEST.tag.as_bytes());
-    framed(&mut hasher, parent);
-    hasher.update((edges.len() as u64).to_be_bytes());
-    for edge in edges {
-        framed(&mut hasher, &edge.alias);
-        framed(&mut hasher, &edge.origin);
-        framed(&mut hasher, &edge.child_lock);
-    }
-    hasher.finalize().into()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn graph_edge_identity_binds_parent_origin_and_child_lock() {
-        let child = hash(b"child lock");
-        let edges = vec![ProjectEdge::new("pkgs", "path:../syrox-pkgs", child).unwrap()];
-        let first = GraphLock::generate(hash(b"parent"), edges.clone()).unwrap();
-        assert_eq!(GraphLock::parse(first.data()).unwrap(), first);
-        assert_ne!(
-            GraphLock::generate(hash(b"another parent"), edges.clone())
-                .unwrap()
-                .digest(),
-            first.digest()
-        );
-        assert_ne!(
-            GraphLock::generate(
-                hash(b"parent"),
-                vec![ProjectEdge::new("pkgs", "path:../other", child).unwrap()]
-            )
-            .unwrap()
-            .digest(),
-            first.digest()
-        );
-        assert_ne!(
-            GraphLock::generate(
-                hash(b"parent"),
-                vec![
-                    ProjectEdge::new(
-                        "pkgs",
-                        "path:../syrox-pkgs",
-                        hash(b"changed child")
-                    )
-                    .unwrap()
-                ]
-            )
-            .unwrap()
-            .digest(),
-            first.digest()
-        );
-        assert_ne!(
-            GraphLock::generate(
-                hash(b"parent"),
-                vec![ProjectEdge::new("other", "path:../syrox-pkgs", child).unwrap()]
-            )
-            .unwrap()
-            .digest(),
-            first.digest()
-        );
-        assert!(
-            GraphLock::generate(
-                hash(b"parent"),
-                vec![edges[0].clone(), edges[0].clone()]
-            )
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn pre_reset_graph_lock_is_refused_as_an_earlier_format() {
-        let edges = vec![ProjectEdge::new("a", "path:../a", hash(b"a")).unwrap()];
-        let lock = GraphLock::generate(hash(b"parent"), edges).unwrap();
-        let text = std::str::from_utf8(lock.data()).unwrap();
-        assert!(text.starts_with("syrox-graph-lock\n"));
-        let old = text.replacen("syrox-graph-lock\n", "syrox-graph-lock-v2\n", 1);
-        assert_eq!(
-            GraphLock::parse(old.as_bytes()),
-            Err(LockFormatError::EarlierFormat)
-        );
-    }
-
-    #[test]
-    fn graph_lock_refuses_reordered_edges_and_tampering() {
-        let edges = vec![
-            ProjectEdge::new("z", "path:../z", hash(b"z")).unwrap(),
-            ProjectEdge::new("a", "path:../a", hash(b"a")).unwrap(),
-        ];
-        let lock = GraphLock::generate(hash(b"parent"), edges).unwrap();
-        assert_eq!(GraphLock::parse(lock.data()).unwrap(), lock);
-        let mut changed = lock.data().to_vec();
-        let position = changed
-            .windows(5)
-            .position(|window| window == b"edge ")
-            .unwrap()
-            + 5;
-        changed[position] = if changed[position] == b'0' {
-            b'1'
-        } else {
-            b'0'
-        };
-        assert!(GraphLock::parse(&changed).is_err());
-        assert!(ProjectEdge::new("pkgs", "path:recipes", hash(b"x")).is_err());
-        assert!(ProjectEdge::new("pkgs", "path:../../escape", hash(b"x")).is_err());
-        assert!(ProjectEdge::new("std", "path:../child", hash(b"x")).is_err());
-        assert!(ProjectEdge::new("a", "path:../child/./bad", hash(b"x")).is_err());
+    fn edges_require_a_plain_alias_and_a_sibling_path_origin() {
+        let child = super::super::hash(b"child lock");
+        assert!(ProjectEdge::new("pkgs", "path:../syrox-pkgs", child).is_ok());
+        assert!(ProjectEdge::new("pkgs", "path:recipes", child).is_err());
+        assert!(ProjectEdge::new("pkgs", "path:../../escape", child).is_err());
+        assert!(ProjectEdge::new("std", "path:../child", child).is_err());
+        assert!(ProjectEdge::new("a", "path:../child/./bad", child).is_err());
+        assert!(ProjectEdge::new("1a", "path:../child", child).is_err());
     }
 }

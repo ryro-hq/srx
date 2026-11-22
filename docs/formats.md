@@ -39,8 +39,6 @@ checks that the registry still produces the same bytes.
 | Tag | Boundary | Owner | Older versions read | Summary |
 | --- | --- | --- | --- | --- |
 | `syrox-lock` | persisted | `syrox_engine::project::lock` | - | Project lock. Every section is always written: inputs, standard library, project edges (including GitHub pins) and assets. |
-| `syrox-graph-lock` | persisted | `syrox_engine::project::lock::graph` | - | Project graph lock header. |
-| `syrox-graph` | hash domain | `syrox_engine::project::lock::graph` | - | Length-framed domain of the project graph digest recorded in a graph lock. |
 | `syrox-std` | hash domain | `syrox_engine::project::lock` | - | Length-framed domain of the standard library digest bound by a lock. |
 | `syrox-input` | hash domain | `syrox_engine::project::lock` | - | Length-framed domain of one locked input's digest. |
 | `syrox-project` | hash domain | `syrox_engine::project::lock` | - | Length-framed domain of the locked project digest. |

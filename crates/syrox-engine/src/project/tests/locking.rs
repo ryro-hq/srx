@@ -275,7 +275,7 @@ fn graph_lock_failure_before_rename_preserves_the_whole_previous_manifest() {
 }
 
 #[test]
-fn legacy_sidecar_requires_relock_and_is_removed_after_single_manifest_publication() {
+fn pre_reset_graph_lock_requires_relock_and_is_removed_after_single_manifest_publication() {
     let workspace = TempProject::new();
     let child = workspace.0.join("child");
     let consumer = workspace.0.join("consumer");
@@ -290,12 +290,21 @@ fn legacy_sidecar_requires_relock_and_is_removed_after_single_manifest_publicati
     lock_project(&child).unwrap();
     lock_project(&consumer).unwrap();
     let current = fs::read(consumer.join(lock::LOCK_FILE_NAME)).unwrap();
-    let expected = lock::graph::GraphLock::generate([0; 32], vec![]).unwrap();
-    fs::write(consumer.join("Syrox.graph.lock"), expected.data()).unwrap();
+    fs::write(
+        consumer.join("Syrox.graph.lock"),
+        "syrox-graph-lock-v2\nhash sha256\n",
+    )
+    .unwrap();
+    let error = check_project_lock(&consumer).unwrap_err();
     assert!(matches!(
-        check_project_lock(&consumer),
-        Err(ProjectOperationError::GraphDrift)
+        error,
+        ProjectOperationError::EarlierGraphLock
     ));
+    assert!(
+        error
+            .to_string()
+            .contains("run `srx project lock`")
+    );
     assert!(matches!(
         lock_project(&consumer).unwrap().status(),
         lock::LockStatus::Updated

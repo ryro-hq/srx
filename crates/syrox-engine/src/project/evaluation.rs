@@ -8,7 +8,7 @@ use syrox_lang::{
 
 use super::{
     CheckConfiguration, CheckFailure, LoadedProject, ProjectOperationError, analyze, compare_lock,
-    loader, map_generated_lock_error, project_plan, read_graph_lock, read_lock,
+    graph_lock_present, loader, map_generated_lock_error, project_plan, read_lock,
     validate_lock_policy, validate_project_limits,
 };
 
@@ -747,8 +747,8 @@ pub fn open_locked_project_with(
         name: crate::project::lock::LOCK_FILE_NAME,
     })?;
     compare_lock(&actual, &expected)?;
-    if read_graph_lock(&loaded)?.is_some() {
-        return Err(ProjectOperationError::GraphDrift);
+    if graph_lock_present(&loaded)? {
+        return Err(ProjectOperationError::EarlierGraphLock);
     }
     let checked = analyze::check_loaded(&loaded, configuration)?;
     let mut configuration = configuration.clone();

@@ -4,7 +4,7 @@ use std::path::Path;
 
 use super::{
     CheckConfiguration, LockedProject, PreparedPlan, ProjectOperationError, analyze, compare_lock,
-    expected_lock, loader, lock, map_lock_publication, read_graph_lock, read_lock,
+    expected_lock, graph_lock_present, loader, lock, map_lock_publication, read_lock,
     validate_lock_policy, validate_project_limits,
 };
 use crate::platform::linux::fd::{self, FlockMode, OpenedPath};
@@ -52,8 +52,8 @@ pub fn prepare_project_consumer_refresh_root_with(
         Some(lock::LockDrift::Project) => return Err(ProjectOperationError::ProjectDrift),
         None => {}
     }
-    if read_graph_lock(&loaded)?.is_some() {
-        return Err(ProjectOperationError::GraphDrift);
+    if graph_lock_present(&loaded)? {
+        return Err(ProjectOperationError::EarlierGraphLock);
     }
     let checked = analyze::check_loaded(&loaded, configuration)?;
     let project = LockedProject {
@@ -72,7 +72,7 @@ pub fn prepare_project_consumer_refresh_root_with(
     if current.root.metadata().identity() != mutation.metadata().identity()
         || expected_lock(&current, configuration)?.data() != expected.data()
         || read_lock(&current)?.as_ref() != Some(&actual)
-        || read_graph_lock(&current)?.is_some()
+        || graph_lock_present(&current)?
     {
         return Err(ProjectOperationError::ConcurrentEdit);
     }

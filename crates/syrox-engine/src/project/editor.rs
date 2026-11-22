@@ -408,7 +408,7 @@ pub fn open_project_analysis_with(
         None => ProjectAnalysisLockStatus::Missing,
         Some(actual)
             if super::compare_lock(&actual, &expected).is_ok()
-                && super::read_graph_lock(&loaded)?.is_none() =>
+                && !super::graph_lock_present(&loaded)? =>
         {
             ProjectAnalysisLockStatus::Current
         }

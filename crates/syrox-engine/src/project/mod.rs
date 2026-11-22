@@ -366,10 +366,10 @@ pub enum ProjectOperationError {
     UnknownProjectSourceOrigin {
         path: String,
     },
-    #[error("project graph lock is malformed or noncanonical: {source}")]
-    MalformedGraphLock {
-        source: lock::LockFormatError,
-    },
+    #[error(
+        "Syrox.graph.lock was written by an earlier srx format; run `srx project lock` to remove it"
+    )]
+    EarlierGraphLock,
     #[error("authenticated standard library has drifted from the lock")]
     StandardLibraryDrift,
     #[error("project lock is a symbolic link")]
@@ -633,8 +633,8 @@ pub fn fetch_project_inputs_with(
             name: lock::LOCK_FILE_NAME,
         })?;
         compare_lock(&actual, &expected_lock(&loaded, configuration)?)?;
-        if read_graph_lock(&loaded)?.is_some() {
-            return Err(ProjectOperationError::GraphDrift);
+        if graph_lock_present(&loaded)? {
+            return Err(ProjectOperationError::EarlierGraphLock);
         }
         let checked = analyze::check_loaded(&loaded, configuration)?;
         Ok(LockReport {
@@ -919,25 +919,18 @@ fn compare_lock(
 #[cfg(target_os = "linux")]
 const GRAPH_LOCK_FILE: &str = "Syrox.graph.lock";
 
+/// Pre-release srx kept project edges in a separate `Syrox.graph.lock`; the
+/// unified lock now holds them. Its presence is refused, never parsed, and
+/// `srx project lock` removes it.
 #[cfg(target_os = "linux")]
-fn read_graph_lock(
-    project: &LoadedProject,
-) -> Result<Option<lock::graph::GraphLock>, ProjectOperationError> {
-    let bytes = crate::platform::linux::fd::read_bounded_beneath(
+fn graph_lock_present(project: &LoadedProject) -> Result<bool, ProjectOperationError> {
+    Ok(crate::platform::linux::fd::read_bounded_beneath(
         project.root.fd(),
         Path::new(GRAPH_LOCK_FILE),
         MAX_LOCK_BYTES,
     )
-    .map_err(map_lock_io)?;
-    bytes
-        .map(|bytes| {
-            lock::graph::GraphLock::parse(&bytes).map_err(|source| {
-                ProjectOperationError::MalformedGraphLock {
-                    source,
-                }
-            })
-        })
-        .transpose()
+    .map_err(map_lock_io)?
+    .is_some())
 }
 
 #[cfg(target_os = "linux")]
@@ -961,15 +954,10 @@ fn lock_project_platform(
         }) => (None, true),
         other => (other?, false),
     };
-    let (old_graph, stale_graph) = match read_graph_lock(&loaded) {
-        Err(ProjectOperationError::MalformedGraphLock {
-            source: lock::LockFormatError::EarlierFormat,
-        }) => (None, true),
-        other => (other?, false),
-    };
-    let status = match (&existing, &old_graph) {
-        (None, _) if !stale_lock => lock::LockStatus::Created,
-        (Some(existing), None) if !stale_graph && existing.data() == expected.data() => {
+    let old_graph = graph_lock_present(&loaded)?;
+    let status = match &existing {
+        None if !stale_lock => lock::LockStatus::Created,
+        Some(existing) if !old_graph && existing.data() == expected.data() => {
             lock::LockStatus::Unchanged
         }
         _ => lock::LockStatus::Updated,
@@ -985,7 +973,7 @@ fn lock_project_platform(
         )
         .map_err(map_lock_publication)?;
     }
-    if old_graph.is_some() || stale_graph {
+    if old_graph {
         let opened = crate::platform::linux::fd::open_existing_regular(
             loaded.root.fd(),
             Path::new(GRAPH_LOCK_FILE),

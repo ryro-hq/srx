@@ -100,16 +100,6 @@ registry! {
         owner: "syrox_engine::project::lock",
         summary: "Project lock. Every section is always written: inputs, standard library, project edges (including GitHub pins) and assets.",
     }
-    GRAPH_LOCK = "syrox-graph-lock" {
-        boundary: Persisted,
-        owner: "syrox_engine::project::lock::graph",
-        summary: "Project graph lock header.",
-    }
-    GRAPH_DIGEST = "syrox-graph" {
-        boundary: HashDomain,
-        owner: "syrox_engine::project::lock::graph",
-        summary: "Length-framed domain of the project graph digest recorded in a graph lock.",
-    }
     STD_DIGEST = "syrox-std" {
         boundary: HashDomain,
         owner: "syrox_engine::project::lock",
@@ -842,8 +832,6 @@ mod tests {
     fn critical_tags_keep_their_bytes() {
         assert_eq!(LOCK.tag, "syrox-lock");
         assert!(LOCK.reads.is_empty());
-        assert_eq!(GRAPH_LOCK.tag, "syrox-graph-lock");
-        assert_eq!(GRAPH_DIGEST.tag, "syrox-graph");
         assert_eq!(GENERATION_LINE.as_bytes(), b"syrox-generation\n");
         assert_eq!(SHELL_SESSION_LINE, "syrox-shell-session\n");
         assert_eq!(

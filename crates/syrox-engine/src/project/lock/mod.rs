@@ -187,7 +187,7 @@ impl LockManifest {
         }
         let text = std::str::from_utf8(data).map_err(|_| LockFormatError::NonCanonical)?;
         let mut lines = record::Reader::new(text, &formats::LOCK)
-            .map_err(|error| earlier_format(text, formats::LOCK.tag, error))?;
+            .map_err(|error| earlier_format(text, error))?;
         lines.expect("hash sha256")?;
         let [project] = lines.words("project")?;
         let expected_project_digest = digest(project)?;
@@ -427,11 +427,11 @@ pub enum LockFormatError {
 /// Map a refused header to [`LockFormatError::EarlierFormat`] when the first
 /// line still names the lock family, so a lock from a pre-release srx gets an
 /// actionable message instead of a generic parse error.
-pub(super) fn earlier_format(text: &str, tag: &str, error: record::Error) -> LockFormatError {
+fn earlier_format(text: &str, error: record::Error) -> LockFormatError {
     let header = text.lines().next().unwrap_or_default();
     if error == record::Error::Header
         && header
-            .strip_prefix(tag)
+            .strip_prefix(formats::LOCK.tag)
             .is_some_and(|rest| rest.starts_with("-v"))
     {
         LockFormatError::EarlierFormat
