@@ -2,14 +2,14 @@ use super::*;
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;
 const ID: &str = "1234567890abcdef1234567890abcdef";
-const FIRST: &[u8] = b"# syrox-os-unit-v1\n[Service]\nType=notify\n";
-const SECOND: &[u8] = b"# syrox-os-unit-v1\n[Service]\nType=notify\nRestart=no\n";
+const FIRST: &[u8] = b"# syrox-services-unit\n[Service]\nType=notify\n";
+const SECOND: &[u8] = b"# syrox-services-unit\n[Service]\nType=notify\nRestart=no\n";
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(5)
 }
 fn unit() -> SystemdUnitName {
     SystemdUnitName::new(format!(
-        "syrox-os-{ID}-{}.service",
+        "syrox-services-{ID}-{}.service",
         ContentDigest::sha256(b"service/process")
     ))
     .unwrap()
@@ -198,7 +198,7 @@ fn durable_observation_rechecks_absence_and_file_and_ledger_inodes() {
         };
         let file = if changed == "ledger" {
             temp.path()
-                .join(format!(".syrox-os-{ID}/ownership"))
+                .join(format!(".syrox-services-{ID}/ownership"))
         } else {
             temp.path().join(unit().as_str())
         };
@@ -378,7 +378,7 @@ fn wrong_namespace_symlinks_hardlinks_and_replaced_authority_are_refused() {
     fs::remove_file(&file).unwrap();
     let lock = temp
         .path()
-        .join(format!(".syrox-os-{ID}/authority.lock"));
+        .join(format!(".syrox-services-{ID}/authority.lock"));
     fs::rename(&lock, lock.with_extension("old")).unwrap();
     fs::write(&lock, b"").unwrap();
     fs::set_permissions(&lock, fs::Permissions::from_mode(0o600)).unwrap();
@@ -421,7 +421,7 @@ fn marker_size_inventory_and_temporary_budgets_fail_without_unit_mutation() {
     for index in 0..64 {
         fs::write(
             temp.path()
-                .join(format!(".syrox-os-{ID}.tmp.{index}")),
+                .join(format!(".syrox-services-{ID}.tmp.{index}")),
             b"evidence",
         )
         .unwrap();
@@ -431,16 +431,17 @@ fn marker_size_inventory_and_temporary_budgets_fail_without_unit_mutation() {
     for index in 0..64 {
         fs::remove_file(
             temp.path()
-                .join(format!(".syrox-os-{ID}.tmp.{index}")),
+                .join(format!(".syrox-services-{ID}.tmp.{index}")),
         )
         .unwrap();
     }
     let mut ledger = p.load().unwrap();
     for index in 0_u64..MAX_UNITS as u64 {
         let hash = ContentDigest::sha256(&index.to_le_bytes());
-        ledger
-            .units
-            .insert(format!("syrox-os-{ID}-{hash}.service"), hash);
+        ledger.units.insert(
+            format!("syrox-services-{ID}-{hash}.service"),
+            hash,
+        );
     }
     p.save(&ledger).unwrap();
     assert!(publish(&p, FIRST, None).is_err());
@@ -452,7 +453,7 @@ fn moved_unit_directory_and_lost_ledger_never_reinitialize_ownership() {
     let (temp, p) = fixture();
     fs::remove_file(
         temp.path()
-            .join(format!(".syrox-os-{ID}/ownership")),
+            .join(format!(".syrox-services-{ID}/ownership")),
     )
     .unwrap();
     assert!(
@@ -477,7 +478,7 @@ fn moved_unit_directory_and_lost_ledger_never_reinitialize_ownership() {
 
 fn named_unit(index: usize) -> SystemdUnitName {
     SystemdUnitName::new(format!(
-        "syrox-os-{ID}-{}.service",
+        "syrox-services-{ID}-{}.service",
         ContentDigest::sha256(index.to_string().as_bytes())
     ))
     .unwrap()
@@ -489,7 +490,7 @@ fn capacity_preflight_counts_retained_units_and_distinct_new_names_without_write
     publish(&publisher, FIRST, None).unwrap();
     let ledger_path = temp
         .path()
-        .join(format!(".syrox-os-{ID}/ownership"));
+        .join(format!(".syrox-services-{ID}/ownership"));
     let before = fs::read(&ledger_path).unwrap();
     let mut requested: Vec<_> = (0..MAX_UNITS - 1).map(named_unit).collect();
     requested.extend([unit(), unit()]);
@@ -558,7 +559,7 @@ fn capacity_preflight_never_repairs_pending_publication_and_obeys_budgets() {
     let publisher = reopen(temp.path());
     let ledger_path = temp
         .path()
-        .join(format!(".syrox-os-{ID}/ownership"));
+        .join(format!(".syrox-services-{ID}/ownership"));
     let before = fs::read(&ledger_path).unwrap();
     assert!(
         publisher
@@ -589,7 +590,9 @@ fn recovery_open_existing_never_initializes_missing_authority() {
     let missing = directory.path().join("missing");
     assert!(UnitFiles::open_existing(&missing, ID, &cancel, deadline()).is_err());
     assert!(!missing.exists());
-    let authority = directory.path().join(format!(".syrox-os-{ID}"));
+    let authority = directory
+        .path()
+        .join(format!(".syrox-services-{ID}"));
     fs::create_dir(&authority).unwrap();
     fs::set_permissions(&authority, fs::Permissions::from_mode(0o700)).unwrap();
     assert!(UnitFiles::open_existing(directory.path(), ID, &cancel, deadline()).is_err());
@@ -608,7 +611,7 @@ fn recovery_requires_exact_unit_previous_and_target_before_reconciling() {
     let publisher = UnitFiles::open_existing(temp.path(), ID, &cancel, deadline()).unwrap();
     let ledger_path = temp
         .path()
-        .join(format!(".syrox-os-{ID}/ownership"));
+        .join(format!(".syrox-services-{ID}/ownership"));
     let ledger_before = fs::read(&ledger_path).unwrap();
     let target = ContentDigest::sha256(SECOND);
     for (selected, expected, pin) in [
@@ -667,7 +670,7 @@ fn recovery_without_pending_intent_does_not_adopt_matching_unowned_file() {
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
     let ledger = temp
         .path()
-        .join(format!(".syrox-os-{ID}/ownership"));
+        .join(format!(".syrox-services-{ID}/ownership"));
     let before = fs::read(&ledger).unwrap();
     let cancel = Cancellation::default();
     assert_eq!(

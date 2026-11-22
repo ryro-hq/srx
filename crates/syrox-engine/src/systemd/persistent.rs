@@ -72,7 +72,7 @@ impl ServicesUnitContract {
         duration(input.stop_timeout, 60)?;
         let argv = vec![
             absolute(&input.worker)?.into(),
-            "__os-service".into(),
+            "__services-worker".into(),
             absolute(&input.installation)?.into(),
             absolute(&input.store)?.into(),
             input.binding.to_string(),
@@ -172,13 +172,13 @@ pub(super) mod tests {
     pub(crate) fn input() -> ServicesUnitInput {
         ServicesUnitInput {
             restart: crate::execution::restart::ProcessRestart::Never,
-            unit: SystemdUnitName::new("syrox-os-test.service").unwrap(),
+            unit: SystemdUnitName::new("syrox-services-test.service").unwrap(),
             scope: SystemdScope::System,
             worker: "/private/worker".into(),
             installation: "/private/installation".into(),
             store: "/private/store".into(),
             binding: ContentDigest::sha256(b"binding"),
-            fragment: "/etc/systemd/system/syrox-os-test.service".into(),
+            fragment: "/etc/systemd/system/syrox-services-test.service".into(),
             uid: 1000,
             gid: 1000,
             start_timeout: Duration::from_secs(30),
@@ -204,7 +204,7 @@ pub(super) mod tests {
         ] {
             assert!(rendered.lines().any(|v| v == line));
         }
-        assert!(rendered.contains("ExecStart=:\"/private/worker\" \"__os-service\""));
+        assert!(rendered.contains("ExecStart=:\"/private/worker\" \"__services-worker\""));
         assert!(rendered.contains("space %% $ \\\" \\\\\""));
         assert_eq!(
             contract.file_digest(),

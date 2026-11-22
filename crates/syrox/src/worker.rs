@@ -17,7 +17,7 @@
 //! runtime supervision. `__shell-command` forwards a Shell alias through the command
 //! broker and propagates its outcome after owned cleanup.
 //!
-//! `__session-owner` coordinates a session. `__service` and `__os-service` enter
+//! `__session-owner` coordinates a session. `__service` and `__services-worker` enter
 //! session or persistent-generation service admission; denied admission exits with
 //! status 78. A mode name alone grants no authority to start a payload.
 //!
@@ -77,7 +77,7 @@ fn execute() -> Result<(), String> {
         };
         std::process::exit(code);
     }
-    if mode == "__os-service" {
+    if mode == "__services-worker" {
         let code = match services_worker(&args.collect::<Vec<_>>()) {
             Ok(code) => code,
             Err(error @ syrox_engine::worker::ServicesWorkerError::Denied(_)) => {

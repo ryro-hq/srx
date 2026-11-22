@@ -120,7 +120,7 @@ fn only_unaccepted_unobserved_publication_can_be_not_applied() {
             .unwrap()
             .state = EffectState::NotApplied;
         assert!(state.bytes().is_err());
-        let mut invalid_wire = b"syrox-os-activation-v1\n".to_vec();
+        let mut invalid_wire = b"syrox-services-activation\n".to_vec();
         serde_json::to_writer(&mut invalid_wire, &state).unwrap();
         assert!(ActivationSnapshot::parse(&invalid_wire, &journal.installation).is_err());
     }

@@ -486,7 +486,7 @@ mod tests {
                     bus_socket: "/run/user/1000/bus".into(),
                 },
                 self.project.path().join("store"),
-                "/home/user/.config/systemd/user/syrox-os-probe.service".into(),
+                "/home/user/.config/systemd/user/syrox-services-probe.service".into(),
                 1000,
                 1000,
                 Duration::from_secs(30),
@@ -499,7 +499,7 @@ mod tests {
                 service: "probe".into(),
                 process: "worker".into(),
                 command: "serve".into(),
-                unit: crate::systemd::SystemdUnitName::new("syrox-os-probe.service").unwrap(),
+                unit: crate::systemd::SystemdUnitName::new("syrox-services-probe.service").unwrap(),
                 launcher: self.generation().manifest().launcher.clone(),
                 spec: ContentDigest::sha256(&prepared.spec.canonical_bytes().unwrap()),
                 epoch: ExecutionEpoch {

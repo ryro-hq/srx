@@ -447,7 +447,7 @@ mod tests {
             fn scope() -> String { format!("syrox-scope-v1:{}", 1) }
             const PROFILE: &str = r#"syrox-profile-x86_64-v3"#;
             const NAME: &str = "syrox-build-namespace";
-            const UNIT: &str = "syrox-os-unit.service";
+            const UNIT: &str = "syrox-services-unit.service";
             const OTHER: &str = "prefix syrox-inline-v1";
             #[cfg(test)]
             const FIXTURE: &[u8] = b"syrox-fixture-v1\n";

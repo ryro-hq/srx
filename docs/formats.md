@@ -100,20 +100,20 @@ checks that the registry still produces the same bytes.
 | `syrox-shell-session-v2` | persisted | `syrox_engine::deployment::manifest` | - | Shell session generation manifest. |
 | `syrox-shell-command-index-v1` | hash domain | `syrox_engine::deployment::manifest::commands` | - | Shell command exposure index; only its digest leaves the coordinator. |
 | `syrox-shell-operation-v2` | persisted | `syrox_engine::deployment::shell::managed::record` | - | Managed Shell operation record with its session snapshot. |
-| `syrox-os-installation-v1` | persisted | `syrox_engine::deployment::services::installation` | - | Services installation identity file. |
-| `syrox-os-candidate-v1` | persisted | `syrox_engine::deployment::services::installation` | - | Services installation candidate record. |
+| `syrox-services-installation` | persisted | `syrox_engine::deployment::services::installation` | - | Services installation identity file. |
+| `syrox-services-candidate` | persisted | `syrox_engine::deployment::services::installation` | - | Services installation candidate record. |
 | `syrox-generation-root-v1` | hash domain | `syrox_engine::deployment::services::installation` | - | Digest that names the Store root of one generation role. |
-| `syrox-os-activation-v1` | persisted | `syrox_engine::deployment::services::activation` | - | Services activation record. |
-| `syrox-os-launch-v3` | persisted | `syrox_engine::deployment::services::launch_binding` | - | Binding of a Services invocation to its generation, process and context. |
-| `syrox-os-scope-v1` | identity | `syrox_engine::deployment::services::launch_binding` | - | Prefix of the scope key derived from a Services manager context, written as `tag:digest`. |
-| `syrox-os-reload-target-v1` | hash domain | `syrox_engine::deployment::services::apply::manager` | - | Identity of the desired rendered unit batch. |
+| `syrox-services-activation` | persisted | `syrox_engine::deployment::services::activation` | - | Services activation record. |
+| `syrox-services-launch` | persisted | `syrox_engine::deployment::services::launch_binding` | - | Binding of a Services invocation to its generation, process and context. |
+| `syrox-services-scope` | identity | `syrox_engine::deployment::services::launch_binding` | - | Prefix of the scope key derived from a Services manager context, written as `tag:digest`. |
+| `syrox-services-reload-target` | hash domain | `syrox_engine::deployment::services::apply::manager` | - | Identity of the desired rendered unit batch. |
 | `syrox-unit-ownership-v1` | persisted | `syrox_engine::deployment::services::unit_files` | - | Ledger of unit files published by Services. |
-| `syrox-os-unit-v1` | persisted | `syrox_engine::deployment::services::unit_files` | - | Comment marker on the first line of every unit file rendered by Services. |
+| `syrox-services-unit` | persisted | `syrox_engine::deployment::services::unit_files` | - | Comment marker on the first line of every unit file rendered by Services. |
 | `syrox-systemd-v1` | identity | `syrox_engine::systemd::contract` | - | Identifier of the systemd interface contract. |
 | `syrox-systemd-manager-v1` | hash domain | `syrox_engine::systemd` | - | Fingerprint of a systemd manager: scope, bus GUID and owner. |
 | `syrox-observed-build-unit-v1` | hash domain | `syrox_engine::systemd::build` | - | Observation of a managed build unit. |
 | `syrox-observed-shell-service-v1` | hash domain | `syrox_engine::systemd::service` | - | Observation of a Shell service unit. |
-| `syrox-loaded-os-unit-v1` | hash domain | `syrox_engine::systemd::loaded` | - | Observation of a loaded Services unit. |
+| `syrox-loaded-services-unit` | hash domain | `syrox_engine::systemd::loaded` | - | Observation of a loaded Services unit. |
 | `syrox-command-execution` | wire | `syrox_engine::runtime::command_proxy::launch_contract` | - | Domain of command execution metadata; the JSON `version` field (2) carries the version. |
 | `syrox-command-root-arguments-v1` | hash domain | `syrox_engine::runtime::command_proxy::launch_contract` | - | Pin of a command root's arguments. |
 | `syrox-shell-command-request-v1` | wire | `syrox_engine::runtime::command_proxy::request` | - | Shell command request sent to the command broker. |

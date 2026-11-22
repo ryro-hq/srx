@@ -466,13 +466,13 @@ registry! {
         summary: "Managed Shell operation record with its session snapshot.",
         forms { SHELL_OPERATION_LINE = tag + "\n" },
     }
-    SERVICES_INSTALLATION = "syrox-os-installation-v1" {
+    SERVICES_INSTALLATION = "syrox-services-installation" {
         boundary: Persisted,
         owner: "syrox_engine::deployment::services::installation",
         summary: "Services installation identity file.",
         forms { SERVICES_INSTALLATION_LINE = tag + "\n" },
     }
-    SERVICES_CANDIDATE = "syrox-os-candidate-v1" {
+    SERVICES_CANDIDATE = "syrox-services-candidate" {
         boundary: Persisted,
         owner: "syrox_engine::deployment::services::installation",
         summary: "Services installation candidate record.",
@@ -484,24 +484,24 @@ registry! {
         summary: "Digest that names the Store root of one generation role.",
         forms { GENERATION_ROOT_LINE = tag + "\n" },
     }
-    SERVICES_ACTIVATION = "syrox-os-activation-v1" {
+    SERVICES_ACTIVATION = "syrox-services-activation" {
         boundary: Persisted,
         owner: "syrox_engine::deployment::services::activation",
         summary: "Services activation record.",
         forms { SERVICES_ACTIVATION_LINE = tag + "\n" },
     }
-    SERVICES_LAUNCH = "syrox-os-launch-v3" {
+    SERVICES_LAUNCH = "syrox-services-launch" {
         boundary: Persisted,
         owner: "syrox_engine::deployment::services::launch_binding",
         summary: "Binding of a Services invocation to its generation, process and context.",
         forms { SERVICES_LAUNCH_LINE = tag + "\n" },
     }
-    SERVICES_SCOPE = "syrox-os-scope-v1" {
+    SERVICES_SCOPE = "syrox-services-scope" {
         boundary: Identity,
         owner: "syrox_engine::deployment::services::launch_binding",
         summary: "Prefix of the scope key derived from a Services manager context, written as `tag:digest`.",
     }
-    SERVICES_RELOAD_TARGET = "syrox-os-reload-target-v1" {
+    SERVICES_RELOAD_TARGET = "syrox-services-reload-target" {
         boundary: HashDomain,
         owner: "syrox_engine::deployment::services::apply::manager",
         summary: "Identity of the desired rendered unit batch.",
@@ -513,7 +513,7 @@ registry! {
         summary: "Ledger of unit files published by Services.",
         forms { UNIT_OWNERSHIP_LINE = tag + "\n" },
     }
-    SERVICES_UNIT = "syrox-os-unit-v1" {
+    SERVICES_UNIT = "syrox-services-unit" {
         boundary: Persisted,
         owner: "syrox_engine::deployment::services::unit_files",
         summary: "Comment marker on the first line of every unit file rendered by Services.",
@@ -544,7 +544,7 @@ registry! {
         summary: "Observation of a Shell service unit.",
         forms { OBSERVED_SHELL_SERVICE_LINE = tag + "\n" },
     }
-    LOADED_SERVICES_UNIT = "syrox-loaded-os-unit-v1" {
+    LOADED_SERVICES_UNIT = "syrox-loaded-services-unit" {
         boundary: HashDomain,
         owner: "syrox_engine::systemd::loaded",
         summary: "Observation of a loaded Services unit.",
@@ -843,7 +843,7 @@ mod tests {
             TERMINAL_ATTRIBUTES_NUL.as_bytes(),
             b"syrox-terminal-attributes-v1\0"
         );
-        assert_eq!(SERVICES_UNIT_MARKER, "# syrox-os-unit-v1\n");
+        assert_eq!(SERVICES_UNIT_MARKER, "# syrox-services-unit\n");
         assert_eq!(OWNER_RETENTION, "syrox-owner-v1 retention");
         assert_eq!(SERVICE_DENIED, "syrox-service-v2 denied");
         assert_eq!(

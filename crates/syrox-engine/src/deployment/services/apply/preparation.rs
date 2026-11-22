@@ -285,7 +285,7 @@ fn compose_resource(
 
 fn unit_name(installation: &str, process: &str) -> Result<SystemdUnitName> {
     Ok(SystemdUnitName::new(format!(
-        "syrox-os-{installation}-{}.service",
+        "syrox-services-{installation}-{}.service",
         ContentDigest::sha256(process.as_bytes())
     ))?)
 }
@@ -554,7 +554,7 @@ mod tests {
         assert_eq!(
             first.as_str(),
             format!(
-                "syrox-os-{id}-{}.service",
+                "syrox-services-{id}-{}.service",
                 ContentDigest::sha256(b"probe/main")
             )
         );

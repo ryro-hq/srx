@@ -143,7 +143,7 @@ impl UnitFiles {
         if linux_fd::directory_path(&root)? != path {
             return Err(invalid("unit directory changed"));
         }
-        let name = format!(".syrox-os-{installation}");
+        let name = format!(".syrox-services-{installation}");
         let (authority, created) = if initialize {
             linux_fd::ensure_directory_beneath_with_status(root.fd(), Path::new(&name))
                 .map_err(|_| invalid("cannot open publication authority"))?
@@ -273,7 +273,7 @@ impl UnitFiles {
                 self.root.fd(),
                 unit.as_str(),
                 bytes,
-                &format!(".syrox-os-{}.tmp.", self.installation),
+                &format!(".syrox-services-{}.tmp.", self.installation),
             )?;
             #[cfg(test)]
             fail_at(2)?;
@@ -521,7 +521,7 @@ impl UnitFiles {
         directory_mode(&root, false)?;
         let authority = linux_fd::open_beneath(
             self.root.fd(),
-            Path::new(&format!(".syrox-os-{}", self.installation)),
+            Path::new(&format!(".syrox-services-{}", self.installation)),
             true,
         )
         .map_err(open_error)?;
@@ -610,7 +610,7 @@ impl UnitFiles {
             (
                 &self.root,
                 16384,
-                format!(".syrox-os-{}.tmp.", self.installation),
+                format!(".syrox-services-{}.tmp.", self.installation),
             ),
             (
                 &self.authority,
@@ -654,7 +654,7 @@ fn encode(ledger: &Ledger) -> Result<Vec<u8>> {
 }
 fn validate_unit(installation: &str, unit: &str) -> Result<()> {
     let hash = unit
-        .strip_prefix(&format!("syrox-os-{installation}-"))
+        .strip_prefix(&format!("syrox-services-{installation}-"))
         .and_then(|text| text.strip_suffix(".service"));
     if hash.is_none_or(|text| text.parse::<ContentDigest>().is_err()) {
         return Err(invalid("unit is outside installation namespace"));

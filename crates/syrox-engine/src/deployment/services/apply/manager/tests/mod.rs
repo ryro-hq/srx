@@ -40,7 +40,7 @@ impl Fixture {
         let context = ServicesLaunchContext::new(
             SystemdScope::System,
             "/state/store".into(),
-            "/units/syrox-os-driver.service".into(),
+            "/units/syrox-services-driver.service".into(),
             1000,
             1000,
             Duration::from_secs(30),
@@ -70,7 +70,7 @@ impl Fixture {
             service: "probe".into(),
             process: "server".into(),
             command: "run".into(),
-            unit: SystemdUnitName::new("syrox-os-driver.service").unwrap(),
+            unit: SystemdUnitName::new("syrox-services-driver.service").unwrap(),
             launcher: LauncherIdentity::new(pin(b"launcher"), 1).unwrap(),
             spec: pin(b"spec"),
             epoch: epoch.clone(),

@@ -22,11 +22,11 @@ fn binding(journal: &ActivationJournal, name: &str) -> ServicesLaunchBinding {
     let mut input = journal.binding_input();
     input.epoch = live_epoch();
     input.process = name.into();
-    input.unit = SystemdUnitName::new(format!("syrox-os-{name}.service")).unwrap();
+    input.unit = SystemdUnitName::new(format!("syrox-services-{name}.service")).unwrap();
     input.context = crate::deployment::services::launch_binding::ServicesLaunchContext::new(
         context().scope().clone(),
         "/private/store".into(),
-        format!("/private/units/syrox-os-{name}.service").into(),
+        format!("/private/units/syrox-services-{name}.service").into(),
         1000,
         1000,
         Duration::from_secs(30),

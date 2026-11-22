@@ -776,12 +776,12 @@ mod tests {
             bus_socket: env("SYROX_SYSTEMD_USER_BUS"),
         };
         input.unit =
-            SystemdUnitName::new(std::env::var("SYROX_OS_UNIT_NAME").expect("unit")).unwrap();
-        input.fragment = env("SYROX_OS_UNIT_FRAGMENT");
-        input.worker = env("SYROX_OS_UNIT_WORKER");
-        input.installation = env("SYROX_OS_UNIT_INSTALLATION");
-        input.store = env("SYROX_OS_UNIT_STORE");
-        input.binding = std::env::var("SYROX_OS_UNIT_BINDING")
+            SystemdUnitName::new(std::env::var("SYROX_SERVICES_UNIT_NAME").expect("unit")).unwrap();
+        input.fragment = env("SYROX_SERVICES_UNIT_FRAGMENT");
+        input.worker = env("SYROX_SERVICES_UNIT_WORKER");
+        input.installation = env("SYROX_SERVICES_UNIT_INSTALLATION");
+        input.store = env("SYROX_SERVICES_UNIT_STORE");
+        input.binding = std::env::var("SYROX_SERVICES_UNIT_BINDING")
             .expect("binding")
             .parse()
             .unwrap();

@@ -121,7 +121,7 @@ fn wire_rejects_rollback_without_a_distinct_previous_selection() {
         operation.kind = OperationKind::Rollback;
         operation.previous = previous;
         assert!(state.bytes().is_err());
-        let mut bytes = b"syrox-os-activation-v1\n".to_vec();
+        let mut bytes = b"syrox-services-activation\n".to_vec();
         serde_json::to_writer(&mut bytes, &state).unwrap();
         assert!(ActivationSnapshot::parse(&bytes, &journal.installation).is_err());
     }

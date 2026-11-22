@@ -623,7 +623,7 @@ fn changed_installation_identity_and_registry_exhaustion_preserve_evidence() {
     let original = fs::read(&identity_path).unwrap();
     fs::write(
         &identity_path,
-        b"syrox-os-installation-v1\n11111111111111111111111111111111\n",
+        b"syrox-services-installation\n11111111111111111111111111111111\n",
     )
     .unwrap();
     assert!(matches!(
@@ -725,7 +725,7 @@ fn binding_for(
             bus_socket: "/run/user/1000/bus".into(),
         },
         "/var/lib/syrox/store".into(),
-        "/home/user/.config/systemd/user/syrox-os-probe.service".into(),
+        "/home/user/.config/systemd/user/syrox-services-probe.service".into(),
         1000,
         1000,
         Duration::from_secs(30),
@@ -739,7 +739,7 @@ fn binding_for(
         service: service.into(),
         process: process.into(),
         command: command_key.rsplit('/').next().unwrap().into(),
-        unit: crate::systemd::SystemdUnitName::new("syrox-os-probe.service").unwrap(),
+        unit: crate::systemd::SystemdUnitName::new("syrox-services-probe.service").unwrap(),
         launcher: retained.manifest().launcher.clone(),
         spec: ContentDigest::sha256(b"prepared specification"),
         epoch: crate::deployment::services::activation::ExecutionEpoch {

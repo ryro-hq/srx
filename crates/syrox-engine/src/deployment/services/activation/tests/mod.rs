@@ -14,7 +14,7 @@ fn context() -> crate::deployment::services::launch_binding::ServicesLaunchConte
             bus_socket: "/run/user/1000/bus".into(),
         },
         "/private/store".into(),
-        "/private/units/syrox-os-test.service".into(),
+        "/private/units/syrox-services-test.service".into(),
         1000,
         1000,
         Duration::from_secs(30),
@@ -109,7 +109,7 @@ fn publish(journal: &ActivationJournal, operation: &str) -> String {
     effect
 }
 fn unit() -> SystemdUnitName {
-    SystemdUnitName::new("syrox-os-test.service").unwrap()
+    SystemdUnitName::new("syrox-services-test.service").unwrap()
 }
 fn admit(journal: &ActivationJournal, invocation: &str) -> Result<StartAdmission> {
     journal.admit_start(
@@ -645,7 +645,7 @@ fn authorization_joins_typed_binding_to_operation_and_publication() {
                         bus_socket: "/run/user/2000/bus".into(),
                     },
                     "/private/store".into(),
-                    "/private/units/syrox-os-test.service".into(),
+                    "/private/units/syrox-services-test.service".into(),
                     2000,
                     2000,
                     Duration::from_secs(30),

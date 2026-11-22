@@ -8,7 +8,7 @@ fn input() -> LaunchBindingInput {
             bus_socket: "/run/user/1000/bus".into(),
         },
         "/var/lib/syrox/store".into(),
-        "/home/user/.config/systemd/user/syrox-os-install-nginx.service".into(),
+        "/home/user/.config/systemd/user/syrox-services-install-nginx.service".into(),
         1000,
         1000,
         std::time::Duration::from_secs(30),
@@ -21,7 +21,7 @@ fn input() -> LaunchBindingInput {
         service: "nginx".into(),
         process: "Server_1".into(),
         command: "run".into(),
-        unit: SystemdUnitName::new("syrox-os-install-nginx.service").unwrap(),
+        unit: SystemdUnitName::new("syrox-services-install-nginx.service").unwrap(),
         launcher: LauncherIdentity::new(ContentDigest::sha256(b"launcher"), 1).unwrap(),
         spec: ContentDigest::sha256(b"spec"),
         epoch: ExecutionEpoch {
@@ -239,7 +239,7 @@ fn operational_context_is_authenticated_and_legacy_bindings_are_refused() {
     modified.context = ServicesLaunchContext::new(
         crate::systemd::SystemdScope::System,
         "/var/lib/syrox/another-store".into(),
-        "/etc/systemd/system/syrox-os-install-nginx.service".into(),
+        "/etc/systemd/system/syrox-services-install-nginx.service".into(),
         1001,
         1002,
         std::time::Duration::from_secs(60),
@@ -251,7 +251,7 @@ fn operational_context_is_authenticated_and_legacy_bindings_are_refused() {
     modified.context = ServicesLaunchContext::new(
         crate::systemd::SystemdScope::System,
         "/var/lib/syrox/another-store".into(),
-        "/etc/systemd/system/syrox-os-install-nginx.service".into(),
+        "/etc/systemd/system/syrox-services-install-nginx.service".into(),
         1001,
         1002,
         std::time::Duration::from_secs(60),
@@ -314,7 +314,7 @@ fn context_rejects_root_ids_fractional_timeouts_and_operational_path_conflicts()
             ServicesLaunchContext::new(
                 crate::systemd::SystemdScope::System,
                 "/store".into(),
-                "/units/syrox-os-install-nginx.service".into(),
+                "/units/syrox-services-install-nginx.service".into(),
                 uid,
                 gid,
                 start,

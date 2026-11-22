@@ -40,7 +40,7 @@ fn invocation_and_main_pid_evidence_are_independent() {
     ] {
         assert!(context::invocation(invalid).is_err());
     }
-    let unit = crate::systemd::SystemdUnitName::new("syrox-os-test.service").unwrap();
+    let unit = crate::systemd::SystemdUnitName::new("syrox-services-test.service").unwrap();
     let mut status = SystemdUnitStatus {
         unit: unit.clone(),
         invocation: invocation.to_vec(),

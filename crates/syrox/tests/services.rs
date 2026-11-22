@@ -254,7 +254,7 @@ fn services_worker_rejects_invalid_arguments_before_opening_installation_or_stor
     let installation = root.path().join("missing-installation");
     let store = root.path().join("missing-store");
     let output = Command::new(env!("CARGO_BIN_EXE_syrox-worker"))
-        .arg("__os-service")
+        .arg("__services-worker")
         .arg(&installation)
         .arg(&store)
         .arg("invalid-pin")
