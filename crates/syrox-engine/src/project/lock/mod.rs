@@ -11,7 +11,7 @@ use std::mem::size_of;
 use std::os::unix::ffi::OsStrExt as _;
 
 use sha2::{Digest, Sha256};
-use syrox_encoding::formats;
+use syrox_encoding::{formats, record};
 use thiserror::Error;
 
 use crate::{
@@ -123,7 +123,7 @@ impl LockManifest {
                         digest: hash(source.text().as_bytes()),
                     });
                 }
-                Ok(LockedStandardLibrary {
+                Ok::<_, LockFormatError>(LockedStandardLibrary {
                     files,
                     digest: *library.digest(),
                 })
@@ -186,38 +186,39 @@ impl LockManifest {
             return Err(LockFormatError::NonCanonical);
         }
         let text = std::str::from_utf8(data).map_err(|_| LockFormatError::NonCanonical)?;
-        let mut lines = text[..text.len() - 1].split('\n');
-        let version = match next_line(&mut lines)? {
+        let mut lines = record::Reader::versioned(text, &formats::LOCK)?;
+        let version = match lines.tag() {
             formats::LOCK_V1 => 1,
             formats::LOCK_V2 => 2,
             formats::LOCK_V3 => 3,
             formats::LOCK_V4 => 4,
             _ => return Err(LockFormatError::UnknownRecord),
         };
-        expect_line(&mut lines, "hash sha256")?;
-        let expected_project_digest = parse_digest_line(next_line(&mut lines)?, "project")?;
-        let main_parts = parts(next_line(&mut lines)?, "main", 3)?;
+        lines.expect("hash sha256")?;
+        let [project] = lines.words("project")?;
+        let expected_project_digest = digest(project)?;
+        let [main_size, main_digest] = lines.words("main")?;
         let main = LockedFile {
             path: b"main.srx".to_vec(),
-            size: source_size(main_parts[1])?,
-            digest: digest(main_parts[2])?,
+            size: source_size(main_size)?,
+            digest: digest(main_digest)?,
         };
-        let input_count = count_line(next_line(&mut lines)?, "inputs")?;
+        let input_count = count_field(&mut lines, "inputs")?;
         let mut inputs = Vec::with_capacity(input_count);
         let mut total_files = 1_usize;
         for _ in 0..input_count {
-            let input_parts = parts(next_line(&mut lines)?, "input", 5)?;
-            let name = decode_hex(input_parts[1])?;
-            let locator = decode_hex(input_parts[2])?;
+            let [name, locator, file_count, input] = lines.words("input")?;
+            let name = decode_hex(name)?;
+            let locator = decode_hex(locator)?;
             if name.is_empty() || std::str::from_utf8(&name).is_err() || !valid_locator(&locator) {
                 return Err(LockFormatError::InvalidField);
             }
-            let file_count = count(input_parts[3])?;
+            let file_count = count(file_count)?;
             total_files = total_files
                 .checked_add(file_count)
                 .filter(|total| *total <= syrox_lang::MAX_SOURCES)
                 .ok_or(LockFormatError::InvalidField)?;
-            let expected_digest = digest(input_parts[4])?;
+            let expected_digest = digest(input)?;
             let files = parse_files(&mut lines, "file", file_count)?;
             if input_digest(&name, &locator, &files) != expected_digest {
                 return Err(LockFormatError::InconsistentDigest);
@@ -240,10 +241,8 @@ impl LockManifest {
         } else {
             Vec::new()
         };
-        expect_line(&mut lines, "end")?;
-        if lines.next().is_some() {
-            return Err(LockFormatError::UnknownRecord);
-        }
+        lines.expect("end")?;
+        lines.finish()?;
         ensure_sorted_unique(inputs.iter().map(|input| input.name.as_slice()))?;
         for input in &inputs {
             ensure_sorted_unique(
@@ -628,56 +627,29 @@ fn hex_into(output: &mut LockEncoder, bytes: &[u8]) -> Result<(), LockFormatErro
     Ok(())
 }
 
-fn next_line<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<&'a str, LockFormatError> {
-    lines.next().ok_or(LockFormatError::UnknownRecord)
-}
-
-fn expect_line<'a>(
-    lines: &mut impl Iterator<Item = &'a str>,
-    expected: &str,
-) -> Result<(), LockFormatError> {
-    if next_line(lines)? == expected {
-        Ok(())
-    } else {
-        Err(LockFormatError::UnknownRecord)
+/// Missing, unexpected and trailing lines are unknown records, malformed
+/// spacing and numbers are non-canonical, and out-of-range numbers are invalid.
+impl From<record::Error> for LockFormatError {
+    fn from(error: record::Error) -> Self {
+        match error {
+            record::Error::NonCanonical => Self::NonCanonical,
+            record::Error::Value => Self::InvalidField,
+            record::Error::Header
+            | record::Error::Missing
+            | record::Error::Unexpected
+            | record::Error::Trailing => Self::UnknownRecord,
+        }
     }
 }
 
-fn parts<'a>(line: &'a str, record: &str, length: usize) -> Result<Vec<&'a str>, LockFormatError> {
-    if line.is_empty() || line.starts_with(' ') || line.ends_with(' ') || line.contains("  ") {
-        return Err(LockFormatError::NonCanonical);
-    }
-    let parts: Vec<_> = line.split(' ').collect();
-    if parts.len() != length || parts[0] != record {
-        return Err(LockFormatError::UnknownRecord);
-    }
-    Ok(parts)
-}
-
-fn parse_digest_line(line: &str, record: &str) -> Result<[u8; 32], LockFormatError> {
-    let parts = parts(line, record, 2)?;
-    digest(parts[1])
-}
-
-fn count_line(line: &str, record: &str) -> Result<usize, LockFormatError> {
-    let parts = parts(line, record, 2)?;
-    count(parts[1])
-}
-
-fn decimal(value: &str) -> Result<u64, LockFormatError> {
-    if value.is_empty()
-        || (value.len() > 1 && value.starts_with('0'))
-        || !value.bytes().all(|byte| byte.is_ascii_digit())
-    {
-        return Err(LockFormatError::NonCanonical);
-    }
-    value
-        .parse()
-        .map_err(|_| LockFormatError::InvalidField)
+fn count_field(lines: &mut record::Reader<'_>, key: &str) -> Result<usize, LockFormatError> {
+    let [value] = lines.words(key)?;
+    count(value)
 }
 
 fn count(value: &str) -> Result<usize, LockFormatError> {
-    let value = usize::try_from(decimal(value)?).map_err(|_| LockFormatError::InvalidField)?;
+    let value =
+        usize::try_from(record::decimal(value)?).map_err(|_| LockFormatError::InvalidField)?;
     if value > syrox_lang::MAX_SOURCES {
         return Err(LockFormatError::InvalidField);
     }
@@ -685,7 +657,7 @@ fn count(value: &str) -> Result<usize, LockFormatError> {
 }
 
 fn source_size(value: &str) -> Result<u64, LockFormatError> {
-    let size = decimal(value)?;
+    let size = record::decimal(value)?;
     if size > syrox_lang::MAX_SOURCE_BYTES as u64 {
         return Err(LockFormatError::InvalidField);
     }
@@ -693,7 +665,7 @@ fn source_size(value: &str) -> Result<u64, LockFormatError> {
 }
 
 fn asset_size(value: &str) -> Result<u64, LockFormatError> {
-    let size = decimal(value)?;
+    let size = record::decimal(value)?;
     if size > crate::project::MAX_PROJECT_BYTES as u64 {
         return Err(LockFormatError::InvalidField);
     }
@@ -714,44 +686,44 @@ fn decode_hex(value: &str) -> Result<Vec<u8>, LockFormatError> {
     syrox_encoding::decode_lower_hex(value).ok_or(LockFormatError::NonCanonical)
 }
 
-fn parse_files<'a>(
-    lines: &mut impl Iterator<Item = &'a str>,
-    record: &str,
+fn parse_files(
+    lines: &mut record::Reader<'_>,
+    key: &str,
     count: usize,
 ) -> Result<Vec<LockedFile>, LockFormatError> {
     let mut files = Vec::with_capacity(count);
     for _ in 0..count {
-        let file_parts = parts(next_line(lines)?, record, 4)?;
-        let path = decode_hex(file_parts[1])?;
+        let [path, size, file] = lines.words(key)?;
+        let path = decode_hex(path)?;
         if !is_canonical_logical_path(&path) {
             return Err(LockFormatError::InvalidField);
         }
         files.push(LockedFile {
             path,
-            size: if record == "asset" {
-                asset_size(file_parts[2])?
+            size: if key == "asset" {
+                asset_size(size)?
             } else {
-                source_size(file_parts[2])?
+                source_size(size)?
             },
-            digest: digest(file_parts[3])?,
+            digest: digest(file)?,
         });
     }
     Ok(files)
 }
 
-fn parse_standard_library<'a>(
-    lines: &mut impl Iterator<Item = &'a str>,
+fn parse_standard_library(
+    lines: &mut record::Reader<'_>,
     project_files: usize,
 ) -> Result<Option<LockedStandardLibrary>, LockFormatError> {
-    let line = next_line(lines)?;
+    let line = lines.line()?;
     if line == "std absent" {
         return Ok(None);
     }
-    let fields = parts(line, "std", 4)?;
-    if fields[1] != "present" {
+    let [presence, file_count, library] = record::words(line, "std")?;
+    if presence != "present" {
         return Err(LockFormatError::UnknownRecord);
     }
-    let file_count = count(fields[2])?;
+    let file_count = count(file_count)?;
     if file_count == 0
         || project_files
             .checked_add(file_count)
@@ -759,7 +731,7 @@ fn parse_standard_library<'a>(
     {
         return Err(LockFormatError::InvalidField);
     }
-    let expected_digest = digest(fields[3])?;
+    let expected_digest = digest(library)?;
     let files = parse_files(lines, "std-file", file_count)?;
     if standard_digest(&files) != expected_digest {
         return Err(LockFormatError::InconsistentDigest);
@@ -770,10 +742,8 @@ fn parse_standard_library<'a>(
     }))
 }
 
-fn parse_assets<'a>(
-    lines: &mut impl Iterator<Item = &'a str>,
-) -> Result<Vec<LockedFile>, LockFormatError> {
-    let count = count_line(next_line(lines)?, "assets")?;
+fn parse_assets(lines: &mut record::Reader<'_>) -> Result<Vec<LockedFile>, LockFormatError> {
+    let count = count_field(lines, "assets")?;
     let assets = parse_files(lines, "asset", count)?;
     ensure_sorted_unique(assets.iter().map(|file| file.path.as_slice()))?;
     if assets
@@ -785,42 +755,35 @@ fn parse_assets<'a>(
     Ok(assets)
 }
 
-fn parse_project_edges<'a>(
-    lines: &mut impl Iterator<Item = &'a str>,
+fn parse_project_edges(
+    lines: &mut record::Reader<'_>,
     inputs: &[LockedInput],
     version: u8,
 ) -> Result<Vec<ProjectEdge>, LockFormatError> {
-    let count = count_line(next_line(lines)?, "edges")?;
+    let count = count_field(lines, "edges")?;
     if (version < 3 && count == 0) || count > MAX_PROJECT_EDGES {
         return Err(LockFormatError::InvalidField);
     }
     let mut edges = Vec::with_capacity(count);
     for _ in 0..count {
-        let line = next_line(lines)?;
-        let remote = version >= 4 && line.starts_with("github-edge ");
-        let fields = parts(
-            line,
-            if remote {
-                "github-edge"
-            } else {
-                "edge"
-            },
-            if remote {
-                6
-            } else {
-                4
-            },
-        )?;
-        let alias = decode_hex(fields[1])?;
-        let origin = decode_hex(fields[2])?;
+        let line = lines.line()?;
+        let (alias, origin, child, github) = if version >= 4 && line.starts_with("github-edge ") {
+            let [alias, origin, child, commit, archive] = record::words(line, "github-edge")?;
+            (alias, origin, child, Some((commit, archive)))
+        } else {
+            let [alias, origin, child] = record::words(line, "edge")?;
+            (alias, origin, child, None)
+        };
+        let alias = decode_hex(alias)?;
+        let origin = decode_hex(origin)?;
         let alias = std::str::from_utf8(&alias).map_err(|_| LockFormatError::InvalidField)?;
         let origin = std::str::from_utf8(&origin).map_err(|_| LockFormatError::InvalidField)?;
-        let edge = if remote {
-            let pin = crate::acquire::github::GithubPin::new(fields[4], digest(fields[5])?)
+        let edge = if let Some((commit, archive)) = github {
+            let pin = crate::acquire::github::GithubPin::new(commit, digest(archive)?)
                 .map_err(|_| LockFormatError::InvalidField)?;
-            ProjectEdge::github(alias, origin, digest(fields[3])?, pin)?
+            ProjectEdge::github(alias, origin, digest(child)?, pin)?
         } else {
-            ProjectEdge::new(alias, origin, digest(fields[3])?)?
+            ProjectEdge::new(alias, origin, digest(child)?)?
         };
         if inputs
             .iter()

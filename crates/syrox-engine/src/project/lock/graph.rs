@@ -1,10 +1,10 @@
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
-use syrox_encoding::formats;
+use syrox_encoding::{formats, record};
 
 use super::{
     LockFormatError, MAX_LOCK_BYTES, decode_hex, digest, ensure_sorted_unique, framed, hash,
-    hex_into, is_canonical_logical_path, next_line, parts,
+    hex_into, is_canonical_logical_path,
 };
 
 pub(crate) const MAX_PROJECT_EDGES: usize = 1024;
@@ -148,33 +148,30 @@ impl GraphLock {
             return Err(LockFormatError::NonCanonical);
         }
         let text = std::str::from_utf8(data).map_err(|_| LockFormatError::NonCanonical)?;
-        let mut lines = text[..text.len() - 1].split('\n');
-        if next_line(&mut lines)? != formats::GRAPH_LOCK.tag
-            || next_line(&mut lines)? != "hash sha256"
-        {
-            return Err(LockFormatError::UnknownRecord);
-        }
-        let parent = digest(parts(next_line(&mut lines)?, "parent", 2)?[1])?;
-        let claimed = digest(parts(next_line(&mut lines)?, "graph", 2)?[1])?;
-        let count = super::count_line(next_line(&mut lines)?, "edges")?;
+        let mut lines = record::Reader::new(text, &formats::GRAPH_LOCK)?;
+        lines.expect("hash sha256")?;
+        let [parent] = lines.words("parent")?;
+        let parent = digest(parent)?;
+        let [claimed] = lines.words("graph")?;
+        let claimed = digest(claimed)?;
+        let count = super::count_field(&mut lines, "edges")?;
         if count > MAX_PROJECT_EDGES {
             return Err(LockFormatError::InvalidField);
         }
         let mut edges = Vec::with_capacity(count);
         for _ in 0..count {
-            let fields = parts(next_line(&mut lines)?, "edge", 4)?;
-            let alias = decode_hex(fields[1])?;
-            let origin = decode_hex(fields[2])?;
+            let [alias, origin, child] = lines.words("edge")?;
+            let alias = decode_hex(alias)?;
+            let origin = decode_hex(origin)?;
             let edge = ProjectEdge::new(
                 std::str::from_utf8(&alias).map_err(|_| LockFormatError::InvalidField)?,
                 std::str::from_utf8(&origin).map_err(|_| LockFormatError::InvalidField)?,
-                digest(fields[3])?,
+                digest(child)?,
             )?;
             edges.push(edge);
         }
-        if next_line(&mut lines)? != "end" || lines.next().is_some() {
-            return Err(LockFormatError::UnknownRecord);
-        }
+        lines.expect("end")?;
+        lines.finish()?;
         ensure_sorted_unique(edges.iter().map(|edge| edge.alias.as_slice()))?;
         if graph_digest(&parent, &edges) != claimed {
             return Err(LockFormatError::InconsistentDigest);
