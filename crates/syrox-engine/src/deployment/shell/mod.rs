@@ -2,7 +2,7 @@
 //!
 //! The session keeps its outputs, secrets and files alive while commands can use
 //! them. In Managed mode, the owner coordinates services and closes the session
-//! after settlement. Persistent installation belongs to [`super::os`].
+//! after settlement. Persistent installation belongs to [`super::services`].
 //!
 //! See [`commands`](../../../src/syrox_engine/deployment/shell/commands.rs.html) for the public alias directory and its broker checks, and
 //! [`managed`](../../../src/syrox_engine/deployment/shell/managed/mod.rs.html) for service supervision, retained state and recovery.
