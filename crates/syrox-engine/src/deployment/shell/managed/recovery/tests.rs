@@ -529,7 +529,7 @@ fn another_boot_preserves_evidence_and_never_contacts_manager() {
 }
 
 #[test]
-fn legacy_record_is_preserved_without_migration_or_manager_effects() {
+fn pre_reset_record_is_preserved_without_migration_or_manager_effects() {
     let root = tempfile::Builder::new()
         .permissions(std::fs::Permissions::from_mode(0o700))
         .tempdir()
@@ -541,8 +541,12 @@ fn legacy_record_is_preserved_without_migration_or_manager_effects() {
             "syrox-shell-operation",
             "syrox-shell-operation-v1",
         )
-        .replacen("\"version\":2", "\"version\":1", 1)
-        .replace(&format!("\"boot\":\"{}\",", boot().as_str()), "");
+        .replace(&format!("\"boot\":\"{}\",", boot().as_str()), "")
+        .replacen(
+            "{\"configuration\"",
+            "{\"version\":1,\"configuration\"",
+            1,
+        );
     let cancel = Cancellation::default();
     let session = journal
         .create(
