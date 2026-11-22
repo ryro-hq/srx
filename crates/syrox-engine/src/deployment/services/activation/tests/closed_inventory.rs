@@ -18,12 +18,12 @@ fn live_epoch() -> ExecutionEpoch {
     }
 }
 
-fn binding(journal: &ActivationJournal, name: &str) -> OsLaunchBinding {
+fn binding(journal: &ActivationJournal, name: &str) -> ServicesLaunchBinding {
     let mut input = journal.binding_input();
     input.epoch = live_epoch();
     input.process = name.into();
     input.unit = SystemdUnitName::new(format!("syrox-os-{name}.service")).unwrap();
-    input.context = crate::deployment::services::launch_binding::OsLaunchContext::new(
+    input.context = crate::deployment::services::launch_binding::ServicesLaunchContext::new(
         context().scope().clone(),
         "/private/store".into(),
         format!("/private/units/syrox-os-{name}.service").into(),
@@ -33,7 +33,7 @@ fn binding(journal: &ActivationJournal, name: &str) -> OsLaunchBinding {
         Duration::from_secs(5),
     )
     .unwrap();
-    OsLaunchBinding::new(input).unwrap()
+    ServicesLaunchBinding::new(input).unwrap()
 }
 
 fn publish_actual(journal: &ActivationJournal, operation: &str, name: &str) {

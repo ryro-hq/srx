@@ -1,17 +1,17 @@
 use std::path::Path;
 use syrox_engine::{
     cancellation::Cancellation,
-    deployment::services::{OsStatus, inspect_os_status},
+    deployment::services::{ServicesStatus, inspect_services_status},
 };
 
 pub(crate) fn run(installation: &Path, as_json: bool, cancel: &Cancellation) -> Result<u8, String> {
-    let status =
-        inspect_os_status(installation, cancel, super::deadline()).map_err(|e| e.to_string())?;
+    let status = inspect_services_status(installation, cancel, super::deadline())
+        .map_err(|e| e.to_string())?;
     print(&status, as_json);
     Ok(0)
 }
 
-pub(super) fn json(status: &OsStatus) -> serde_json::Value {
+pub(super) fn json(status: &ServicesStatus) -> serde_json::Value {
     let boot_fences: Vec<_> = status.boot_fences.iter().map(|fence| serde_json::json!({
             "previous_boot": fence.previous_boot,
             "current": {"boot": fence.current.boot, "manager": fence.current.manager, "scope": fence.current.scope},
@@ -64,7 +64,7 @@ pub(super) fn json(status: &OsStatus) -> serde_json::Value {
     })
 }
 
-pub(super) fn print(status: &OsStatus, as_json: bool) {
+pub(super) fn print(status: &ServicesStatus, as_json: bool) {
     if as_json {
         println!("{}", json(status));
     } else {

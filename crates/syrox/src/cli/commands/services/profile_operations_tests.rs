@@ -1,11 +1,11 @@
 use super::*;
 use services::{
-    OsStatusBinding, OsStatusEffect, OsStatusEpoch,
-    profile::{OsProfile, ProfileScope},
+    ServicesStatusBinding, ServicesStatusEffect, ServicesStatusEpoch,
+    profile::{ProfileScope, ServicesProfile},
 };
 
-fn profile(scope: ProfileScope) -> OsProfile {
-    OsProfile {
+fn profile(scope: ProfileScope) -> ServicesProfile {
+    ServicesProfile {
         version: 1,
         name: "web".into(),
         project: "/project".into(),
@@ -23,8 +23,8 @@ fn profile(scope: ProfileScope) -> OsProfile {
         stop_timeout_seconds: 5,
     }
 }
-fn status() -> OsStatus {
-    OsStatus {
+fn status() -> ServicesStatus {
+    ServicesStatus {
         installation: "1234567890abcdef1234567890abcdef".into(),
         desired: None,
         active_operation: None,
@@ -32,7 +32,7 @@ fn status() -> OsStatus {
         boot_fences: Vec::new(),
         abandoned_operations: Vec::new(),
         pending_effects: Vec::new(),
-        bindings: vec![OsStatusBinding {
+        bindings: vec![ServicesStatusBinding {
             invocation: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into()),
             invocation_error: None,
             resource: "nginx/main".into(),
@@ -40,7 +40,7 @@ fn status() -> OsStatus {
             pin: ContentDigest::sha256(b"binding"),
             unit: "syrox-example.service".into(),
             authorized: true,
-            epoch: OsStatusEpoch {
+            epoch: ServicesStatusEpoch {
                 boot: "11111111-1111-4111-8111-111111111111".into(),
                 manager: "recorded-manager".into(),
                 scope: "user".into(),
@@ -97,7 +97,7 @@ fn ambiguous_invocations_are_not_used_for_logs_and_pending_effects_block_new_ope
     assert!(require_settled(&status, "web").is_ok());
     status.active_operation = Some("1234567890abcdef1234567890abcdef".into());
     for phase in ["intent", "accepted", "unknown"] {
-        status.pending_effects = vec![OsStatusEffect {
+        status.pending_effects = vec![ServicesStatusEffect {
             operation: status.active_operation.clone().unwrap(),
             effect: "effect".into(),
             kind: "start",

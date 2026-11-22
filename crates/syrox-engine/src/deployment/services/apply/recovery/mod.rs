@@ -12,8 +12,8 @@ use super::{
 use crate::deployment::services::{
     activation::{ActivationJournal, ActivationSnapshot},
     installation::{ExecutionGuard, GenerationInstallation, RetainedGeneration},
-    launch_binding::OsLaunchContext,
-    paths::OsExecutionPaths,
+    launch_binding::ServicesLaunchContext,
+    paths::ServicesExecutionPaths,
     unit_files::UnitFiles,
 };
 use crate::{
@@ -27,7 +27,7 @@ pub(super) mod coordinator;
 pub(crate) mod manager_change;
 
 #[derive(Debug)]
-pub struct OsRecoveryRequest {
+pub struct ServicesRecoveryRequest {
     pub installation: PathBuf,
     pub store: PathBuf,
     pub units: PathBuf,
@@ -45,23 +45,23 @@ pub struct OsRecoveryRequest {
 }
 #[derive(Debug, thiserror::Error)]
 #[error("Services recovery failed during {stage}{detail}; retained evidence was preserved", detail = .source.as_ref().map(|error| format!(": {error}")).unwrap_or_default())]
-pub struct OsRecoveryError {
+pub struct ServicesRecoveryError {
     stage: &'static str,
     #[source]
     source: Option<Box<dyn std::error::Error + Send + Sync>>,
 }
-impl OsRecoveryError {
+impl ServicesRecoveryError {
     pub const fn stage(&self) -> &'static str {
         self.stage
     }
 }
-impl From<&'static str> for OsRecoveryError {
+impl From<&'static str> for ServicesRecoveryError {
     fn from(stage: &'static str) -> Self {
         failure(stage)
     }
 }
-fn failure(stage: &'static str) -> OsRecoveryError {
-    OsRecoveryError {
+fn failure(stage: &'static str) -> ServicesRecoveryError {
+    ServicesRecoveryError {
         stage,
         source: None,
     }
@@ -69,14 +69,14 @@ fn failure(stage: &'static str) -> OsRecoveryError {
 fn failure_with(
     stage: &'static str,
     source: impl Into<Box<dyn std::error::Error + Send + Sync>>,
-) -> OsRecoveryError {
-    OsRecoveryError {
+) -> ServicesRecoveryError {
+    ServicesRecoveryError {
         stage,
         source: Some(source.into()),
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum OsRecoveryState {
+pub enum ServicesRecoveryState {
     Observed,
     /// The local publication target is durably not established.
     NotApplied,
@@ -85,7 +85,7 @@ pub enum OsRecoveryState {
     ManagerFenced,
     Pending,
 }
-impl OsRecoveryState {
+impl ServicesRecoveryState {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Observed => "observed",
@@ -97,41 +97,41 @@ impl OsRecoveryState {
     }
 }
 #[derive(Debug)]
-pub struct OsRecoveryEffect {
+pub struct ServicesRecoveryEffect {
     pub effect: String,
     pub resource: String,
     pub kind: &'static str,
-    pub state: OsRecoveryState,
+    pub state: ServicesRecoveryState,
     pub stage: Option<&'static str>,
     /// Original failure details for this pending effect; never execution authority.
     pub error: Option<String>,
 }
 #[derive(Debug)]
-pub struct OsRecoveryReport {
+pub struct ServicesRecoveryReport {
     pub operation: String,
     pub candidate: ContentDigest,
-    pub effects: Vec<OsRecoveryEffect>,
+    pub effects: Vec<ServicesRecoveryEffect>,
     pub needs_reconciliation: bool,
 }
 
 /// Reconcile the selected operation without retrying uncertain effects.
 /// Explicit manager-change recovery may submit one durably authorized Stop.
 /// No result is a claim of application health or permission to retire roots.
-pub fn recover_os_generation(
-    request: &OsRecoveryRequest,
+pub fn recover_services_generation(
+    request: &ServicesRecoveryRequest,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<OsRecoveryReport, OsRecoveryError> {
+) -> Result<ServicesRecoveryReport, ServicesRecoveryError> {
     recover_with_identity(request, None, cancellation, deadline)
 }
 
 /// Reconcile only the installation identity bound by the selected profile.
-pub fn recover_os_generation_with_identity(
-    request: &OsRecoveryRequest,
+pub fn recover_services_generation_with_identity(
+    request: &ServicesRecoveryRequest,
     installation: &str,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<OsRecoveryReport, OsRecoveryError> {
+) -> Result<ServicesRecoveryReport, ServicesRecoveryError> {
     recover_with_identity(
         request,
         Some(installation),
@@ -141,11 +141,11 @@ pub fn recover_os_generation_with_identity(
 }
 
 fn recover_with_identity(
-    request: &OsRecoveryRequest,
+    request: &ServicesRecoveryRequest,
     installation: Option<&str>,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<OsRecoveryReport, OsRecoveryError> {
+) -> Result<ServicesRecoveryReport, ServicesRecoveryError> {
     let context = execution_context(request, cancellation, deadline)?;
     let mut opened = OpenedRecovery::open(request, cancellation, deadline)?;
     if installation.is_some_and(|id| opened.installation.id() != id) {
@@ -226,7 +226,7 @@ fn recover_with_identity(
 
 struct OpenedRecovery {
     installation: GenerationInstallation,
-    paths: OsExecutionPaths,
+    paths: ServicesExecutionPaths,
     store: Store,
     journal: ActivationJournal,
     candidate: RetainedGeneration,
@@ -235,11 +235,11 @@ struct OpenedRecovery {
 }
 impl OpenedRecovery {
     fn open(
-        request: &OsRecoveryRequest,
+        request: &ServicesRecoveryRequest,
         cancel: &Cancellation,
         deadline: Instant,
-    ) -> Result<Self, OsRecoveryError> {
-        let paths = OsExecutionPaths::open(
+    ) -> Result<Self, ServicesRecoveryError> {
+        let paths = ServicesExecutionPaths::open(
             &request.installation,
             &request.store,
             &request.cwd,
@@ -293,10 +293,10 @@ impl OpenedRecovery {
     }
     fn resources(
         &self,
-        request: &OsRecoveryRequest,
+        request: &ServicesRecoveryRequest,
         cancel: &Cancellation,
         deadline: Instant,
-    ) -> Result<BTreeMap<String, PreparedResource>, OsRecoveryError> {
+    ) -> Result<BTreeMap<String, PreparedResource>, ServicesRecoveryError> {
         reopen_resources(
             &ResourcePreparation {
                 installation: &self.installation,
@@ -319,10 +319,10 @@ impl OpenedRecovery {
 }
 
 fn execution_context(
-    request: &OsRecoveryRequest,
+    request: &ServicesRecoveryRequest,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<OsLaunchContext, OsRecoveryError> {
+) -> Result<ServicesLaunchContext, ServicesRecoveryError> {
     if request.uid == 0
         || request.gid == 0
         || request.uid == u32::MAX
@@ -344,7 +344,7 @@ fn execution_context(
         return Err(failure("operation identity"));
     }
     super::remaining(cancellation, deadline).map_err(|error| failure_with(error.stage, error))?;
-    OsLaunchContext::new(
+    ServicesLaunchContext::new(
         request.scope.clone(),
         request.store.clone(),
         request.units.join("scope.service"),

@@ -78,9 +78,9 @@ fn execute() -> Result<(), String> {
         std::process::exit(code);
     }
     if mode == "__os-service" {
-        let code = match os_service(&args.collect::<Vec<_>>()) {
+        let code = match services_worker(&args.collect::<Vec<_>>()) {
             Ok(code) => code,
-            Err(error @ syrox_engine::worker::OsWorkerError::Denied(_)) => {
+            Err(error @ syrox_engine::worker::ServicesWorkerError::Denied(_)) => {
                 eprintln!("error: {error}");
                 78
             }
@@ -224,10 +224,12 @@ fn service(args: &[std::ffi::OsString]) -> Result<i32, syrox_engine::worker::Ser
 }
 
 #[allow(unsafe_code)]
-fn os_service(args: &[std::ffi::OsString]) -> Result<i32, syrox_engine::worker::OsWorkerError> {
+fn services_worker(
+    args: &[std::ffi::OsString],
+) -> Result<i32, syrox_engine::worker::ServicesWorkerError> {
     // SAFETY: this dedicated executable starts no threads and exits after return.
     unsafe {
-        syrox_engine::worker::run_os_service(
+        syrox_engine::worker::run_services_worker(
             args,
             &syrox_engine::cancellation::Cancellation::default(),
         )

@@ -1,12 +1,12 @@
 use crate::deployment::services::{
     activation::{ActivationJournal, ExecutionEpoch},
     installation::{GenerationInstallation, RetainedGeneration},
-    launch_binding::OsLaunchBinding,
-    paths::OsExecutionPaths,
-    runtime::prepare_bound_os_runtime,
+    launch_binding::ServicesLaunchBinding,
+    paths::ServicesExecutionPaths,
+    runtime::prepare_bound_services_runtime,
 };
 use crate::runtime::launch_preparation::PreparedRuntimeLaunch;
-use crate::systemd::persistent::{OsUnitContract, OsUnitInput};
+use crate::systemd::persistent::{ServicesUnitContract, ServicesUnitInput};
 use crate::{
     cancellation::Cancellation, store::ContentDigest, store::Store, systemd::SystemdManager,
     systemd::SystemdNotifier, systemd::SystemdNotifyEndpoint, systemd::SystemdUnitStatus,
@@ -22,7 +22,7 @@ mod context;
 use context::{Arguments, check, remaining};
 
 #[derive(Debug, Error)]
-pub enum OsWorkerError {
+pub enum ServicesWorkerError {
     #[error("Services start denied: {0}")]
     Denied(&'static str),
     #[error("invalid Services worker: {0}")]
@@ -34,20 +34,20 @@ pub enum OsWorkerError {
     #[error("Services worker evidence failed: {0}")]
     Evidence(&'static str),
 }
-fn invalid(message: &'static str) -> OsWorkerError {
-    OsWorkerError::Invalid(message)
+fn invalid(message: &'static str) -> ServicesWorkerError {
+    ServicesWorkerError::Invalid(message)
 }
-fn evidence<E>(stage: &'static str) -> impl FnOnce(E) -> OsWorkerError {
-    move |_| OsWorkerError::Evidence(stage)
+fn evidence<E>(stage: &'static str) -> impl FnOnce(E) -> ServicesWorkerError {
+    move |_| ServicesWorkerError::Evidence(stage)
 }
 
 /// # Safety
 /// Dedicated single-threaded worker only. The process must exit after return;
 /// runtime namespaces and process signal masks are deliberately not restored.
-pub unsafe fn run_os_service(
+pub unsafe fn run_services_worker(
     args: &[OsString],
     cancel: &Cancellation,
-) -> Result<i32, OsWorkerError> {
+) -> Result<i32, ServicesWorkerError> {
     let started = Instant::now();
     let arguments = Arguments::parse(args)?;
     let invocation = context::invocation(
@@ -96,7 +96,7 @@ pub unsafe fn run_os_service(
         cancel,
         deadline,
     )?;
-    let loaded = manager.observe_os_unit(&opened.contract, remaining(deadline)?, cancel)?;
+    let loaded = manager.observe_services_unit(&opened.contract, remaining(deadline)?, cancel)?;
     let (_launcher_identity, admission) = capture_admission(
         &opened,
         arguments.binding,
@@ -139,7 +139,8 @@ pub unsafe fn run_os_service(
             deadline,
             cancel,
         )?;
-        let current = manager.observe_os_unit(&opened.contract, remaining(deadline)?, cancel)?;
+        let current =
+            manager.observe_services_unit(&opened.contract, remaining(deadline)?, cancel)?;
         if current.fingerprint() != loaded.fingerprint() || current.manager() != loaded.manager() {
             return Err(invalid(
                 "loaded unit changed before namespace release",
@@ -187,12 +188,14 @@ fn payload_envelope(status: std::process::ExitStatus) -> i32 {
     i32::from(!status.success())
 }
 #[allow(clippy::needless_pass_by_value)] // map_err consumes the journal error; only its typed denial survives classification.
-fn admission_error(error: crate::deployment::services::activation::ActivationError) -> OsWorkerError {
+fn admission_error(
+    error: crate::deployment::services::activation::ActivationError,
+) -> ServicesWorkerError {
     match error {
         crate::deployment::services::activation::ActivationError::StartDenied(reason) => {
-            OsWorkerError::Denied(reason)
+            ServicesWorkerError::Denied(reason)
         }
-        _ => OsWorkerError::Evidence("start admission or gate failed"),
+        _ => ServicesWorkerError::Evidence("start admission or gate failed"),
     }
 }
 fn capture_admission(
@@ -206,7 +209,7 @@ fn capture_admission(
         crate::platform::linux::fd::persisted_namespace::CapturedLauncher,
         crate::deployment::services::activation::StartAdmission,
     ),
-    OsWorkerError,
+    ServicesWorkerError,
 > {
     let launcher_identity =
         crate::platform::linux::fd::persisted_namespace::CapturedLauncher::capture_self(
@@ -234,7 +237,7 @@ fn handoff_retention(
     notifier: &SystemdNotifier,
     deadline: Instant,
     cancel: &Cancellation,
-) -> Result<std::fs::File, OsWorkerError> {
+) -> Result<std::fs::File, ServicesWorkerError> {
     let retention = opened
         .generation
         .process_retention()
@@ -269,17 +272,21 @@ fn handoff_retention(
 }
 
 struct Opened {
-    binding: OsLaunchBinding,
-    paths: OsExecutionPaths,
+    binding: ServicesLaunchBinding,
+    paths: ServicesExecutionPaths,
     generation: RetainedGeneration,
     configuration: crate::deployment::services::installation::GenerationConfiguration,
     launcher: crate::deployment::services::installation::GenerationLauncher,
     prepared: PreparedRuntimeLaunch,
     journal: ActivationJournal,
-    contract: OsUnitContract,
+    contract: ServicesUnitContract,
 }
 impl Opened {
-    fn revalidate(&self, cancel: &Cancellation, deadline: Instant) -> Result<(), OsWorkerError> {
+    fn revalidate(
+        &self,
+        cancel: &Cancellation,
+        deadline: Instant,
+    ) -> Result<(), ServicesWorkerError> {
         self.paths
             .revalidate(cancel, deadline)
             .map_err(evidence("revalidate execution paths"))?;
@@ -296,11 +303,11 @@ impl Opened {
 fn open_runtime(
     args: &Arguments,
     installation: &GenerationInstallation,
-    binding: OsLaunchBinding,
+    binding: ServicesLaunchBinding,
     cancel: &Cancellation,
     deadline: Instant,
-) -> Result<Opened, OsWorkerError> {
-    let paths = OsExecutionPaths::open(
+) -> Result<Opened, ServicesWorkerError> {
+    let paths = ServicesExecutionPaths::open(
         &args.installation,
         &args.store,
         binding.cwd(),
@@ -330,12 +337,12 @@ fn open_runtime(
             "configuration differs from launch binding",
         ));
     }
-    let prepared = prepare_bound_os_runtime(&generation, &binding, file, cancel)
+    let prepared = prepare_bound_services_runtime(&generation, &binding, file, cancel)
         .map_err(evidence("prepare bound runtime"))?;
     let journal = ActivationJournal::open_existing(paths.installation(), cancel, deadline)
         .map_err(evidence("open activation journal"))?;
     let context = binding.context();
-    let contract = OsUnitContract::new(OsUnitInput {
+    let contract = ServicesUnitContract::new(ServicesUnitInput {
         restart: context.restart(),
         unit: binding.unit(),
         scope: context.scope(),
@@ -363,11 +370,11 @@ fn open_runtime(
 }
 fn authenticate(
     manager: &mut SystemdManager,
-    binding: &OsLaunchBinding,
+    binding: &ServicesLaunchBinding,
     invocation: &[u8; 16],
     deadline: Instant,
     cancel: &Cancellation,
-) -> Result<(), OsWorkerError> {
+) -> Result<(), ServicesWorkerError> {
     let identity = manager.observe_identity(remaining(deadline)?, cancel)?;
     let epoch = ExecutionEpoch {
         boot: crate::platform::linux::boot::BootId::current(cancel, deadline)
@@ -376,7 +383,7 @@ fn authenticate(
         scope: binding.context().scope_key(),
     };
     if &epoch != binding.epoch() {
-        return Err(OsWorkerError::Denied(
+        return Err(ServicesWorkerError::Denied(
             "boot or manager epoch differs from authorization",
         ));
     }
@@ -395,7 +402,7 @@ fn validate_main(
     unit: &crate::systemd::SystemdUnitName,
     invocation: &[u8; 16],
     pid: u32,
-) -> Result<(), OsWorkerError> {
+) -> Result<(), ServicesWorkerError> {
     if &status.unit != unit
         || status.invocation != invocation
         || status.main_pid != pid
@@ -410,12 +417,12 @@ fn validate_main(
 }
 fn observe_store(
     manager: &mut SystemdManager,
-    binding: &OsLaunchBinding,
+    binding: &ServicesLaunchBinding,
     invocation: &[u8; 16],
     count: u32,
     deadline: Instant,
     cancel: &Cancellation,
-) -> Result<(), OsWorkerError> {
+) -> Result<(), ServicesWorkerError> {
     authenticate(manager, binding, invocation, deadline, cancel)?;
     let state = manager
         .query_fd_store(&binding.unit(), remaining(deadline)?, cancel)?

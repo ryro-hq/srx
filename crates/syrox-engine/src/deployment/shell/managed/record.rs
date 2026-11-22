@@ -292,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_noncanonical_or_reserved_paths_and_os_snapshot_confusion() {
+    fn rejects_noncanonical_or_reserved_paths_and_services_snapshot_confusion() {
         let snapshot = snapshot();
         for path in [
             "relative",

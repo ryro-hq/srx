@@ -77,7 +77,7 @@ fn replace_running(fixture: &Fixture, previous: u8, next: u8) {
     assert!(!report.needs_reconciliation, "{report:?}");
     assert_eq!(
         report.resources[0].state,
-        OsApplyResourceState::Started
+        ServicesApplyResourceState::Started
     );
     assert_eq!(manager.invocation, next);
     let mutations: Vec<_> = manager
@@ -184,7 +184,7 @@ fn rollback_reopens_a_after_b_and_restores_immutable_configuration_without_proje
     assert_eq!(operation.kind, OperationKind::Rollback);
     assert_eq!(operation.previous, Some(generation_b.to_string()));
     assert_eq!(snapshot.desired, Some(target.to_string()));
-    let status = crate::deployment::services::inspect_os_status(
+    let status = crate::deployment::services::inspect_services_status(
         fixture.paths.installation(),
         &fixture.cancel,
         deadline(),

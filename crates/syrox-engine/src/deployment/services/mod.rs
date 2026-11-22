@@ -32,22 +32,25 @@ pub(crate) use crate::deployment::manifest::encoding::{
 };
 pub(crate) use crate::deployment::manifest::{GenerationError, PreparedGeneration, shell_snapshot};
 
-pub use abandon::{OsAbandonment, OsAbandonmentError, abandon_os_operation};
+pub use abandon::{ServicesAbandonment, ServicesAbandonmentError, abandon_services_operation};
 pub use apply::recovery::{
-    OsRecoveryEffect, OsRecoveryError, OsRecoveryReport, OsRecoveryRequest, OsRecoveryState,
-    recover_os_generation, recover_os_generation_with_identity,
+    ServicesRecoveryEffect, ServicesRecoveryError, ServicesRecoveryReport, ServicesRecoveryRequest,
+    ServicesRecoveryState, recover_services_generation, recover_services_generation_with_identity,
 };
 pub use apply::{
-    OsApplyError, OsApplyReport, OsApplyRequest, OsApplyResource, OsApplyResourceState,
-    OsRollbackRequest, OsSelectionAuthority, apply_os_generation,
-    apply_os_generation_with_authority, rollback_os_generation,
+    ServicesApplyError, ServicesApplyReport, ServicesApplyRequest, ServicesApplyResource,
+    ServicesApplyResourceState, ServicesRollbackRequest, ServicesSelectionAuthority,
+    apply_services_generation, apply_services_generation_with_authority,
+    rollback_services_generation,
 };
 pub use public::{
-    OsCandidateEntry, OsCandidatePhase, OsGenerationError, OsGenerationSummary, OsInstallation,
-    OsPreparation, diff_os_generations, initialize_os_installation, inspect_os_generation,
-    list_os_generations, open_os_installation, prepare_empty_os_generation, prepare_os_generation,
+    ServicesCandidateEntry, ServicesCandidatePhase, ServicesGenerationError,
+    ServicesGenerationSummary, ServicesInstallation, ServicesPreparation,
+    diff_services_generations, initialize_services_installation, inspect_services_generation,
+    list_services_generations, open_services_installation, prepare_empty_services_generation,
+    prepare_services_generation,
 };
 pub use status::{
-    OsStatus, OsStatusBinding, OsStatusBootFence, OsStatusEffect, OsStatusEpoch, OsStatusError,
-    inspect_os_status,
+    ServicesStatus, ServicesStatusBinding, ServicesStatusBootFence, ServicesStatusEffect,
+    ServicesStatusEpoch, ServicesStatusError, inspect_services_status,
 };

@@ -1,6 +1,6 @@
 //! Export the same wire interfaces used by requests and native observations.
 use super::loaded::Property;
-use super::persistent::{OsUnitContract, OsUnitInput};
+use super::persistent::{ServicesUnitContract, ServicesUnitInput};
 use super::{
     MANAGER_INTERFACE, SERVICE_INTERFACE, SystemdBuildLimits, SystemdCredentials, SystemdError,
     SystemdScope, SystemdService, SystemdServiceProfile, SystemdUnitName, UNIT_INTERFACE, loaded,
@@ -296,7 +296,7 @@ pub fn interface_contract() -> Result<SystemdInterfaceContract, SystemdError> {
         &mut managed,
         properties::observed_transient(&request)?,
     )?;
-    let mut persistent = OsUnitContract::new(OsUnitInput {
+    let mut persistent = ServicesUnitContract::new(ServicesUnitInput {
         unit: request.unit.clone(),
         scope: SystemdScope::System,
         worker: "/contract/worker".into(),

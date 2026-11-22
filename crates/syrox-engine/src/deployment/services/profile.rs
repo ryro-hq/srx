@@ -9,7 +9,7 @@ const MAX_BYTES: u64 = 64 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct OsProfile {
+pub struct ServicesProfile {
     pub version: u32,
     pub name: String,
     pub project: PathBuf,
@@ -36,7 +36,7 @@ pub enum ProfileScope {
     System,
 }
 
-impl OsProfile {
+impl ServicesProfile {
     pub fn validate(&self) -> io::Result<()> {
         validate_profile_name(&self.name)?;
         if self.version != 1
@@ -181,7 +181,7 @@ fn directory(path: &Path) -> io::Result<OpenedPath> {
     }
 }
 
-pub fn read_os_profile(path: &Path) -> io::Result<OsProfile> {
+pub fn read_services_profile(path: &Path) -> io::Result<ServicesProfile> {
     validate_profile_path(path)?;
     let parent = private_profile_parent(path)?;
     let file = fd::open_beneath(
@@ -208,14 +208,14 @@ pub fn read_os_profile(path: &Path) -> io::Result<OsProfile> {
     if bytes.len() as u64 > MAX_BYTES {
         return Err(invalid("profile exceeds 64 KiB"));
     }
-    let profile: OsProfile = serde_json::from_slice(&bytes)
+    let profile: ServicesProfile = serde_json::from_slice(&bytes)
         .map_err(|_| invalid("invalid profile JSON or unknown fields"))?;
     profile.validate()?;
     Ok(profile)
 }
 
 /// Atomically create a profile; an existing profile is never overwritten.
-pub fn create_os_profile(path: &Path, profile: &OsProfile) -> io::Result<()> {
+pub fn create_services_profile(path: &Path, profile: &ServicesProfile) -> io::Result<()> {
     profile.validate()?;
     validate_profile_path(path)?;
     let parent = path
@@ -286,9 +286,9 @@ pub fn profile_credentials() -> io::Result<(u32, u32)> {
 mod tests {
     use super::*;
     use std::os::unix::fs::{PermissionsExt as _, symlink};
-    fn fixture(root: &Path) -> OsProfile {
+    fn fixture(root: &Path) -> ServicesProfile {
         let (uid, gid) = profile_credentials().unwrap();
-        OsProfile {
+        ServicesProfile {
             version: 1,
             name: "web".into(),
             project: root.join("project"),
@@ -316,7 +316,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("configuration/os/web.json");
         let profile = fixture(root.path());
-        create_os_profile(&path, &profile).unwrap();
+        create_services_profile(&path, &profile).unwrap();
         assert_eq!(
             std::fs::metadata(&path)
                 .unwrap()
@@ -325,10 +325,10 @@ mod tests {
                 & 0o7777,
             0o600
         );
-        assert_eq!(read_os_profile(&path).unwrap(), profile);
+        assert_eq!(read_services_profile(&path).unwrap(), profile);
         let original = std::fs::read(&path).unwrap();
         assert_eq!(
-            create_os_profile(&path, &profile)
+            create_services_profile(&path, &profile)
                 .unwrap_err()
                 .kind(),
             io::ErrorKind::AlreadyExists
@@ -350,17 +350,17 @@ mod tests {
         .unwrap();
         let path = root.path().join("web.json");
         let profile = fixture(root.path());
-        create_os_profile(&path, &profile).unwrap();
+        create_services_profile(&path, &profile).unwrap();
         let alias = root.path().join("alias.json");
         symlink(&path, &alias).unwrap();
-        assert!(read_os_profile(&alias).is_err());
+        assert!(read_services_profile(&alias).is_err());
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(read_os_profile(&path).is_err());
+        assert!(read_services_profile(&path).is_err());
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
         let mut json = serde_json::to_value(&profile).unwrap();
         json["surprise"] = true.into();
         std::fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
-        assert!(read_os_profile(&path).is_err());
+        assert!(read_services_profile(&path).is_err());
         let mut bad = profile.clone();
         bad.uid += 1;
         assert!(bad.validate().is_err());
@@ -378,7 +378,7 @@ mod tests {
         }
         let linked = root.path().join("linked");
         symlink(root.path(), &linked).unwrap();
-        assert!(create_os_profile(&linked.join("elsewhere.json"), &profile).is_err());
+        assert!(create_services_profile(&linked.join("elsewhere.json"), &profile).is_err());
         assert!(!root.path().join("elsewhere.json").exists());
     }
 
@@ -397,20 +397,20 @@ mod tests {
         .unwrap();
         ensure_profile_directory(&profile.units).unwrap();
         let path = root.path().join("profiles/web.json");
-        create_os_profile(&path, &profile).unwrap();
+        create_services_profile(&path, &profile).unwrap();
         std::fs::set_permissions(
             path.parent().unwrap(),
             std::fs::Permissions::from_mode(0o755),
         )
         .unwrap();
         assert!(
-            read_os_profile(&path)
+            read_services_profile(&path)
                 .unwrap_err()
                 .to_string()
                 .contains("0700")
         );
         assert!(
-            create_os_profile(&path.with_file_name("other.json"), &profile)
+            create_services_profile(&path.with_file_name("other.json"), &profile)
                 .unwrap_err()
                 .to_string()
                 .contains("0700")
@@ -437,7 +437,7 @@ mod tests {
                 .map(|profile| {
                     scope.spawn(move || {
                         barrier.wait();
-                        create_os_profile(path, profile)
+                        create_services_profile(path, profile)
                     })
                 })
                 .collect::<Vec<_>>();
@@ -462,7 +462,7 @@ mod tests {
             io::ErrorKind::AlreadyExists
         );
         assert_eq!(
-            read_os_profile(&path).unwrap(),
+            read_services_profile(&path).unwrap(),
             profiles[results.iter().position(Result::is_ok).unwrap()]
         );
     }

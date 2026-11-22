@@ -6,7 +6,7 @@
 
 use super::{
     installation::RetainedGeneration,
-    launch_binding::OsLaunchBinding,
+    launch_binding::ServicesLaunchBinding,
     manifest::{Argument, Config},
 };
 use crate::execution::configuration::{
@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub(crate) enum OsRuntimeError {
+pub(crate) enum ServicesRuntimeError {
     #[error("invalid retained Services runtime: {0}")]
     Invalid(&'static str),
     #[error("Services runtime preparation cancelled")]
@@ -36,9 +36,9 @@ pub(crate) enum OsRuntimeError {
     #[error(transparent)]
     Runtime(#[from] crate::runtime::RuntimeError),
 }
-type Result<T> = std::result::Result<T, OsRuntimeError>;
+type Result<T> = std::result::Result<T, ServicesRuntimeError>;
 
-pub(crate) fn prepare_os_runtime(
+pub(crate) fn prepare_services_runtime(
     generation: &RetainedGeneration,
     service: &str,
     process: &str,
@@ -83,9 +83,9 @@ pub(crate) fn prepare_os_runtime(
     prepare_runtime_launch(closure, &argv, cwd, &configuration, cancellation).map_err(Into::into)
 }
 
-pub(crate) fn prepare_bound_os_runtime(
+pub(crate) fn prepare_bound_services_runtime(
     generation: &RetainedGeneration,
-    binding: &OsLaunchBinding,
+    binding: &ServicesLaunchBinding,
     configuration: File,
     cancellation: &Cancellation,
 ) -> Result<PreparedRuntimeLaunch> {
@@ -118,7 +118,7 @@ pub(crate) fn prepare_bound_os_runtime(
             "configuration descriptor differs from bound path",
         ));
     }
-    let prepared = prepare_os_runtime(
+    let prepared = prepare_services_runtime(
         generation,
         binding.service(),
         binding.process(),
@@ -370,16 +370,16 @@ fn verify_file(
 fn check(cancellation: &Cancellation) -> Result<()> {
     cancellation
         .check()
-        .map_err(|_| OsRuntimeError::Cancelled)
+        .map_err(|_| ServicesRuntimeError::Cancelled)
 }
-const fn invalid(message: &'static str) -> OsRuntimeError {
-    OsRuntimeError::Invalid(message)
+const fn invalid(message: &'static str) -> ServicesRuntimeError {
+    ServicesRuntimeError::Invalid(message)
 }
 
 fn verify_check(cancellation: &Cancellation, deadline: Option<std::time::Instant>) -> Result<()> {
     check(cancellation)?;
     if deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
-        return Err(OsRuntimeError::Deadline);
+        return Err(ServicesRuntimeError::Deadline);
     }
     Ok(())
 }
@@ -471,7 +471,7 @@ mod tests {
             File::open(self.config.path()).unwrap()
         }
         fn prepare(&self) -> Result<PreparedRuntimeLaunch> {
-            prepare_os_runtime(
+            prepare_services_runtime(
                 self.generation(),
                 "probe",
                 "worker",
@@ -481,7 +481,7 @@ mod tests {
             )
         }
         fn input(&self, prepared: &PreparedRuntimeLaunch) -> LaunchBindingInput {
-            let context = crate::deployment::services::launch_binding::OsLaunchContext::new(
+            let context = crate::deployment::services::launch_binding::ServicesLaunchContext::new(
                 crate::systemd::SystemdScope::User {
                     bus_socket: "/run/user/1000/bus".into(),
                 },
@@ -537,8 +537,8 @@ mod tests {
             prepared.spec.mounts.len(),
             prepared.descriptors.len()
         );
-        let binding = OsLaunchBinding::new(fixture.input(&prepared)).unwrap();
-        let recomposed = prepare_bound_os_runtime(
+        let binding = ServicesLaunchBinding::new(fixture.input(&prepared)).unwrap();
+        let recomposed = prepare_bound_services_runtime(
             fixture.generation(),
             &binding,
             fixture.directory(),
@@ -558,7 +558,7 @@ mod tests {
         let fixture = Fixture::new();
         let cancel = Cancellation::default();
         assert!(matches!(
-            prepare_os_runtime(
+            prepare_services_runtime(
                 fixture.generation(),
                 "probe",
                 "absent",
@@ -566,7 +566,7 @@ mod tests {
                 fixture.directory(),
                 &cancel
             ),
-            Err(OsRuntimeError::Invalid(
+            Err(ServicesRuntimeError::Invalid(
                 "process is absent from retained generation"
             ))
         ));
@@ -575,7 +575,7 @@ mod tests {
         fs::write(&file, b"corruption").unwrap();
         mode(&file, 0o400);
         assert!(matches!(
-            prepare_os_runtime(
+            prepare_services_runtime(
                 fixture.generation(),
                 "probe",
                 "worker",
@@ -583,7 +583,7 @@ mod tests {
                 fixture.directory(),
                 &cancel
             ),
-            Err(OsRuntimeError::Invalid(
+            Err(ServicesRuntimeError::Invalid(
                 "configuration file contents differ"
             ))
         ));
@@ -644,9 +644,9 @@ mod tests {
             .unwrap();
         inputs.push(changed);
         for input in inputs {
-            let binding = OsLaunchBinding::new(input).unwrap();
+            let binding = ServicesLaunchBinding::new(input).unwrap();
             assert!(
-                prepare_bound_os_runtime(
+                prepare_bound_services_runtime(
                     fixture.generation(),
                     &binding,
                     fixture.directory(),
@@ -658,7 +658,7 @@ mod tests {
         let cancel = Cancellation::default();
         cancel.cancel();
         assert!(matches!(
-            prepare_os_runtime(
+            prepare_services_runtime(
                 fixture.generation(),
                 "probe",
                 "worker",
@@ -666,7 +666,7 @@ mod tests {
                 fixture.directory(),
                 &cancel
             ),
-            Err(OsRuntimeError::Cancelled)
+            Err(ServicesRuntimeError::Cancelled)
         ));
     }
 

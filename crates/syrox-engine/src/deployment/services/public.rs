@@ -11,8 +11,8 @@ use crate::{
 
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
-pub struct OsGenerationError(String);
-impl From<InstallationError> for OsGenerationError {
+pub struct ServicesGenerationError(String);
+impl From<InstallationError> for ServicesGenerationError {
     fn from(error: InstallationError) -> Self {
         // JSON errors can quote persisted input, including configuration text.
         let message = match error {
@@ -26,7 +26,7 @@ impl From<InstallationError> for OsGenerationError {
 }
 
 #[derive(Clone, Debug)]
-pub struct OsGenerationSummary {
+pub struct ServicesGenerationSummary {
     pub pin: ContentDigest,
     pub outputs: usize,
     pub services: usize,
@@ -34,7 +34,7 @@ pub struct OsGenerationSummary {
     pub processes: usize,
     pub configurations: usize,
 }
-impl From<&RetainedGeneration> for OsGenerationSummary {
+impl From<&RetainedGeneration> for ServicesGenerationSummary {
     fn from(generation: &RetainedGeneration) -> Self {
         let manifest = generation.manifest();
         Self {
@@ -49,23 +49,23 @@ impl From<&RetainedGeneration> for OsGenerationSummary {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum OsCandidatePhase {
+pub enum ServicesCandidatePhase {
     Preparing,
     Prepared,
 }
 #[derive(Debug)]
-pub struct OsCandidateEntry {
+pub struct ServicesCandidateEntry {
     pub pin: ContentDigest,
-    pub phase: Result<OsCandidatePhase, String>,
+    pub phase: Result<ServicesCandidatePhase, String>,
 }
 
 /// Initialize metadata within an existing owned, mode-0700 directory.
-pub fn initialize_os_installation(
+pub fn initialize_services_installation(
     path: &Path,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<OsInstallation, OsGenerationError> {
-    Ok(OsInstallation(
+) -> Result<ServicesInstallation, ServicesGenerationError> {
+    Ok(ServicesInstallation(
         GenerationInstallation::initialize(path, cancellation, deadline)?,
     ))
 }
@@ -73,8 +73,8 @@ pub fn initialize_os_installation(
 /// Pinned installation authority retained across package realization. Replacing
 /// its pathname cannot redirect subsequent candidate publication.
 #[derive(Debug)]
-pub struct OsInstallation(GenerationInstallation);
-impl OsInstallation {
+pub struct ServicesInstallation(GenerationInstallation);
+impl ServicesInstallation {
     pub fn id(&self) -> &str {
         self.0.id()
     }
@@ -84,18 +84,18 @@ impl OsInstallation {
         &self,
         cancellation: &Cancellation,
         deadline: Instant,
-    ) -> Result<Vec<OsCandidateEntry>, OsGenerationError> {
+    ) -> Result<Vec<ServicesCandidateEntry>, ServicesGenerationError> {
         Ok(self
             .0
             .list(cancellation, deadline)?
             .into_iter()
-            .map(|entry| OsCandidateEntry {
+            .map(|entry| ServicesCandidateEntry {
                 pin: entry.pin,
                 phase: entry
                     .phase
                     .map(|phase| match phase {
-                        CandidatePhase::Preparing => OsCandidatePhase::Preparing,
-                        CandidatePhase::Prepared => OsCandidatePhase::Prepared,
+                        CandidatePhase::Preparing => ServicesCandidatePhase::Preparing,
+                        CandidatePhase::Prepared => ServicesCandidatePhase::Prepared,
                     })
                     .map_err(|_| "invalid candidate journal evidence".into()),
             })
@@ -104,8 +104,8 @@ impl OsInstallation {
 }
 
 #[derive(Debug)]
-pub struct OsPreparation<'a> {
-    pub installation: &'a OsInstallation,
+pub struct ServicesPreparation<'a> {
+    pub installation: &'a ServicesInstallation,
     pub store: &'a Store,
     pub launcher: &'a Path,
     pub launcher_digest: ContentDigest,
@@ -114,16 +114,16 @@ pub struct OsPreparation<'a> {
 /// Persist a Services candidate, its roots, executable launcher snapshot and private
 /// configuration. Prepared journal state describes retained candidate bytes;
 /// an error while publishing derived files preserves that candidate for retry.
-pub fn prepare_os_generation(
+pub fn prepare_services_generation(
     prepared: PreparedConsumer,
-    configuration: &OsPreparation<'_>,
+    configuration: &ServicesPreparation<'_>,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<OsGenerationSummary, OsGenerationError> {
+) -> Result<ServicesGenerationSummary, ServicesGenerationError> {
     let launcher = super::LauncherIdentity::new(configuration.launcher_digest, 1)
-        .map_err(|error| OsGenerationError(error.to_string()))?;
+        .map_err(|error| ServicesGenerationError(error.to_string()))?;
     let generation = super::PreparedGeneration::freeze(prepared, launcher)
-        .map_err(|error| OsGenerationError(error.to_string()))?;
+        .map_err(|error| ServicesGenerationError(error.to_string()))?;
     let retained = configuration.installation.0.prepare(
         &generation,
         configuration.store,
@@ -141,18 +141,18 @@ pub fn prepare_os_generation(
         .installation
         .0
         .prepare_configuration(&retained, cancellation, deadline)?;
-    Ok(OsGenerationSummary::from(&retained))
+    Ok(ServicesGenerationSummary::from(&retained))
 }
 
 /// Prepare an empty desired generation through the normal retention protocol.
 /// This needs no project source, package realization or service-manager action.
-pub fn prepare_empty_os_generation(
-    configuration: &OsPreparation<'_>,
+pub fn prepare_empty_services_generation(
+    configuration: &ServicesPreparation<'_>,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<OsGenerationSummary, OsGenerationError> {
+) -> Result<ServicesGenerationSummary, ServicesGenerationError> {
     let launcher = super::LauncherIdentity::new(configuration.launcher_digest, 1)
-        .map_err(|error| OsGenerationError(error.to_string()))?;
+        .map_err(|error| ServicesGenerationError(error.to_string()))?;
     let retained = configuration.installation.0.prepare_empty(
         launcher,
         configuration.store,
@@ -170,54 +170,51 @@ pub fn prepare_empty_os_generation(
         .installation
         .0
         .prepare_configuration(&retained, cancellation, deadline)?;
-    Ok(OsGenerationSummary::from(&retained))
+    Ok(ServicesGenerationSummary::from(&retained))
 }
 
 /// Open existing installation authority without initializing or repairing it.
-pub fn open_os_installation(
+pub fn open_services_installation(
     path: &Path,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<OsInstallation, OsGenerationError> {
-    Ok(OsInstallation(
+) -> Result<ServicesInstallation, ServicesGenerationError> {
+    Ok(ServicesInstallation(
         GenerationInstallation::open_existing(path, cancellation, deadline)?,
     ))
 }
 
 /// List journal evidence only, without opening or creating a Store.
-pub fn list_os_generations(
+pub fn list_services_generations(
     path: &Path,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<Vec<OsCandidateEntry>, OsGenerationError> {
-    open_os_installation(path, cancellation, deadline)?.list(cancellation, deadline)
+) -> Result<Vec<ServicesCandidateEntry>, ServicesGenerationError> {
+    open_services_installation(path, cancellation, deadline)?.list(cancellation, deadline)
 }
 
-pub fn inspect_os_generation(
+pub fn inspect_services_generation(
     path: &Path,
     store: &Store,
     pin: ContentDigest,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<OsGenerationSummary, OsGenerationError> {
+) -> Result<ServicesGenerationSummary, ServicesGenerationError> {
     let installation = GenerationInstallation::open_existing(path, cancellation, deadline)?;
-    Ok(OsGenerationSummary::from(&installation.open(
-        store,
-        pin,
-        cancellation,
-        deadline,
-    )?))
+    Ok(ServicesGenerationSummary::from(
+        &installation.open(store, pin, cancellation, deadline)?,
+    ))
 }
 
 /// Verify both retained candidates before computing a pure operational diff.
-pub fn diff_os_generations(
+pub fn diff_services_generations(
     path: &Path,
     store: &Store,
     previous: ContentDigest,
     candidate: ContentDigest,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<String, OsGenerationError> {
+) -> Result<String, ServicesGenerationError> {
     let installation = GenerationInstallation::open_existing(path, cancellation, deadline)?;
     let previous = installation.open(store, previous, cancellation, deadline)?;
     let candidate = installation.open(store, candidate, cancellation, deadline)?;
@@ -244,18 +241,18 @@ mod tests {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         let cancel = Cancellation::default();
         let deadline = Instant::now() + Duration::from_secs(10);
-        let original = initialize_os_installation(&path, &cancel, deadline).unwrap();
+        let original = initialize_services_installation(&path, &cancel, deadline).unwrap();
         fs::rename(&path, root.path().join("original-installation")).unwrap();
         fs::create_dir(&path).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
-        let replacement = initialize_os_installation(&path, &cancel, deadline).unwrap();
+        let replacement = initialize_services_installation(&path, &cancel, deadline).unwrap();
         assert_ne!(original.id(), replacement.id());
         let worker = root.path().join("launcher");
         fs::write(&worker, b"inert launcher").unwrap();
         let store = Store::open(&root.path().join("store")).unwrap();
-        let result = prepare_os_generation(
+        let result = prepare_services_generation(
             prepared,
-            &OsPreparation {
+            &ServicesPreparation {
                 installation: &original,
                 store: &store,
                 launcher: &worker,
@@ -266,12 +263,12 @@ mod tests {
         );
         assert!(result.is_err());
         assert!(
-            list_os_generations(&path, &cancel, deadline)
+            list_services_generations(&path, &cancel, deadline)
                 .unwrap()
                 .is_empty()
         );
         assert!(
-            list_os_generations(
+            list_services_generations(
                 &root.path().join("original-installation"),
                 &cancel,
                 deadline
@@ -293,18 +290,18 @@ mod empty_tests {
         crate::deployment::services::profile::ensure_profile_directory(&path).unwrap();
         let cancel = Cancellation::default();
         let deadline = Instant::now() + Duration::from_secs(10);
-        let installation = initialize_os_installation(&path, &cancel, deadline).unwrap();
+        let installation = initialize_services_installation(&path, &cancel, deadline).unwrap();
         let store = Store::initialize(&root.path().join("store")).unwrap();
         let worker = root.path().join("worker");
         std::fs::write(&worker, b"nonexecuted launcher fixture").unwrap();
-        let configuration = OsPreparation {
+        let configuration = ServicesPreparation {
             installation: &installation,
             store: &store,
             launcher: &worker,
             launcher_digest: ContentDigest::sha256(b"nonexecuted launcher fixture"),
         };
-        let first = prepare_empty_os_generation(&configuration, &cancel, deadline).unwrap();
-        let second = prepare_empty_os_generation(&configuration, &cancel, deadline).unwrap();
+        let first = prepare_empty_services_generation(&configuration, &cancel, deadline).unwrap();
+        let second = prepare_empty_services_generation(&configuration, &cancel, deadline).unwrap();
         assert_eq!(first.pin, second.pin);
         assert_eq!(
             (
@@ -316,16 +313,17 @@ mod empty_tests {
             ),
             (0, 0, 0, 0, 0)
         );
-        let reopened = inspect_os_generation(&path, &store, first.pin, &cancel, deadline).unwrap();
+        let reopened =
+            inspect_services_generation(&path, &store, first.pin, &cancel, deadline).unwrap();
         assert_eq!(reopened.pin, first.pin);
         assert_eq!(
-            open_os_installation(&path, &cancel, deadline)
+            open_services_installation(&path, &cancel, deadline)
                 .unwrap()
                 .id(),
             installation.id()
         );
         assert!(
-            crate::deployment::services::inspect_os_status(&path, &cancel, deadline)
+            crate::deployment::services::inspect_services_status(&path, &cancel, deadline)
                 .unwrap()
                 .desired
                 .is_none()

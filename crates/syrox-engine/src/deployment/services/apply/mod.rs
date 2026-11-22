@@ -8,8 +8,8 @@
 use super::{
     activation::{ActivationJournal, ActivationSnapshot, ExecutionEpoch},
     installation::GenerationInstallation,
-    launch_binding::OsLaunchContext,
-    paths::OsExecutionPaths,
+    launch_binding::ServicesLaunchContext,
+    paths::ServicesExecutionPaths,
     unit_files::UnitFiles,
 };
 use crate::{cancellation::Cancellation, store::ContentDigest, systemd::SystemdScope};
@@ -27,28 +27,28 @@ pub(crate) mod recovery;
 
 /// Apply an already retained candidate using an explicitly selected manager.
 /// Success reports observations per resource, never cleanup or application health.
-pub fn apply_os_generation(
-    request: &OsApplyRequest,
+pub fn apply_services_generation(
+    request: &ServicesApplyRequest,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<OsApplyReport, OsApplyError> {
+) -> Result<ServicesApplyReport, ServicesApplyError> {
     execute_generation(request, false, None, cancellation, deadline)
 }
 
 /// Restore an explicitly selected retained generation. This uses the same
 /// ownership, stop/start and retention rules as apply; it does not reverse data
 /// migrations or promise health of the complete generation.
-pub fn rollback_os_generation(
-    request: &OsRollbackRequest,
+pub fn rollback_services_generation(
+    request: &ServicesRollbackRequest,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<OsApplyReport, OsApplyError> {
+) -> Result<ServicesApplyReport, ServicesApplyError> {
     if request.target == request.expected {
         return Err(failure(
             "rollback target equals desired generation",
         ));
     }
-    let apply = OsApplyRequest {
+    let apply = ServicesApplyRequest {
         installation: request.installation.clone(),
         store: request.store.clone(),
         units: request.units.clone(),
@@ -66,7 +66,7 @@ pub fn rollback_os_generation(
 
 /// The profile identity and journal selection captured before preparation.
 #[derive(Clone, Debug)]
-pub struct OsSelectionAuthority {
+pub struct ServicesSelectionAuthority {
     pub installation: String,
     pub active_operation: Option<String>,
 }
@@ -74,13 +74,13 @@ pub struct OsSelectionAuthority {
 /// Apply with profile identity and operation comparison under execution authority.
 /// With `rollback` selected, record a rollback of a retained candidate through
 /// the same coordinator, retaining the existing rollback checks.
-pub fn apply_os_generation_with_authority(
-    request: &OsApplyRequest,
-    authority: &OsSelectionAuthority,
+pub fn apply_services_generation_with_authority(
+    request: &ServicesApplyRequest,
+    authority: &ServicesSelectionAuthority,
     rollback: bool,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<OsApplyReport, OsApplyError> {
+) -> Result<ServicesApplyReport, ServicesApplyError> {
     if rollback && request.expected == Some(request.candidate) {
         return Err(failure(
             "rollback target equals desired generation",
@@ -96,14 +96,14 @@ pub fn apply_os_generation_with_authority(
 }
 
 fn execute_generation(
-    request: &OsApplyRequest,
+    request: &ServicesApplyRequest,
     rollback: bool,
-    authority: Option<&OsSelectionAuthority>,
+    authority: Option<&ServicesSelectionAuthority>,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<OsApplyReport, OsApplyError> {
+) -> Result<ServicesApplyReport, ServicesApplyError> {
     let context = execution_context(request, cancellation, deadline)?;
-    let paths = OsExecutionPaths::open(
+    let paths = ServicesExecutionPaths::open(
         &request.installation,
         &request.store,
         &request.cwd,
@@ -234,7 +234,7 @@ fn execute_generation(
 fn selection_preflight(
     snapshot: &ActivationSnapshot,
     expected: Option<ContentDigest>,
-) -> Result<(), OsApplyError> {
+) -> Result<(), ServicesApplyError> {
     if snapshot.desired != expected.map(|pin| pin.to_string()) {
         return Err(failure("desired generation comparison"));
     }
@@ -251,7 +251,7 @@ fn selection_preflight(
 fn epoch_preflight(
     snapshot: &ActivationSnapshot,
     epoch: &ExecutionEpoch,
-) -> Result<(), OsApplyError> {
+) -> Result<(), ServicesApplyError> {
     if snapshot.operations.values().any(|operation| {
         operation.epoch.scope != epoch.scope
             || (operation.epoch.boot != epoch.boot
@@ -269,10 +269,10 @@ fn epoch_preflight(
 
 fn observe_manager(
     scope: &SystemdScope,
-    context: &OsLaunchContext,
+    context: &ServicesLaunchContext,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<(SystemdManager, ExecutionEpoch), OsApplyError> {
+) -> Result<(SystemdManager, ExecutionEpoch), ServicesApplyError> {
     let mut manager = SystemdManager::connect(
         scope.clone(),
         remaining(cancellation, deadline)?,
@@ -292,10 +292,10 @@ fn observe_manager(
 }
 
 fn execution_context(
-    request: &OsApplyRequest,
+    request: &ServicesApplyRequest,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<OsLaunchContext, OsApplyError> {
+) -> Result<ServicesLaunchContext, ServicesApplyError> {
     if request.uid == 0
         || request.gid == 0
         || request.uid != linux_fd::real_uid()
@@ -308,7 +308,7 @@ fn execution_context(
         return Err(failure("credentials"));
     }
     remaining(cancellation, deadline)?;
-    OsLaunchContext::new(
+    ServicesLaunchContext::new(
         request.scope.clone(),
         request.store.clone(),
         request.units.join("scope.service"),
@@ -320,7 +320,10 @@ fn execution_context(
     .map_err(|_| failure("execution context"))
 }
 
-fn remaining(cancellation: &Cancellation, deadline: Instant) -> Result<Duration, OsApplyError> {
+fn remaining(
+    cancellation: &Cancellation,
+    deadline: Instant,
+) -> Result<Duration, ServicesApplyError> {
     if cancellation.is_cancelled() {
         return Err(failure("cancellation"));
     }
@@ -331,7 +334,7 @@ fn remaining(cancellation: &Cancellation, deadline: Instant) -> Result<Duration,
 }
 
 #[derive(Debug)]
-pub struct OsRollbackRequest {
+pub struct ServicesRollbackRequest {
     pub installation: PathBuf,
     pub store: PathBuf,
     pub units: PathBuf,
@@ -345,7 +348,7 @@ pub struct OsRollbackRequest {
     pub stop_timeout: Duration,
 }
 #[derive(Debug)]
-pub struct OsApplyRequest {
+pub struct ServicesApplyRequest {
     pub installation: PathBuf,
     pub store: PathBuf,
     pub units: PathBuf,
@@ -360,22 +363,22 @@ pub struct OsApplyRequest {
 }
 #[derive(Debug, thiserror::Error)]
 #[error("Services application failed during {stage}; retained evidence was preserved")]
-pub struct OsApplyError {
+pub struct ServicesApplyError {
     stage: &'static str,
 }
-fn failure(stage: &'static str) -> OsApplyError {
-    OsApplyError {
+fn failure(stage: &'static str) -> ServicesApplyError {
+    ServicesApplyError {
         stage,
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OsApplyResourceState {
+pub enum ServicesApplyResourceState {
     Started,
     Stopped,
     Unchanged,
     Pending,
 }
-impl OsApplyResourceState {
+impl ServicesApplyResourceState {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Started => "started",
@@ -386,17 +389,17 @@ impl OsApplyResourceState {
     }
 }
 #[derive(Debug)]
-pub struct OsApplyResource {
+pub struct ServicesApplyResource {
     pub resource: String,
     pub unit: String,
-    pub state: OsApplyResourceState,
+    pub state: ServicesApplyResourceState,
     pub stage: Option<&'static str>,
 }
 #[derive(Debug)]
-pub struct OsApplyReport {
+pub struct ServicesApplyReport {
     pub operation: String,
     pub candidate: ContentDigest,
-    pub resources: Vec<OsApplyResource>,
+    pub resources: Vec<ServicesApplyResource>,
     pub needs_reconciliation: bool,
 }
 
@@ -409,7 +412,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let missing = temp.path().join("missing");
         let pin = ContentDigest::sha256(b"same");
-        let mut request = OsRollbackRequest {
+        let mut request = ServicesRollbackRequest {
             installation: missing.clone(),
             store: missing.clone(),
             units: missing.clone(),
@@ -424,13 +427,13 @@ mod tests {
         };
         let cancel = Cancellation::default();
         let deadline = Instant::now() + Duration::from_secs(10);
-        let error = rollback_os_generation(&request, &cancel, deadline).unwrap_err();
+        let error = rollback_services_generation(&request, &cancel, deadline).unwrap_err();
         assert_eq!(
             error.stage,
             "rollback target equals desired generation"
         );
         request.target = ContentDigest::sha256(b"different");
-        let error = rollback_os_generation(&request, &cancel, deadline).unwrap_err();
+        let error = rollback_services_generation(&request, &cancel, deadline).unwrap_err();
         assert_eq!(error.stage, "credentials");
         assert!(!missing.exists());
     }

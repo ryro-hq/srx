@@ -14,7 +14,7 @@ enum Manager {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct OsLaunchContext {
+pub(crate) struct ServicesLaunchContext {
     manager: Manager,
     store: String,
     fragment: String,
@@ -24,7 +24,7 @@ pub(crate) struct OsLaunchContext {
     stop_us: u64,
     restart: crate::execution::restart::ProcessRestart,
 }
-impl OsLaunchContext {
+impl ServicesLaunchContext {
     pub(crate) fn new(
         scope: SystemdScope,
         store: PathBuf,

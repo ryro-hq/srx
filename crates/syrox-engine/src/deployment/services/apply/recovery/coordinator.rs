@@ -1,5 +1,6 @@
 use super::{
-    OsRecoveryEffect, OsRecoveryError, OsRecoveryReport, OsRecoveryState, failure, failure_with,
+    ServicesRecoveryEffect, ServicesRecoveryError, ServicesRecoveryReport, ServicesRecoveryState,
+    failure, failure_with,
 };
 use crate::deployment::services::{
     activation::{ActivationSnapshot, EffectKind, EffectState},
@@ -8,24 +9,24 @@ use crate::deployment::services::{
         preparation::PreparedResource,
     },
     installation::GenerationInstallation,
-    paths::OsExecutionPaths,
+    paths::ServicesExecutionPaths,
     unit_files::UnitFiles,
 };
 use crate::{store::ContentDigest, systemd::SystemdUnitName};
 use std::collections::BTreeMap;
 
-type Result<T> = std::result::Result<T, OsRecoveryError>;
+type Result<T> = std::result::Result<T, ServicesRecoveryError>;
 /// Caller holds the installation execution guard through the whole observation.
 pub(in crate::deployment::services::apply) fn reconcile<M: Manager>(
     driver: ApplyManager<'_, M>,
     installation: &GenerationInstallation,
-    paths: &OsExecutionPaths,
+    paths: &ServicesExecutionPaths,
     units: &UnitFiles,
     resources: &BTreeMap<String, PreparedResource>,
     snapshot: &ActivationSnapshot,
     candidate: ContentDigest,
-) -> OsRecoveryReport {
-    let mut report = OsRecoveryReport {
+) -> ServicesRecoveryReport {
+    let mut report = ServicesRecoveryReport {
         operation: driver.operation.into(),
         candidate,
         effects: Vec::new(),
@@ -56,13 +57,13 @@ pub(in crate::deployment::services::apply) fn reconcile<M: Manager>(
     };
     for (id, effect) in selected {
         let result = if matches!(effect.state, EffectState::Observed { .. }) {
-            Ok(OsRecoveryState::Observed)
+            Ok(ServicesRecoveryState::Observed)
         } else if matches!(effect.state, EffectState::NotApplied) {
-            Ok(OsRecoveryState::NotApplied)
+            Ok(ServicesRecoveryState::NotApplied)
         } else if matches!(effect.state, EffectState::BootFenced { .. }) {
-            Ok(OsRecoveryState::BootFenced)
+            Ok(ServicesRecoveryState::BootFenced)
         } else if matches!(effect.state, EffectState::ManagerFenced { .. }) {
-            Ok(OsRecoveryState::ManagerFenced)
+            Ok(ServicesRecoveryState::ManagerFenced)
         } else {
             (|| {
                 let target = effect
@@ -89,13 +90,13 @@ pub(in crate::deployment::services::apply) fn reconcile<M: Manager>(
             Err(error) => {
                 report.needs_reconciliation = true;
                 (
-                    OsRecoveryState::Pending,
+                    ServicesRecoveryState::Pending,
                     Some(error.stage),
                     error.source.map(|source| source.to_string()),
                 )
             }
         };
-        report.effects.push(OsRecoveryEffect {
+        report.effects.push(ServicesRecoveryEffect {
             effect: id.clone(),
             resource: effect.resource.clone(),
             kind: kind_name(effect.kind),
@@ -109,7 +110,7 @@ pub(in crate::deployment::services::apply) fn reconcile<M: Manager>(
 struct Coordinator<'a, M: Manager> {
     driver: ApplyManager<'a, M>,
     installation: &'a GenerationInstallation,
-    paths: &'a OsExecutionPaths,
+    paths: &'a ServicesExecutionPaths,
     units: &'a UnitFiles,
     resources: &'a BTreeMap<String, PreparedResource>,
 }
@@ -121,7 +122,7 @@ impl<M: Manager> Coordinator<'_, M> {
         kind: EffectKind,
         target: ContentDigest,
         previous: Option<ContentDigest>,
-    ) -> Result<OsRecoveryState> {
+    ) -> Result<ServicesRecoveryState> {
         self.paths
             .revalidate(self.driver.cancellation, self.driver.deadline)
             .map_err(|source| failure_with("execution paths changed", source))?;
@@ -129,7 +130,7 @@ impl<M: Manager> Coordinator<'_, M> {
             EffectKind::Publish => self.publication(id, resource, target, previous),
             EffectKind::Stop => self
                 .stop(id, resource, target)
-                .map(|()| OsRecoveryState::Observed),
+                .map(|()| ServicesRecoveryState::Observed),
             EffectKind::Start => {
                 let next = self
                     .resources
@@ -147,7 +148,7 @@ impl<M: Manager> Coordinator<'_, M> {
                         .reconcile_start(id, resource, &next.binding, &next.contract)
                         .map_err(|source| failure_with("validate start reconciliation", source))?,
                 )
-                .map(|()| OsRecoveryState::Observed)
+                .map(|()| ServicesRecoveryState::Observed)
             }
             EffectKind::Reload => {
                 let key = resource
@@ -164,7 +165,7 @@ impl<M: Manager> Coordinator<'_, M> {
                         .reconcile_reload(id, resource, target, &[&next.contract])
                         .map_err(|source| failure_with("validate reload reconciliation", source))?,
                 )
-                .map(|()| OsRecoveryState::Observed)
+                .map(|()| ServicesRecoveryState::Observed)
             }
         }
     }
@@ -174,7 +175,7 @@ impl<M: Manager> Coordinator<'_, M> {
         resource: &str,
         target: ContentDigest,
         previous: Option<ContentDigest>,
-    ) -> Result<OsRecoveryState> {
+    ) -> Result<ServicesRecoveryState> {
         let driver = &self.driver;
         if let Some(key) = resource
             .strip_prefix("unit/")
@@ -250,9 +251,9 @@ impl<M: Manager> Coordinator<'_, M> {
                 driver.deadline,
             )
             .map_err(|source| failure_with("record recovered publication", source))
-            .map(|()| OsRecoveryState::Observed)
+            .map(|()| ServicesRecoveryState::Observed)
     }
-    fn not_applied(&self, id: &str) -> Result<OsRecoveryState> {
+    fn not_applied(&self, id: &str) -> Result<ServicesRecoveryState> {
         self.driver
             .journal
             .record_not_applied(
@@ -262,7 +263,7 @@ impl<M: Manager> Coordinator<'_, M> {
                 self.driver.deadline,
             )
             .map_err(|source| failure_with("record publication not applied", source))?;
-        Ok(OsRecoveryState::NotApplied)
+        Ok(ServicesRecoveryState::NotApplied)
     }
     fn published(&self, next: &PreparedResource) -> Result<()> {
         let driver = &self.driver;

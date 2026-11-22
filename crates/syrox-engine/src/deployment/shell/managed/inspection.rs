@@ -185,8 +185,11 @@ mod tests {
         .unwrap();
         let (snapshot, _) = crate::deployment::services::shell_snapshot(
             &prepared,
-            crate::deployment::services::LauncherIdentity::new(ContentDigest::sha256(b"candidate"), 1)
-                .unwrap(),
+            crate::deployment::services::LauncherIdentity::new(
+                ContentDigest::sha256(b"candidate"),
+                1,
+            )
+            .unwrap(),
         )
         .unwrap();
         let bytes = record::encode(

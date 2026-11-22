@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 mod context;
-pub(crate) use context::OsLaunchContext;
+pub(crate) use context::ServicesLaunchContext;
 
 const HEADER: &[u8] = b"syrox-os-launch-v3\n";
 pub(crate) const MAX_LAUNCH_BINDING_BYTES: usize = 32 * 1024;
@@ -31,7 +31,7 @@ pub(crate) struct LaunchBindingInput {
     pub launcher: LauncherIdentity,
     pub spec: ContentDigest,
     pub epoch: ExecutionEpoch,
-    pub context: OsLaunchContext,
+    pub context: ServicesLaunchContext,
     /// Directory of this service alone, bound at /syrox/config/SERVICE.
     pub configuration: PathBuf,
     pub cwd: PathBuf,
@@ -54,13 +54,13 @@ struct Record {
     launcher: LauncherIdentity,
     spec: String,
     epoch: ExecutionEpoch,
-    context: OsLaunchContext,
+    context: ServicesLaunchContext,
     configuration: String,
     cwd: String,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct OsLaunchBinding(Record);
-impl OsLaunchBinding {
+pub(crate) struct ServicesLaunchBinding(Record);
+impl ServicesLaunchBinding {
     pub(crate) fn new(input: LaunchBindingInput) -> Result<Self> {
         let binding = Self(Record {
             version: 3,
@@ -213,7 +213,7 @@ impl OsLaunchBinding {
     pub(crate) fn epoch(&self) -> &ExecutionEpoch {
         &self.0.epoch
     }
-    pub(crate) fn context(&self) -> &OsLaunchContext {
+    pub(crate) fn context(&self) -> &ServicesLaunchContext {
         &self.0.context
     }
     pub(crate) fn configuration(&self) -> &Path {

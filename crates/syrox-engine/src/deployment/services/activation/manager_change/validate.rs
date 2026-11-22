@@ -4,7 +4,9 @@ use super::{
 };
 use std::collections::BTreeSet;
 
-pub(in crate::deployment::services::activation) fn validate(state: &ActivationSnapshot) -> Result<()> {
+pub(in crate::deployment::services::activation) fn validate(
+    state: &ActivationSnapshot,
+) -> Result<()> {
     if state.manager_changes.len() > super::super::record::MAX_OPERATIONS {
         return Err(invalid("manager transition registry exhausted"));
     }

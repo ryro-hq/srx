@@ -527,7 +527,7 @@ fn decode_checks_structure_before_allocation_and_configuration_entry_count_is_bo
 }
 
 #[test]
-fn shell_snapshot_borrows_preparation_and_is_distinct_from_os_generation() {
+fn shell_snapshot_borrows_preparation_and_is_distinct_from_services_generation() {
     let (temp, shell) = prepared("Shell");
     fs::remove_file(temp.path().join("main.srx")).unwrap();
     let (bytes, pin) = shell_snapshot(&shell, launcher()).unwrap();
@@ -647,7 +647,7 @@ fn shell_decode_enforces_pin_canonical_shape_graph_and_bounds() {
 }
 
 #[test]
-fn session_state_snapshot_roundtrips_declarations_only_and_os_rejects_them() {
+fn session_state_snapshot_roundtrips_declarations_only_and_services_rejects_them() {
     let mut manifest = fixture();
     manifest.session_states.insert("a".into());
     manifest

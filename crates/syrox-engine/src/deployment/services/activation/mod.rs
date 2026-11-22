@@ -11,7 +11,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use super::installation::{InstallationError, RetainedGeneration, storage::Storage};
-use super::launch_binding::OsLaunchBinding;
+use super::launch_binding::ServicesLaunchBinding;
 use crate::{cancellation::Cancellation, store::ContentDigest, systemd::SystemdUnitName};
 use thiserror::Error;
 pub(crate) mod manager_change;
@@ -662,7 +662,7 @@ impl ActivationJournal {
         &self,
         operation: &str,
         publication: &str,
-        binding: &OsLaunchBinding,
+        binding: &ServicesLaunchBinding,
         cancellation: &Cancellation,
         deadline: Instant,
     ) -> Result<()> {

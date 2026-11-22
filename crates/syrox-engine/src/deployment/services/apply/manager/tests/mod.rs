@@ -2,10 +2,10 @@ use super::*;
 use crate::deployment::services::{
     LauncherIdentity,
     installation::GenerationInstallation,
-    launch_binding::{LaunchBindingInput, OsLaunchContext},
+    launch_binding::{LaunchBindingInput, ServicesLaunchContext},
 };
 use crate::systemd::SystemdScope;
-use crate::systemd::persistent::OsUnitInput;
+use crate::systemd::persistent::ServicesUnitInput;
 use std::collections::VecDeque;
 use std::os::unix::fs::PermissionsExt as _;
 
@@ -19,8 +19,8 @@ struct Fixture {
     _directory: tempfile::TempDir,
     journal: ActivationJournal,
     operation: String,
-    binding: OsLaunchBinding,
-    contract: OsUnitContract,
+    binding: ServicesLaunchBinding,
+    contract: ServicesUnitContract,
     epoch: ExecutionEpoch,
     cancel: Cancellation,
 }
@@ -37,7 +37,7 @@ impl Fixture {
             GenerationInstallation::initialize(directory.path(), &cancel, deadline()).unwrap();
         let journal =
             ActivationJournal::open_existing(directory.path(), &cancel, deadline()).unwrap();
-        let context = OsLaunchContext::new(
+        let context = ServicesLaunchContext::new(
             SystemdScope::System,
             "/state/store".into(),
             "/units/syrox-os-driver.service".into(),
@@ -64,7 +64,7 @@ impl Fixture {
                 deadline(),
             )
             .unwrap();
-        let binding = OsLaunchBinding::new(LaunchBindingInput {
+        let binding = ServicesLaunchBinding::new(LaunchBindingInput {
             installation: installation.id().into(),
             generation: pin(b"generation"),
             service: "probe".into(),
@@ -110,7 +110,7 @@ impl Fixture {
                 deadline(),
             )
             .unwrap();
-        let contract = OsUnitContract::new(OsUnitInput {
+        let contract = ServicesUnitContract::new(ServicesUnitInput {
             restart: crate::execution::restart::ProcessRestart::Never,
             unit: binding.unit(),
             scope: SystemdScope::System,
@@ -208,7 +208,8 @@ impl<'a> Fake<'a> {
                 .effects
                 .values()
                 .any(|effect| effect.kind == kind
-                    && effect.state == crate::deployment::services::activation::EffectState::Intent)
+                    && effect.state
+                        == crate::deployment::services::activation::EffectState::Intent)
         );
     }
     fn consume_gate(&self) {
@@ -276,7 +277,7 @@ impl Manager for Fake<'_> {
         self.calls.push("job");
         Ok(self.fault != Fault::JobPresent)
     }
-    fn loaded(&mut self, _: &OsUnitContract, budget: &Budget<'_>) -> Result<ContentDigest> {
+    fn loaded(&mut self, _: &ServicesUnitContract, budget: &Budget<'_>) -> Result<ContentDigest> {
         budget.remaining()?;
         self.calls.push("loaded");
         if self.fault == Fault::Loaded {

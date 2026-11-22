@@ -5,16 +5,16 @@ use std::time::Instant;
 
 #[derive(Debug, thiserror::Error)]
 #[error("cannot abandon Services operation: {stage}")]
-pub struct OsAbandonmentError {
+pub struct ServicesAbandonmentError {
     stage: &'static str,
 }
-fn failure(stage: &'static str) -> OsAbandonmentError {
-    OsAbandonmentError {
+fn failure(stage: &'static str) -> ServicesAbandonmentError {
+    ServicesAbandonmentError {
         stage,
     }
 }
 #[derive(Debug)]
-pub struct OsAbandonment {
+pub struct ServicesAbandonment {
     pub installation: String,
     pub operation: String,
     pub candidate: ContentDigest,
@@ -23,12 +23,12 @@ pub struct OsAbandonment {
 /// Clear desired selection only after all recorded effects are terminal.
 /// Existing authorizations, services, files and roots remain unchanged. This
 /// neither rolls back the candidate nor establishes process quiescence.
-pub fn abandon_os_operation(
+pub fn abandon_services_operation(
     installation: &Path,
     operation: &str,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<OsAbandonment, OsAbandonmentError> {
+) -> Result<ServicesAbandonment, ServicesAbandonmentError> {
     if operation.len() != 32
         || operation.bytes().all(|byte| byte == b'0')
         || !operation
@@ -52,7 +52,7 @@ pub fn abandon_os_operation(
     let candidate = journal
         .abandon(operation, cancellation, deadline)
         .map_err(|_| failure("selection changed or effects require reconciliation"))?;
-    Ok(OsAbandonment {
+    Ok(ServicesAbandonment {
         installation: opened.id().into(),
         operation: operation.into(),
         candidate,
@@ -110,7 +110,8 @@ mod tests {
     fn public_abandonment_clears_selection_without_store_and_is_repeatable() {
         let (temp, installation, journal, operation) = fixture();
         let cancel = Cancellation::default();
-        let report = abandon_os_operation(temp.path(), &operation, &cancel, deadline()).unwrap();
+        let report =
+            abandon_services_operation(temp.path(), &operation, &cancel, deadline()).unwrap();
         assert_eq!(report.installation, installation.id());
         assert_eq!(report.operation, operation);
         assert_eq!(
@@ -121,7 +122,7 @@ mod tests {
         assert!(snapshot.desired.is_none());
         assert!(snapshot.active_operation.is_none());
         assert!(snapshot.operations[&operation].abandoned);
-        abandon_os_operation(temp.path(), &operation, &cancel, deadline()).unwrap();
+        abandon_services_operation(temp.path(), &operation, &cancel, deadline()).unwrap();
         let next = journal
             .begin_test_pin(
                 ContentDigest::sha256(b"next"),
@@ -131,7 +132,7 @@ mod tests {
                 deadline(),
             )
             .unwrap();
-        assert!(abandon_os_operation(temp.path(), &operation, &cancel, deadline()).is_err());
+        assert!(abandon_services_operation(temp.path(), &operation, &cancel, deadline()).is_err());
         assert_eq!(
             journal
                 .snapshot(&cancel, deadline())
@@ -156,7 +157,7 @@ mod tests {
                 deadline(),
             )
             .unwrap();
-        assert!(abandon_os_operation(temp.path(), &operation, &cancel, deadline()).is_err());
+        assert!(abandon_services_operation(temp.path(), &operation, &cancel, deadline()).is_err());
         assert_eq!(
             journal
                 .snapshot(&cancel, deadline())
@@ -172,7 +173,7 @@ mod tests {
             .record_not_applied(&operation, &effect, &cancel, deadline())
             .unwrap();
         assert!(
-            abandon_os_operation(
+            abandon_services_operation(
                 temp.path(),
                 &operation,
                 &cancel,
@@ -181,7 +182,7 @@ mod tests {
             .is_err()
         );
         drop(guard);
-        abandon_os_operation(temp.path(), &operation, &cancel, deadline()).unwrap();
+        abandon_services_operation(temp.path(), &operation, &cancel, deadline()).unwrap();
     }
 
     #[test]
@@ -193,7 +194,7 @@ mod tests {
             "11111111111111111111111111111111",
         ] {
             assert!(
-                abandon_os_operation(
+                abandon_services_operation(
                     &missing,
                     operation,
                     &Cancellation::default(),
@@ -206,7 +207,7 @@ mod tests {
         let (temp, _installation, journal, operation) = fixture();
         let cancel = Cancellation::default();
         cancel.cancel();
-        assert!(abandon_os_operation(temp.path(), &operation, &cancel, deadline()).is_err());
+        assert!(abandon_services_operation(temp.path(), &operation, &cancel, deadline()).is_err());
         assert_eq!(
             journal
                 .snapshot(&Cancellation::default(), deadline())
@@ -237,7 +238,7 @@ mod tests {
                 deadline(),
             )
             .unwrap();
-        abandon_os_operation(relative, &operation, &cancel, deadline()).unwrap();
+        abandon_services_operation(relative, &operation, &cancel, deadline()).unwrap();
         assert!(
             journal
                 .snapshot(&cancel, deadline())

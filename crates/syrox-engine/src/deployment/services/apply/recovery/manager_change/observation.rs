@@ -1,5 +1,5 @@
 use super::{ObservedInvocation, PinnedResource, Reconciler, Result};
-use crate::systemd::persistent::OsUnitContract;
+use crate::systemd::persistent::ServicesUnitContract;
 
 impl Reconciler<'_> {
     pub(super) fn epoch(&mut self) -> Result<()> {
@@ -14,11 +14,11 @@ impl Reconciler<'_> {
         }
         Ok(())
     }
-    pub(super) fn loaded(&mut self, contract: &OsUnitContract) -> Result<()> {
+    pub(super) fn loaded(&mut self, contract: &ServicesUnitContract) -> Result<()> {
         self.epoch()?;
         let loaded = self
             .manager
-            .observe_os_unit(contract, self.remaining()?, self.cancel)
+            .observe_services_unit(contract, self.remaining()?, self.cancel)
             .map_err(|source| super::failure_with("observe historical loaded contract", source))?;
         if loaded.unit() != contract.unit()
             || loaded.manager().fingerprint().to_string() != self.current.manager
@@ -46,7 +46,7 @@ impl Reconciler<'_> {
     pub(super) fn check(
         &mut self,
         pinned: &PinnedResource,
-        contract: &OsUnitContract,
+        contract: &ServicesUnitContract,
     ) -> Result<()> {
         self.manager
             .verify_unit_reference(&pinned.reference, self.remaining()?, self.cancel)
@@ -57,7 +57,7 @@ impl Reconciler<'_> {
     pub(super) fn stop(
         &mut self,
         name: &str,
-        contract: &OsUnitContract,
+        contract: &ServicesUnitContract,
         pinned: &PinnedResource,
     ) -> Result<()> {
         self.check(pinned, contract)?;
@@ -124,7 +124,7 @@ impl Reconciler<'_> {
     pub(super) fn idle_without_cgroup(
         &mut self,
         reference: &crate::systemd::SystemdUnitReference,
-        contract: &OsUnitContract,
+        contract: &ServicesUnitContract,
     ) -> Result<()> {
         self.manager
             .verify_unit_reference(reference, self.remaining()?, self.cancel)
@@ -183,7 +183,7 @@ impl Reconciler<'_> {
     pub(super) fn closed_inventory_idle(
         &mut self,
         pinned: &PinnedResource,
-        contract: &OsUnitContract,
+        contract: &ServicesUnitContract,
     ) -> Result<()> {
         self.check(pinned, contract)?;
         self.idle_without_cgroup(&pinned.reference, contract)?;

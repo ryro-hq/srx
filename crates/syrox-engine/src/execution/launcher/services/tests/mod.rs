@@ -110,16 +110,20 @@ fn payload_exit_and_signal_never_become_reserved_admission_denial() {
         );
     }
     assert!(matches!(
-        admission_error(crate::deployment::services::activation::ActivationError::StartDenied("revoked")),
-        OsWorkerError::Denied("revoked")
+        admission_error(
+            crate::deployment::services::activation::ActivationError::StartDenied("revoked")
+        ),
+        ServicesWorkerError::Denied("revoked")
     ));
     for error in [
         crate::deployment::services::activation::ActivationError::Invalid("uncertain"),
-        crate::deployment::services::activation::ActivationError::Io(io::Error::other("write uncertain")),
+        crate::deployment::services::activation::ActivationError::Io(io::Error::other(
+            "write uncertain",
+        )),
     ] {
         assert!(!matches!(
             admission_error(error),
-            OsWorkerError::Denied(_)
+            ServicesWorkerError::Denied(_)
         ));
     }
 }

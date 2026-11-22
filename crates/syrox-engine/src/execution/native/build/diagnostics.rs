@@ -106,7 +106,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn preserves_preparation_stage_and_os_failure() {
+    fn preserves_preparation_stage_and_services_failure() {
         let bytes = serde_json::to_vec(&Failure {
             stage: Stage::Mounts,
             errno: Some(libc::EPERM),

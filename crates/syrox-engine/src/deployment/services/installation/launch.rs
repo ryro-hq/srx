@@ -2,7 +2,7 @@ use super::{
     CandidatePhase, GenerationInstallation, InstallationError, MAX_MANIFEST_BYTES, Record, Result,
     RetainedGeneration, check, storage,
 };
-use crate::deployment::services::launch_binding::OsLaunchBinding;
+use crate::deployment::services::launch_binding::ServicesLaunchBinding;
 use crate::{cancellation::Cancellation, store::ContentDigest};
 use std::time::Instant;
 
@@ -14,7 +14,7 @@ impl GenerationInstallation {
         pin: ContentDigest,
         cancellation: &Cancellation,
         deadline: Instant,
-    ) -> Result<Option<OsLaunchBinding>> {
+    ) -> Result<Option<ServicesLaunchBinding>> {
         let _lock = self.storage.lock(cancellation, deadline)?;
         if self.storage.installation_id(false)? != self.id {
             return Err(InstallationError::Invalid(
@@ -27,7 +27,7 @@ impl GenerationInstallation {
         else {
             return Ok(None);
         };
-        let binding = OsLaunchBinding::decode(&bytes, pin)
+        let binding = ServicesLaunchBinding::decode(&bytes, pin)
             .map_err(|_| InstallationError::Invalid("invalid launch binding"))?;
         if binding.installation_id() != self.id {
             return Err(InstallationError::Invalid(
@@ -40,7 +40,7 @@ impl GenerationInstallation {
     pub(crate) fn publish_launch_binding(
         &self,
         generation: &RetainedGeneration,
-        binding: &OsLaunchBinding,
+        binding: &ServicesLaunchBinding,
         cancellation: &Cancellation,
         deadline: Instant,
     ) -> Result<ContentDigest> {
@@ -104,7 +104,7 @@ impl GenerationInstallation {
         pin: ContentDigest,
         cancellation: &Cancellation,
         deadline: Instant,
-    ) -> Result<OsLaunchBinding> {
+    ) -> Result<ServicesLaunchBinding> {
         let _lock = self.storage.lock(cancellation, deadline)?;
         if self.storage.installation_id(false)? != self.id {
             return Err(InstallationError::Invalid(
@@ -117,7 +117,7 @@ impl GenerationInstallation {
             .ok_or(InstallationError::Invalid(
                 "launch binding is absent",
             ))?;
-        let binding = OsLaunchBinding::decode(&bytes, pin)
+        let binding = ServicesLaunchBinding::decode(&bytes, pin)
             .map_err(|_| InstallationError::Invalid("invalid launch binding"))?;
         if binding.installation_id() != self.id {
             return Err(InstallationError::Invalid(

@@ -4,7 +4,7 @@ use syrox_engine::{
     config::UserConfiguration,
     deployment::services::{
         self,
-        profile::{self, OsProfile, ProfileScope},
+        profile::{self, ProfileScope, ServicesProfile},
     },
     store::ContentDigest,
 };
@@ -41,7 +41,7 @@ pub(crate) struct InitArguments {
 }
 
 pub(super) struct Loaded {
-    pub profile: OsProfile,
+    pub profile: ServicesProfile,
     path: PathBuf,
 }
 impl Loaded {
@@ -66,7 +66,7 @@ impl Loaded {
     }
     pub fn load(name: &str, cancel: &Cancellation) -> Result<Self, String> {
         let path = profile_path(name)?;
-        let profile = profile::read_os_profile(&path)
+        let profile = profile::read_services_profile(&path)
             .map_err(|e| format!("cannot load profile {name}: {e}"))?;
         if profile.name != name {
             return Err("profile name differs from its filename".into());
@@ -79,11 +79,11 @@ impl Loaded {
         Ok(loaded)
     }
     pub fn revalidate(&self, cancel: &Cancellation) -> Result<(), String> {
-        let current = profile::read_os_profile(&self.path).map_err(|e| e.to_string())?;
+        let current = profile::read_services_profile(&self.path).map_err(|e| e.to_string())?;
         if current != self.profile {
             return Err("profile changed during the operation; retry explicitly".into());
         }
-        let installation = services::open_os_installation(
+        let installation = services::open_services_installation(
             &self.profile.installation,
             cancel,
             super::deadline(),
@@ -96,9 +96,9 @@ impl Loaded {
         }
         Ok(())
     }
-    pub fn status(&self, cancel: &Cancellation) -> Result<services::OsStatus, String> {
+    pub fn status(&self, cancel: &Cancellation) -> Result<services::ServicesStatus, String> {
         self.revalidate(cancel)?;
-        let status = services::inspect_os_status(
+        let status = services::inspect_services_status(
             &self.profile.installation,
             cancel,
             super::deadline(),
@@ -109,8 +109,11 @@ impl Loaded {
         }
         Ok(status)
     }
-    pub fn authority(&self, status: &services::OsStatus) -> services::OsSelectionAuthority {
-        services::OsSelectionAuthority {
+    pub fn authority(
+        &self,
+        status: &services::ServicesStatus,
+    ) -> services::ServicesSelectionAuthority {
+        services::ServicesSelectionAuthority {
             installation: self.profile.installation_id.clone(),
             active_operation: status.active_operation.clone(),
         }
@@ -119,9 +122,9 @@ impl Loaded {
         &self,
         candidate: ContentDigest,
         expected: Option<ContentDigest>,
-    ) -> services::OsApplyRequest {
+    ) -> services::ServicesApplyRequest {
         let profile = &self.profile;
-        services::OsApplyRequest {
+        services::ServicesApplyRequest {
             installation: profile.installation.clone(),
             store: profile.store.clone(),
             units: profile.units.clone(),
@@ -206,7 +209,7 @@ pub(crate) fn init(arguments: &InitArguments, cancel: &Cancellation) -> Result<u
             )?,
         }
     };
-    let mut profile = OsProfile {
+    let mut profile = ServicesProfile {
         version: 1,
         name: arguments.name.clone(),
         project,
@@ -231,11 +234,14 @@ pub(crate) fn init(arguments: &InitArguments, cancel: &Cancellation) -> Result<u
     ] {
         profile::ensure_profile_directory(directory).map_err(|e| e.to_string())?;
     }
-    let installation =
-        services::initialize_os_installation(&profile.installation, cancel, super::deadline())
-            .map_err(|e| e.to_string())?;
+    let installation = services::initialize_services_installation(
+        &profile.installation,
+        cancel,
+        super::deadline(),
+    )
+    .map_err(|e| e.to_string())?;
     profile.installation_id = installation.id().into();
-    profile::create_os_profile(&destination, &profile).map_err(|e| e.to_string())?;
+    profile::create_services_profile(&destination, &profile).map_err(|e| e.to_string())?;
     if arguments.json {
         println!(
             "{}",

@@ -1,8 +1,8 @@
 use std::time::{Duration, Instant};
 
 use syrox_engine::{
-    cancellation::Cancellation, deployment::services::OsRecoveryEffect, deployment::services::OsRecoveryReport,
-    deployment::services::OsRecoveryRequest,
+    cancellation::Cancellation, deployment::services::ServicesRecoveryEffect,
+    deployment::services::ServicesRecoveryReport, deployment::services::ServicesRecoveryRequest,
 };
 
 #[derive(Debug, clap::Args)]
@@ -59,7 +59,7 @@ pub(crate) fn recover(arguments: &RecoveryArguments, cancel: &Cancellation) -> R
             None,
         )?
     };
-    let request = OsRecoveryRequest {
+    let request = ServicesRecoveryRequest {
         installation: selected.installation,
         store: selected.store,
         units: selected.units,
@@ -75,14 +75,14 @@ pub(crate) fn recover(arguments: &RecoveryArguments, cancel: &Cancellation) -> R
     };
     let report = if let Some(loaded) = &loaded {
         loaded.revalidate(cancel)?;
-        syrox_engine::deployment::services::recover_os_generation_with_identity(
+        syrox_engine::deployment::services::recover_services_generation_with_identity(
             &request,
             &loaded.profile.installation_id,
             cancel,
             Instant::now() + Duration::from_secs(300),
         )
     } else {
-        syrox_engine::deployment::services::recover_os_generation(
+        syrox_engine::deployment::services::recover_services_generation(
             &request,
             cancel,
             Instant::now() + Duration::from_secs(300),
@@ -110,7 +110,7 @@ pub(crate) fn recover(arguments: &RecoveryArguments, cancel: &Cancellation) -> R
     Ok(report_exit_code(&report))
 }
 
-fn report_json(report: &OsRecoveryReport) -> serde_json::Value {
+fn report_json(report: &ServicesRecoveryReport) -> serde_json::Value {
     let effects: Vec<_> = report
         .effects
         .iter()
@@ -126,7 +126,7 @@ fn report_json(report: &OsRecoveryReport) -> serde_json::Value {
         "effects": effects, "needs_reconciliation": report.needs_reconciliation,
     })
 }
-fn effect_text(effect: &OsRecoveryEffect) -> String {
+fn effect_text(effect: &ServicesRecoveryEffect) -> String {
     format!(
         "effect={} resource={} kind={} state={}{}{}",
         effect.effect,
@@ -142,7 +142,7 @@ fn effect_text(effect: &OsRecoveryEffect) -> String {
             .map_or_else(String::new, |error| format!(" error={error}"))
     )
 }
-fn report_exit_code(report: &OsRecoveryReport) -> u8 {
+fn report_exit_code(report: &ServicesRecoveryReport) -> u8 {
     if report.needs_reconciliation {
         2
     } else {
@@ -162,7 +162,7 @@ pub(crate) struct AbandonArguments {
 }
 
 pub(crate) fn abandon(arguments: &AbandonArguments, cancel: &Cancellation) -> Result<u8, String> {
-    let report = syrox_engine::deployment::services::abandon_os_operation(
+    let report = syrox_engine::deployment::services::abandon_services_operation(
         &arguments.installation,
         &arguments.operation,
         cancel,
@@ -192,18 +192,18 @@ pub(crate) fn abandon(arguments: &AbandonArguments, cancel: &Cancellation) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
-    use syrox_engine::{deployment::services::OsRecoveryState, store::ContentDigest};
+    use syrox_engine::{deployment::services::ServicesRecoveryState, store::ContentDigest};
 
     #[test]
     fn not_applied_is_reported_distinctly_without_claiming_candidate_application() {
-        let mut report = OsRecoveryReport {
+        let mut report = ServicesRecoveryReport {
             operation: "1234567890abcdef1234567890abcdef".into(),
             candidate: ContentDigest::sha256(b"candidate"),
-            effects: vec![OsRecoveryEffect {
+            effects: vec![ServicesRecoveryEffect {
                 effect: "recorded-effect".into(),
                 resource: "service/process".into(),
                 kind: "publish",
-                state: OsRecoveryState::NotApplied,
+                state: ServicesRecoveryState::NotApplied,
                 stage: None,
                 error: None,
             }],
@@ -215,14 +215,14 @@ mod tests {
         assert!(json.get("applied").is_none());
         assert!(effect_text(&report.effects[0]).contains("state=not_applied"));
         assert_eq!(report_exit_code(&report), 0);
-        report.effects[0].state = OsRecoveryState::BootFenced;
+        report.effects[0].state = ServicesRecoveryState::BootFenced;
         assert_eq!(
             report_json(&report)["effects"][0]["state"],
             "boot_fenced"
         );
         assert!(effect_text(&report.effects[0]).contains("state=boot_fenced"));
         assert_eq!(report_exit_code(&report), 0);
-        report.effects[0].state = OsRecoveryState::Pending;
+        report.effects[0].state = ServicesRecoveryState::Pending;
         report.needs_reconciliation = true;
         assert_eq!(
             report_json(&report)["effects"][0]["state"],

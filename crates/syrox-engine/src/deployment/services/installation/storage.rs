@@ -192,7 +192,10 @@ impl Storage {
         }
         Ok(guard)
     }
-    pub(in crate::deployment::services) fn installation_id(&self, initialize: bool) -> Result<String> {
+    pub(in crate::deployment::services) fn installation_id(
+        &self,
+        initialize: bool,
+    ) -> Result<String> {
         let bytes = match read_optional(self.root.fd(), "installation", 128)? {
             Some(bytes) => bytes,
             None if initialize => {

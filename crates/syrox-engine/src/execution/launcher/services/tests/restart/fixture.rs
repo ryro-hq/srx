@@ -74,7 +74,7 @@ fn directory(path: &Path) -> Result<()> {
 pub(super) struct Fixture {
     pub(super) root: PathBuf,
     pub(super) cwd: PathBuf,
-    pub(super) request: crate::deployment::services::OsApplyRequest,
+    pub(super) request: crate::deployment::services::ServicesApplyRequest,
     pub(super) journal: ActivationJournal,
     pub(super) cancel: Cancellation,
     pub(super) manager: SystemdManager,
@@ -118,11 +118,14 @@ impl Fixture {
                 },
             );
         let store = Store::open(&root.join("store"))?;
-        let installed =
-            crate::deployment::services::initialize_os_installation(&installation, &cancel, deadline())?;
-        let summary = crate::deployment::services::prepare_os_generation(
+        let installed = crate::deployment::services::initialize_services_installation(
+            &installation,
+            &cancel,
+            deadline(),
+        )?;
+        let summary = crate::deployment::services::prepare_services_generation(
             prepared,
-            &crate::deployment::services::OsPreparation {
+            &crate::deployment::services::ServicesPreparation {
                 installation: &installed,
                 store: &store,
                 launcher: &worker,
@@ -134,7 +137,7 @@ impl Fixture {
         // Only snapshots and retained CAS bytes remain available to both starts.
         project.close()?;
         fs::remove_file(&worker)?;
-        let request = crate::deployment::services::OsApplyRequest {
+        let request = crate::deployment::services::ServicesApplyRequest {
             installation,
             store: root.join("store"),
             units: input.units.clone(),
@@ -166,8 +169,11 @@ impl Fixture {
         })
     }
     pub(super) fn apply(&mut self) -> Result<()> {
-        let report =
-            crate::deployment::services::apply_os_generation(&self.request, &self.cancel, deadline())?;
+        let report = crate::deployment::services::apply_services_generation(
+            &self.request,
+            &self.cancel,
+            deadline(),
+        )?;
         fs::write(self.root.join("operation"), &report.operation)?;
         fs::write(
             self.root.join("apply-report.txt"),
@@ -179,7 +185,7 @@ impl Fixture {
                     r.resource == "probe/worker"
                         && matches!(
                             r.state,
-                            crate::deployment::services::OsApplyResourceState::Started
+                            crate::deployment::services::ServicesApplyResourceState::Started
                         )
                 }),
             "apply did not observe started payload",

@@ -5,10 +5,10 @@ use crate::deployment::services::{
     activation::ActivationSnapshot,
     diff::{ChangeKind, ResourceKind, diff_generations},
     installation::{GenerationConfiguration, GenerationLauncher, RetainedGeneration},
-    launch_binding::OsLaunchBinding,
-    runtime::prepare_bound_os_runtime,
+    launch_binding::ServicesLaunchBinding,
+    runtime::prepare_bound_services_runtime,
 };
-use crate::systemd::persistent::{OsUnitContract, OsUnitInput};
+use crate::systemd::persistent::{ServicesUnitContract, ServicesUnitInput};
 use crate::{cancellation::Cancellation, store::ContentDigest};
 use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 use std::sync::Arc;
@@ -38,8 +38,8 @@ impl CacheBudget {
 }
 
 pub(crate) struct PreservedResource {
-    pub binding: OsLaunchBinding,
-    pub contract: OsUnitContract,
+    pub binding: ServicesLaunchBinding,
+    pub contract: ServicesUnitContract,
     // Retains the previous generation's output leases until this resource settles.
     #[cfg_attr(
         not(test),
@@ -174,7 +174,7 @@ fn charge_diff(budget: &mut CacheBudget, previous: usize, candidate: usize) -> R
 fn compatible(
     input: &ResourcePreparation<'_>,
     key: &str,
-    old: &OsLaunchBinding,
+    old: &ServicesLaunchBinding,
     next: &PreparedResource,
 ) -> Result<bool> {
     let fresh = &next.binding;
@@ -204,10 +204,10 @@ fn compatible(
 fn verify_existing(
     input: &ResourcePreparation<'_>,
     prior: &mut PreviousGeneration,
-    binding: &OsLaunchBinding,
+    binding: &ServicesLaunchBinding,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<OsUnitContract> {
+) -> Result<ServicesUnitContract> {
     if prior.snapshots.is_none() {
         prior.snapshots = Some(ExistingSnapshots::open(
             input.installation,
@@ -242,13 +242,13 @@ impl ExistingSnapshots {
     }
 }
 pub(super) fn snapshot_contract(
-    paths: &crate::deployment::services::paths::OsExecutionPaths,
+    paths: &crate::deployment::services::paths::ServicesExecutionPaths,
     retained: &RetainedGeneration,
-    binding: &OsLaunchBinding,
+    binding: &ServicesLaunchBinding,
     snapshots: &ExistingSnapshots,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<OsUnitContract> {
+) -> Result<ServicesUnitContract> {
     let (configuration, path) = snapshots
         .configuration
         .service(binding.service())?;
@@ -257,12 +257,12 @@ pub(super) fn snapshot_contract(
     }
     // This checks exact configuration bytes, executable paths and runtime closure,
     // then compares the resulting specification with the original binding pin.
-    prepare_bound_os_runtime(retained, binding, configuration, cancellation)?;
+    prepare_bound_services_runtime(retained, binding, configuration, cancellation)?;
     snapshots
         .launcher
         .verify_path(cancellation, deadline)?;
     let context = binding.context();
-    let contract = OsUnitContract::new(OsUnitInput {
+    let contract = ServicesUnitContract::new(ServicesUnitInput {
         restart: binding.context().restart(),
         unit: binding.unit(),
         scope: context.scope(),
@@ -290,8 +290,8 @@ mod tests {
     use crate::deployment::services::activation::{ActivationJournal, EffectKind, ExecutionEpoch};
     use crate::deployment::services::apply::preparation::prepare_resources;
     use crate::deployment::services::installation::GenerationInstallation;
-    use crate::deployment::services::launch_binding::OsLaunchContext;
-    use crate::deployment::services::paths::OsExecutionPaths;
+    use crate::deployment::services::launch_binding::ServicesLaunchContext;
+    use crate::deployment::services::paths::ServicesExecutionPaths;
     use crate::deployment::services::{LauncherIdentity, PreparedGeneration};
     use crate::{store::Store, systemd::SystemdScope};
     use std::fs;
@@ -320,10 +320,10 @@ mod tests {
         _directories: Vec<tempfile::TempDir>,
         installation: GenerationInstallation,
         store: Store,
-        paths: OsExecutionPaths,
+        paths: ServicesExecutionPaths,
         units: PathBuf,
-        old_binding: OsLaunchBinding,
-        old_contract: OsUnitContract,
+        old_binding: ServicesLaunchBinding,
+        old_contract: ServicesUnitContract,
         candidate: RetainedGeneration,
         resources: BTreeMap<String, PreparedResource>,
         snapshot: ActivationSnapshot,
@@ -346,7 +346,7 @@ mod tests {
             let installation =
                 GenerationInstallation::initialize(install.path(), &cancellation, deadline())
                     .unwrap();
-            let paths = OsExecutionPaths::open(
+            let paths = ServicesExecutionPaths::open(
                 install.path(),
                 &store_path,
                 cwd.path(),
@@ -355,7 +355,7 @@ mod tests {
             )
             .unwrap();
             let old = retain(&installation, &store, first.path(), consumer);
-            let context = OsLaunchContext::new(
+            let context = ServicesLaunchContext::new(
                 SystemdScope::System,
                 store_path.clone(),
                 units.path().join("placeholder.service"),
@@ -453,7 +453,7 @@ mod tests {
     fn input<'a>(
         installation: &'a GenerationInstallation,
         store: &'a Store,
-        paths: &'a OsExecutionPaths,
+        paths: &'a ServicesExecutionPaths,
         units: &'a Path,
         generation: &'a RetainedGeneration,
         epoch: &'a ExecutionEpoch,
@@ -505,7 +505,7 @@ mod tests {
     fn authorize(
         installation: &GenerationInstallation,
         generation: &RetainedGeneration,
-        binding: &OsLaunchBinding,
+        binding: &ServicesLaunchBinding,
         path: &Path,
         epoch: &ExecutionEpoch,
     ) -> ActivationSnapshot {
@@ -640,7 +640,7 @@ mod tests {
     fn changed_cwd_or_timeouts_require_fresh_execution() {
         let fixture = Fixture::new(|text| unrelated_config(&text));
         let cwd = private();
-        let paths = OsExecutionPaths::open(
+        let paths = ServicesExecutionPaths::open(
             fixture.paths.installation(),
             fixture.paths.store(),
             cwd.path(),

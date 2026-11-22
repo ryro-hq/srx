@@ -306,7 +306,7 @@
   {
     "package": "syrox-engine",
     "target": "lib",
-    "name": "systemd::loaded::tests::real_loaded_os_unit_observation_gate",
+    "name": "systemd::loaded::tests::real_loaded_services_unit_observation_gate",
     "category": "external",
     "group": "manager",
     "reason": "requires real user manager and a separately provisioned exact Services unit; never starts it"

@@ -1,9 +1,9 @@
 pub use crate::build::managed::entry::run_managed_build_entry;
 #[cfg(target_arch = "x86_64")]
 pub use crate::build::system::namespace::run_payload as run_system_build_payload;
-pub use crate::execution::launcher::services::{OsWorkerError, run_os_service};
 pub use crate::execution::launcher::owner::{SessionOwnerError, run_session_owner};
 pub use crate::execution::launcher::service::{ServiceWorkerError, run_session_service};
+pub use crate::execution::launcher::services::{ServicesWorkerError, run_services_worker};
 pub use crate::execution::native::{
     managed_command_runtime_helper, managed_runtime_helper, reraise_shell_command_signal,
     runtime_helper,

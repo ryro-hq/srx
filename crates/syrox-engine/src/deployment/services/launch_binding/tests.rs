@@ -3,7 +3,7 @@ use crate::platform::linux::boot::BootId;
 use std::os::unix::ffi::OsStringExt as _;
 
 fn input() -> LaunchBindingInput {
-    let context = OsLaunchContext::new(
+    let context = ServicesLaunchContext::new(
         crate::systemd::SystemdScope::User {
             bus_socket: "/run/user/1000/bus".into(),
         },
@@ -41,15 +41,15 @@ fn encoded(record: &Record) -> Vec<u8> {
 }
 fn rejects_record(record: &Record) {
     let bytes = encoded(record);
-    assert!(OsLaunchBinding::decode(&bytes, ContentDigest::sha256(&bytes)).is_err());
+    assert!(ServicesLaunchBinding::decode(&bytes, ContentDigest::sha256(&bytes)).is_err());
 }
 
 #[test]
 fn canonical_binding_preserves_role_names_and_explicit_paths() {
-    let binding = OsLaunchBinding::new(input()).unwrap();
+    let binding = ServicesLaunchBinding::new(input()).unwrap();
     let bytes = binding.canonical_bytes().unwrap();
     assert_eq!(
-        OsLaunchBinding::decode(&bytes, binding.digest().unwrap()).unwrap(),
+        ServicesLaunchBinding::decode(&bytes, binding.digest().unwrap()).unwrap(),
         binding
     );
     assert_eq!(binding.process_key(), "nginx/Server_1");
@@ -71,22 +71,24 @@ fn canonical_binding_preserves_role_names_and_explicit_paths() {
     // No filesystem lookups: nonexistent authorized choices remain data.
     let mut candidate = input();
     candidate.configuration = "/nonexistent/syrox/config/nginx".into();
-    assert!(OsLaunchBinding::new(candidate).is_ok());
+    assert!(ServicesLaunchBinding::new(candidate).is_ok());
 }
 
 #[test]
 fn binding_rejects_pin_domain_truncation_noncanonical_and_unknown_fields() {
-    let binding = OsLaunchBinding::new(input()).unwrap();
+    let binding = ServicesLaunchBinding::new(input()).unwrap();
     let bytes = binding.canonical_bytes().unwrap();
-    assert!(OsLaunchBinding::decode(&bytes, ContentDigest::sha256(b"other")).is_err());
+    assert!(ServicesLaunchBinding::decode(&bytes, ContentDigest::sha256(b"other")).is_err());
     for size in [0, HEADER.len() - 1, bytes.len() - 1] {
         let truncated = &bytes[..size];
-        assert!(OsLaunchBinding::decode(truncated, ContentDigest::sha256(truncated)).is_err());
+        assert!(
+            ServicesLaunchBinding::decode(truncated, ContentDigest::sha256(truncated)).is_err()
+        );
     }
     let mut other_domain = bytes.clone();
     other_domain[0] = b'x';
     assert!(
-        OsLaunchBinding::decode(
+        ServicesLaunchBinding::decode(
             &other_domain,
             ContentDigest::sha256(&other_domain)
         )
@@ -94,25 +96,25 @@ fn binding_rejects_pin_domain_truncation_noncanonical_and_unknown_fields() {
     );
     let mut spaced = bytes.clone();
     spaced.push(b'\n');
-    assert!(OsLaunchBinding::decode(&spaced, ContentDigest::sha256(&spaced)).is_err());
+    assert!(ServicesLaunchBinding::decode(&spaced, ContentDigest::sha256(&spaced)).is_err());
     let mut unknown = serde_json::to_value(&binding.0).unwrap();
     unknown["authorized"] = serde_json::json!(true);
     let mut unknown_bytes = HEADER.to_vec();
     unknown_bytes.extend(serde_json::to_vec(&unknown).unwrap());
     assert!(
-        OsLaunchBinding::decode(
+        ServicesLaunchBinding::decode(
             &unknown_bytes,
             ContentDigest::sha256(&unknown_bytes)
         )
         .is_err()
     );
     let oversized = vec![b' '; MAX_LAUNCH_BINDING_BYTES + 1];
-    assert!(OsLaunchBinding::decode(&oversized, ContentDigest::sha256(&oversized)).is_err());
+    assert!(ServicesLaunchBinding::decode(&oversized, ContentDigest::sha256(&oversized)).is_err());
 }
 
 #[test]
 fn binding_validates_versions_names_digest_and_epoch_without_losing_process_grammar() {
-    let binding = OsLaunchBinding::new(input()).unwrap();
+    let binding = ServicesLaunchBinding::new(input()).unwrap();
     let mut bad = binding.0.clone();
     bad.version = 2;
     rejects_record(&bad);
@@ -138,17 +140,17 @@ fn binding_validates_versions_names_digest_and_epoch_without_losing_process_gram
     for service in ["Nginx", "_nginx", "nginx/sub", ".."] {
         let mut candidate = input();
         candidate.service = service.into();
-        assert!(OsLaunchBinding::new(candidate).is_err());
+        assert!(ServicesLaunchBinding::new(candidate).is_err());
     }
     for process in ["..", "", "server/sub"] {
         let mut candidate = input();
         candidate.process = process.into();
-        assert!(OsLaunchBinding::new(candidate).is_err());
+        assert!(ServicesLaunchBinding::new(candidate).is_err());
     }
     let mut candidate = input();
     candidate.process = "_Worker.UPPER-1".into();
     candidate.command = "_Command.UPPER-1".into();
-    assert!(OsLaunchBinding::new(candidate).is_ok());
+    assert!(ServicesLaunchBinding::new(candidate).is_ok());
 }
 
 #[test]
@@ -171,7 +173,7 @@ fn binding_paths_are_canonical_separated_and_obey_managed_cwd_policy() {
         let mut candidate = input();
         candidate.cwd = cwd.into();
         assert!(
-            OsLaunchBinding::new(candidate).is_err(),
+            ServicesLaunchBinding::new(candidate).is_err(),
             "accepted {cwd:?}"
         );
     }
@@ -182,24 +184,24 @@ fn binding_paths_are_canonical_separated_and_obey_managed_cwd_policy() {
     ] {
         let mut candidate = input();
         candidate.cwd = cwd.into();
-        assert!(OsLaunchBinding::new(candidate).is_err());
+        assert!(ServicesLaunchBinding::new(candidate).is_err());
     }
     let mut candidate = input();
     candidate.cwd = "/tmp/explicit-project".into();
-    assert!(OsLaunchBinding::new(candidate).is_ok());
+    assert!(ServicesLaunchBinding::new(candidate).is_ok());
     let mut candidate = input();
     candidate.configuration = PathBuf::from(std::ffi::OsString::from_vec(
         b"/private/non-utf8-\xff".to_vec(),
     ));
-    assert!(OsLaunchBinding::new(candidate).is_err());
+    assert!(ServicesLaunchBinding::new(candidate).is_err());
     let mut candidate = input();
     candidate.configuration = format!("/private/{}", "x".repeat(256)).into();
-    assert!(OsLaunchBinding::new(candidate).is_err());
+    assert!(ServicesLaunchBinding::new(candidate).is_err());
 }
 
 #[test]
 fn identity_changes_include_configuration_command_epoch_and_launcher() {
-    let original = OsLaunchBinding::new(input())
+    let original = ServicesLaunchBinding::new(input())
         .unwrap()
         .digest()
         .unwrap();
@@ -213,7 +215,7 @@ fn identity_changes_include_configuration_command_epoch_and_launcher() {
     launcher.launcher = LauncherIdentity::new(ContentDigest::sha256(b"new launcher"), 1).unwrap();
     for changed in [configuration, command, epoch, launcher] {
         assert_ne!(
-            OsLaunchBinding::new(changed)
+            ServicesLaunchBinding::new(changed)
                 .unwrap()
                 .digest()
                 .unwrap(),
@@ -224,7 +226,7 @@ fn identity_changes_include_configuration_command_epoch_and_launcher() {
 
 #[test]
 fn operational_context_is_authenticated_and_legacy_bindings_are_refused() {
-    let binding = OsLaunchBinding::new(input()).unwrap();
+    let binding = ServicesLaunchBinding::new(input()).unwrap();
     assert_eq!(binding.context().uid(), 1000);
     assert_eq!(binding.context().gid(), 1000);
     assert_eq!(
@@ -234,7 +236,7 @@ fn operational_context_is_authenticated_and_legacy_bindings_are_refused() {
     assert_eq!(binding.context().scope(), input().context.scope());
     let original = binding.digest().unwrap();
     let mut modified = input();
-    modified.context = OsLaunchContext::new(
+    modified.context = ServicesLaunchContext::new(
         crate::systemd::SystemdScope::System,
         "/var/lib/syrox/another-store".into(),
         "/etc/systemd/system/syrox-os-install-nginx.service".into(),
@@ -244,9 +246,9 @@ fn operational_context_is_authenticated_and_legacy_bindings_are_refused() {
         std::time::Duration::from_secs(20),
     )
     .unwrap();
-    assert!(OsLaunchBinding::new(modified).is_err()); // stale epoch scope
+    assert!(ServicesLaunchBinding::new(modified).is_err()); // stale epoch scope
     let mut modified = input();
-    modified.context = OsLaunchContext::new(
+    modified.context = ServicesLaunchContext::new(
         crate::systemd::SystemdScope::System,
         "/var/lib/syrox/another-store".into(),
         "/etc/systemd/system/syrox-os-install-nginx.service".into(),
@@ -258,7 +260,7 @@ fn operational_context_is_authenticated_and_legacy_bindings_are_refused() {
     .unwrap();
     modified.epoch.scope = modified.context.scope_key();
     assert_ne!(
-        OsLaunchBinding::new(modified)
+        ServicesLaunchBinding::new(modified)
             .unwrap()
             .digest()
             .unwrap(),
@@ -266,12 +268,12 @@ fn operational_context_is_authenticated_and_legacy_bindings_are_refused() {
     );
     let mut legacy = binding.canonical_bytes().unwrap();
     legacy[HEADER.len() - 2] = b'1';
-    assert!(OsLaunchBinding::decode(&legacy, ContentDigest::sha256(&legacy)).is_err());
+    assert!(ServicesLaunchBinding::decode(&legacy, ContentDigest::sha256(&legacy)).is_err());
     let mut record = serde_json::to_value(&binding.0).unwrap();
     record.as_object_mut().unwrap().remove("context");
     let mut missing = HEADER.to_vec();
     missing.extend(serde_json::to_vec(&record).unwrap());
-    assert!(OsLaunchBinding::decode(&missing, ContentDigest::sha256(&missing)).is_err());
+    assert!(ServicesLaunchBinding::decode(&missing, ContentDigest::sha256(&missing)).is_err());
 }
 
 #[test]
@@ -309,7 +311,7 @@ fn context_rejects_root_ids_fractional_timeouts_and_operational_path_conflicts()
         ),
     ] {
         assert!(
-            OsLaunchContext::new(
+            ServicesLaunchContext::new(
                 crate::systemd::SystemdScope::System,
                 "/store".into(),
                 "/units/syrox-os-install-nginx.service".into(),
@@ -330,16 +332,16 @@ fn context_rejects_root_ids_fractional_timeouts_and_operational_path_conflicts()
     ] {
         let mut changed = input();
         changed.cwd = path.into();
-        assert!(OsLaunchBinding::new(changed).is_err());
+        assert!(ServicesLaunchBinding::new(changed).is_err());
     }
     let mut changed = input();
     changed.unit = SystemdUnitName::new("syrox-other.service").unwrap();
-    assert!(OsLaunchBinding::new(changed).is_err());
+    assert!(ServicesLaunchBinding::new(changed).is_err());
 }
 
 #[test]
 fn restart_policy_is_pinned_and_required_on_reopen() {
-    let original = OsLaunchBinding::new(input()).unwrap();
+    let original = ServicesLaunchBinding::new(input()).unwrap();
     let mut changed = input();
     changed.context = changed
         .context
@@ -349,7 +351,7 @@ fn restart_policy_is_pinned_and_required_on_reopen() {
             ),
         )
         .unwrap();
-    let changed = OsLaunchBinding::new(changed).unwrap();
+    let changed = ServicesLaunchBinding::new(changed).unwrap();
     assert_ne!(
         original.digest().unwrap(),
         changed.digest().unwrap()

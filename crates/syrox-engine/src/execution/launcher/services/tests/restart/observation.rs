@@ -29,7 +29,7 @@ impl Fixture {
             })
             .collect()
     }
-    fn binding(&self) -> Result<Option<OsLaunchBinding>> {
+    fn binding(&self) -> Result<Option<ServicesLaunchBinding>> {
         let json = serde_json::to_value(self.journal.snapshot(&self.cancel, deadline())?)?;
         let Some(binding) = json["bindings"].get("probe/worker") else {
             return Ok(None);
@@ -93,7 +93,7 @@ impl Fixture {
         )?;
         let launcher = installation.open_launcher(&generation, &self.cancel, deadline())?;
         let context = binding.context();
-        let contract = OsUnitContract::new(OsUnitInput {
+        let contract = ServicesUnitContract::new(ServicesUnitInput {
             unit: unit.clone(),
             scope: context.scope(),
             worker: launcher.path().into(),
@@ -108,7 +108,7 @@ impl Fixture {
             restart: context.restart(),
         })?;
         self.manager
-            .observe_os_unit(&contract, Duration::from_secs(2), &self.cancel)?;
+            .observe_services_unit(&contract, Duration::from_secs(2), &self.cancel)?;
         self.manager
             .query(&unit, Duration::from_secs(2), &self.cancel)?
             .ok_or_else(|| invalid("owned unit disappeared; no settlement inferred"))

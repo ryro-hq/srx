@@ -47,8 +47,8 @@ impl<M: Manager> ApplyManager<'_, M> {
         &mut self,
         effect: &str,
         resource: &str,
-        binding: &OsLaunchBinding,
-        contract: &OsUnitContract,
+        binding: &ServicesLaunchBinding,
+        contract: &ServicesUnitContract,
     ) -> Result<EffectOutcome> {
         let target = binding
             .digest()
@@ -181,7 +181,7 @@ impl<M: Manager> ApplyManager<'_, M> {
         effect: &str,
         resource: &str,
         target: ContentDigest,
-        contracts: &[&OsUnitContract],
+        contracts: &[&ServicesUnitContract],
     ) -> Result<EffectOutcome> {
         if contracts.is_empty() || contracts.len() > 1024 || reload_target(contracts) != target {
             return Err(ApplyManagerError::new(

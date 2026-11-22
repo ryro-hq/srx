@@ -87,7 +87,7 @@ fn fenced_boot_republishes_and_starts_without_stopping_or_adopting_old_invocatio
     assert!(!report.needs_reconciliation, "{report:?}");
     assert_eq!(
         report.resources[0].state,
-        OsApplyResourceState::Started
+        ServicesApplyResourceState::Started
     );
     assert!(manager.calls.contains(&"idle"));
     let effects: Vec<_> = manager
@@ -151,7 +151,7 @@ fn new_boot_requires_fence_and_refuses_current_activity_or_job_without_mutations
         assert!(report.needs_reconciliation, "{report:?}");
         assert_eq!(
             report.resources[0].state,
-            OsApplyResourceState::Pending
+            ServicesApplyResourceState::Pending
         );
         assert!(
             manager
@@ -193,7 +193,9 @@ fn epoch_preflight_keeps_old_selection_recoverable_until_explicit_boot_fence() {
     assert!(crate::deployment::services::apply::epoch_preflight(&before, &current).is_err());
     let mut changed_manager = fixture.epoch.clone();
     changed_manager.manager = "same-boot-new-manager".into();
-    assert!(crate::deployment::services::apply::epoch_preflight(&before, &changed_manager).is_err());
+    assert!(
+        crate::deployment::services::apply::epoch_preflight(&before, &changed_manager).is_err()
+    );
     assert_eq!(
         fixture
             .journal

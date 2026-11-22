@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use syrox_encoding::hex;
 use syrox_engine::{
     cancellation::Cancellation,
-    deployment::services::{self, OsPreparation, OsStatus},
+    deployment::services::{self, ServicesPreparation, ServicesStatus},
     project::CheckConfiguration,
     store::{ContentDigest, Store},
 };
@@ -74,15 +74,16 @@ pub(super) fn apply(
     )
     .map_err(|e| e.to_string())?;
     loaded.revalidate(cancel)?;
-    let installation = services::open_os_installation(&p.installation, cancel, super::deadline())
-        .map_err(|e| e.to_string())?;
+    let installation =
+        services::open_services_installation(&p.installation, cancel, super::deadline())
+            .map_err(|e| e.to_string())?;
     if installation.id() != p.installation_id {
         return Err("profile installation identity differs".into());
     }
     let store = Store::initialize(&p.store).map_err(|e| e.to_string())?;
-    let summary = services::prepare_os_generation(
+    let summary = services::prepare_services_generation(
         prepared,
-        &OsPreparation {
+        &ServicesPreparation {
             installation: &installation,
             store: &store,
             launcher: &worker,
@@ -97,7 +98,7 @@ pub(super) fn apply(
 
 pub(super) fn activate(
     loaded: &Loaded,
-    before: &OsStatus,
+    before: &ServicesStatus,
     pin: ContentDigest,
     rollback: bool,
     json: bool,
@@ -106,7 +107,7 @@ pub(super) fn activate(
     require_settled(before, &loaded.profile.name)?;
     loaded.revalidate(cancel)?;
     let request = loaded.request(pin, before.desired);
-    let report = services::apply_os_generation_with_authority(
+    let report = services::apply_services_generation_with_authority(
         &request,
         &loaded.authority(before),
         rollback,
@@ -138,14 +139,15 @@ pub(super) fn stop(arguments: &StopArguments, cancel: &Cancellation) -> Result<u
     loaded.check_manager_paths(cancel)?;
     let worker = crate::cli::worker_path::installed()?;
     let digest = crate::cli::worker_path::digest(&worker, cancel)?;
-    let installation = services::open_os_installation(&p.installation, cancel, super::deadline())
-        .map_err(|e| e.to_string())?;
+    let installation =
+        services::open_services_installation(&p.installation, cancel, super::deadline())
+            .map_err(|e| e.to_string())?;
     if installation.id() != p.installation_id {
         return Err("profile installation identity differs".into());
     }
     let store = Store::open_existing(&p.store).map_err(|e| e.to_string())?;
-    let summary = services::prepare_empty_os_generation(
-        &OsPreparation {
+    let summary = services::prepare_empty_services_generation(
+        &ServicesPreparation {
             installation: &installation,
             store: &store,
             launcher: &worker,
@@ -184,7 +186,7 @@ pub(super) fn stop(arguments: &StopArguments, cancel: &Cancellation) -> Result<u
     )
 }
 
-fn require_settled(status: &OsStatus, name: &str) -> Result<(), String> {
+fn require_settled(status: &ServicesStatus, name: &str) -> Result<(), String> {
     if !status.pending_effects.is_empty() {
         return Err(format!(
             "profile has pending effects; run srx services recover {} --profile {name} before another operation",
@@ -238,7 +240,7 @@ pub(super) fn status(
 
 fn observe(
     loaded: &Loaded,
-    status: &OsStatus,
+    status: &ServicesStatus,
     cancel: &Cancellation,
 ) -> Result<Vec<serde_json::Value>, String> {
     let mut manager = syrox_engine::systemd::SystemdManager::connect(
@@ -341,8 +343,8 @@ pub(super) fn logs(arguments: &LogArguments, cancel: &Cancellation) -> Result<u8
 }
 
 fn journal_matches(
-    profile: &services::profile::OsProfile,
-    status: &OsStatus,
+    profile: &services::profile::ServicesProfile,
+    status: &ServicesStatus,
     service: Option<&str>,
 ) -> Result<Vec<String>, String> {
     let mut arguments = Vec::new();
@@ -369,7 +371,9 @@ fn journal_matches(
                 "USER_INVOCATION_ID",
                 profile.uid,
             ),
-            services::profile::ProfileScope::System => ("_SYSTEMD_UNIT", "UNIT", "INVOCATION_ID", 0),
+            services::profile::ProfileScope::System => {
+                ("_SYSTEMD_UNIT", "UNIT", "INVOCATION_ID", 0)
+            }
         };
         for (unit_key, invocation_key, uid) in [
             (unit_field, "_SYSTEMD_INVOCATION_ID", profile.uid),

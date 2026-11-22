@@ -720,7 +720,7 @@ fn binding_for(
         .unwrap();
     let command_key = &policy.command;
     let (service, process) = process_key.split_once('/').unwrap();
-    let context = crate::deployment::services::launch_binding::OsLaunchContext::new(
+    let context = crate::deployment::services::launch_binding::ServicesLaunchContext::new(
         crate::systemd::SystemdScope::User {
             bus_socket: "/run/user/1000/bus".into(),
         },
@@ -758,7 +758,7 @@ fn binding_for(
 
 #[test]
 fn launch_publication_is_idempotent_reopens_offline_and_rejects_tampering() {
-    use crate::deployment::services::launch_binding::OsLaunchBinding;
+    use crate::deployment::services::launch_binding::ServicesLaunchBinding;
     let (temp, prepared, store, worker) = generation();
     let path = private();
     let cancel = Cancellation::default();
@@ -767,7 +767,7 @@ fn launch_publication_is_idempotent_reopens_offline_and_rejects_tampering() {
     let retained = installation
         .prepare(&prepared, &store, &worker, &cancel, deadline())
         .unwrap();
-    let binding = OsLaunchBinding::new(binding_for(&installation, &retained)).unwrap();
+    let binding = ServicesLaunchBinding::new(binding_for(&installation, &retained)).unwrap();
     let pin = installation
         .publish_launch_binding(&retained, &binding, &cancel, deadline())
         .unwrap();
@@ -814,7 +814,7 @@ fn launch_publication_is_idempotent_reopens_offline_and_rejects_tampering() {
 
 #[test]
 fn launch_observation_distinguishes_absence_corruption_and_durable_existing_bytes() {
-    use crate::deployment::services::launch_binding::OsLaunchBinding;
+    use crate::deployment::services::launch_binding::ServicesLaunchBinding;
     use std::os::unix::fs::MetadataExt as _;
     let (_project, prepared, store, worker) = generation();
     let path = private();
@@ -824,7 +824,7 @@ fn launch_observation_distinguishes_absence_corruption_and_durable_existing_byte
     let retained = installation
         .prepare(&prepared, &store, &worker, &cancel, deadline())
         .unwrap();
-    let binding = OsLaunchBinding::new(binding_for(&installation, &retained)).unwrap();
+    let binding = ServicesLaunchBinding::new(binding_for(&installation, &retained)).unwrap();
     let pin = binding.digest().unwrap();
     let file = path.path().join(format!("launch-{pin}"));
     assert!(
@@ -887,7 +887,7 @@ fn launch_observation_distinguishes_absence_corruption_and_durable_existing_byte
 
 #[test]
 fn launch_publication_rejects_foreign_candidates_roles_and_replaced_authority() {
-    use crate::deployment::services::launch_binding::OsLaunchBinding;
+    use crate::deployment::services::launch_binding::ServicesLaunchBinding;
     let (_temp, prepared, store, worker) = generation();
     let path = private();
     let other_path = private();
@@ -898,7 +898,7 @@ fn launch_publication_rejects_foreign_candidates_roles_and_replaced_authority() 
     let retained = installation
         .prepare(&prepared, &store, &worker, &cancel, deadline())
         .unwrap();
-    let binding = OsLaunchBinding::new(binding_for(&installation, &retained)).unwrap();
+    let binding = ServicesLaunchBinding::new(binding_for(&installation, &retained)).unwrap();
     assert!(
         other
             .publish_launch_binding(&retained, &binding, &cancel, deadline())
@@ -906,7 +906,7 @@ fn launch_publication_rejects_foreign_candidates_roles_and_replaced_authority() 
     );
     let mut input = binding_for(&installation, &retained);
     input.command = "missing".into();
-    let bad = OsLaunchBinding::new(input).unwrap();
+    let bad = ServicesLaunchBinding::new(input).unwrap();
     assert!(
         installation
             .publish_launch_binding(&retained, &bad, &cancel, deadline())
@@ -961,7 +961,7 @@ fn orphan_launch_evidence_prevents_installation_identity_recreation() {
 
 #[test]
 fn launch_registry_capacity_preserves_existing_bindings_and_refuses_new_ones() {
-    use crate::deployment::services::launch_binding::OsLaunchBinding;
+    use crate::deployment::services::launch_binding::ServicesLaunchBinding;
     let (_temp, prepared, store, worker) = generation();
     let path = private();
     let cancel = Cancellation::default();
@@ -970,7 +970,7 @@ fn launch_registry_capacity_preserves_existing_bindings_and_refuses_new_ones() {
     let retained = installation
         .prepare(&prepared, &store, &worker, &cancel, deadline())
         .unwrap();
-    let binding = OsLaunchBinding::new(binding_for(&installation, &retained)).unwrap();
+    let binding = ServicesLaunchBinding::new(binding_for(&installation, &retained)).unwrap();
     let pin = installation
         .publish_launch_binding(&retained, &binding, &cancel, deadline())
         .unwrap();
@@ -997,7 +997,7 @@ fn launch_registry_capacity_preserves_existing_bindings_and_refuses_new_ones() {
     );
     let mut input = binding_for(&installation, &retained);
     input.spec = ContentDigest::sha256(b"another prepared specification");
-    let next = OsLaunchBinding::new(input).unwrap();
+    let next = ServicesLaunchBinding::new(input).unwrap();
     assert!(
         installation
             .publish_launch_binding(&retained, &next, &cancel, deadline())

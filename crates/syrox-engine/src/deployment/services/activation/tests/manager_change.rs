@@ -668,7 +668,7 @@ fn candidate_inventory_includes_prior_bindings_and_authorizations() {
     let mut input = journal.binding_input();
     input.generation = generation;
     input.spec = pin(b"different runtime");
-    let binding = OsLaunchBinding::new(input).unwrap();
+    let binding = ServicesLaunchBinding::new(input).unwrap();
     let digest = binding.digest().unwrap();
     let effect = journal
         .plan_effect(

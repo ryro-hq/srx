@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 #[derive(Clone, Debug)]
-pub(crate) struct OsUnitInput {
+pub(crate) struct ServicesUnitInput {
     pub unit: SystemdUnitName,
     pub scope: SystemdScope,
     /// Publisher must pin immutable executable bytes and retain them independently.
@@ -21,12 +21,12 @@ pub(crate) struct OsUnitInput {
     pub restart: crate::execution::restart::ProcessRestart,
 }
 #[derive(Clone, Debug)]
-pub(crate) struct OsUnitContract {
-    pub(super) input: OsUnitInput,
+pub(crate) struct ServicesUnitContract {
+    pub(super) input: ServicesUnitInput,
     pub(super) argv: Vec<String>,
 }
-impl OsUnitContract {
-    pub(crate) fn new(input: OsUnitInput) -> Result<Self, SystemdError> {
+impl ServicesUnitContract {
+    pub(crate) fn new(input: ServicesUnitInput) -> Result<Self, SystemdError> {
         for path in [
             &input.worker,
             &input.installation,
@@ -167,8 +167,8 @@ fn quote(value: &str) -> String {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
-    pub(crate) fn input() -> OsUnitInput {
-        OsUnitInput {
+    pub(crate) fn input() -> ServicesUnitInput {
+        ServicesUnitInput {
             restart: crate::execution::restart::ProcessRestart::Never,
             unit: SystemdUnitName::new("syrox-os-test.service").unwrap(),
             scope: SystemdScope::System,
@@ -187,7 +187,7 @@ pub(super) mod tests {
     fn renderer_has_fixed_authority_policy_and_literal_arguments() {
         let mut request = input();
         request.installation = "/private/space % $ \" \\".into();
-        let contract = OsUnitContract::new(request).unwrap();
+        let contract = ServicesUnitContract::new(request).unwrap();
         let rendered = String::from_utf8(contract.render()).unwrap();
         for line in [
             "DefaultDependencies=yes",
@@ -220,37 +220,37 @@ pub(super) mod tests {
         ] {
             let mut request = input();
             request.worker = path.into();
-            assert!(OsUnitContract::new(request).is_err());
+            assert!(ServicesUnitContract::new(request).is_err());
         }
         for (uid, gid) in [(0, 1000), (1000, 0), (u32::MAX, 1000)] {
             let mut request = input();
             request.uid = uid;
             request.gid = gid;
-            assert!(OsUnitContract::new(request).is_err());
+            assert!(ServicesUnitContract::new(request).is_err());
         }
         let mut request = input();
         request.scope = SystemdScope::User {
             bus_socket: "/run/user/1000/bus".into(),
         };
         request.uid = super::super::bus::caller_ids().0.wrapping_add(1);
-        assert!(OsUnitContract::new(request).is_err());
+        assert!(ServicesUnitContract::new(request).is_err());
         let mut request = input();
         request.scope = SystemdScope::User {
             bus_socket: "/run/user/1000/bus".into(),
         };
         request.uid = super::super::bus::caller_ids().0;
         request.gid = super::super::bus::caller_ids().2.wrapping_add(1);
-        assert!(OsUnitContract::new(request).is_err());
+        assert!(ServicesUnitContract::new(request).is_err());
     }
 
     #[test]
     fn explicit_restart_changes_unit_pin_and_preserves_reserved_envelope() {
-        let never = OsUnitContract::new(input()).unwrap();
+        let never = ServicesUnitContract::new(input()).unwrap();
         let mut value = input();
         value.restart = crate::execution::restart::ProcessRestart::OnFailure(
             crate::execution::restart::RestartLimits::new(2, 30, 4).unwrap(),
         );
-        let retry = OsUnitContract::new(value).unwrap();
+        let retry = ServicesUnitContract::new(value).unwrap();
         assert_ne!(never.file_digest(), retry.file_digest());
         let text = String::from_utf8(retry.render()).unwrap();
         for line in [

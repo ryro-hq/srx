@@ -1,7 +1,7 @@
 use super::*;
-use crate::deployment::services::apply::recovery::{OsRecoveryReport, OsRecoveryState};
+use crate::deployment::services::apply::recovery::{ServicesRecoveryReport, ServicesRecoveryState};
 
-fn recover(fixture: &Fixture, manager: &mut Fake<'_>) -> OsRecoveryReport {
+fn recover(fixture: &Fixture, manager: &mut Fake<'_>) -> ServicesRecoveryReport {
     let _guard = fixture
         .installation
         .execution(&fixture.cancel, deadline())
@@ -78,7 +78,7 @@ fn lost_reload_is_observed_without_resubmission_or_start_authorization() {
         report
             .effects
             .iter()
-            .all(|effect| effect.state == OsRecoveryState::Observed)
+            .all(|effect| effect.state == ServicesRecoveryState::Observed)
     );
     assert!(manager.calls.contains(&"loaded"));
     assert_no_manager_effects(&manager);
@@ -111,7 +111,7 @@ fn missing_binding_publication_is_not_applied_without_creating_bytes_or_authorit
     assert!(!report.needs_reconciliation);
     assert_eq!(
         report.effects[0].state,
-        OsRecoveryState::NotApplied
+        ServicesRecoveryState::NotApplied
     );
     assert!(
         fixture
@@ -131,7 +131,7 @@ fn missing_binding_publication_is_not_applied_without_creating_bytes_or_authorit
     let repeated = recover(&fixture, &mut manager);
     assert_eq!(
         repeated.effects[0].state,
-        OsRecoveryState::NotApplied
+        ServicesRecoveryState::NotApplied
     );
     assert!(!repeated.needs_reconciliation);
     assert!(after.bindings.is_empty());
@@ -156,7 +156,10 @@ fn existing_exact_binding_is_observed_without_authorizing_a_start() {
     let mut manager = Fake::new(&fixture, Some(binding.clone()));
     let report = recover(&fixture, &mut manager);
     assert!(!report.needs_reconciliation);
-    assert_eq!(report.effects[0].state, OsRecoveryState::Observed);
+    assert_eq!(
+        report.effects[0].state,
+        ServicesRecoveryState::Observed
+    );
     let after = fixture
         .journal
         .snapshot(&fixture.cancel, deadline())
@@ -217,7 +220,10 @@ fn foreign_unit_and_wrong_target_remain_pending_without_adoption() {
         let mut manager = Fake::new(&fixture, Some(binding.clone()));
         let report = recover(&fixture, &mut manager);
         assert!(report.needs_reconciliation);
-        assert_eq!(report.effects[0].state, OsRecoveryState::Pending);
+        assert_eq!(
+            report.effects[0].state,
+            ServicesRecoveryState::Pending
+        );
         assert_eq!(
             fs::read(binding.context().fragment()).unwrap(),
             bytes
@@ -286,7 +292,7 @@ fn service_named_unit_recovers_binding_and_unit_file_as_distinct_resources() {
         report
             .effects
             .iter()
-            .all(|effect| effect.state == OsRecoveryState::Observed)
+            .all(|effect| effect.state == ServicesRecoveryState::Observed)
     );
     let snapshot = fixture
         .journal
@@ -320,7 +326,7 @@ fn absent_unit_publication_is_terminal_without_creating_or_authorizing_it() {
     assert!(!report.needs_reconciliation, "{report:?}");
     assert_eq!(
         report.effects[0].state,
-        OsRecoveryState::NotApplied
+        ServicesRecoveryState::NotApplied
     );
     assert!(!next.binding.context().fragment().exists());
     let after = fixture
@@ -401,7 +407,7 @@ fn fenced_remote_effect_is_reported_without_observing_or_replaying_old_manager_w
     assert!(!report.needs_reconciliation, "{report:?}");
     assert_eq!(
         report.effects[0].state,
-        OsRecoveryState::BootFenced
+        ServicesRecoveryState::BootFenced
     );
     assert!(manager.calls.is_empty());
     let snapshot = fixture
@@ -451,7 +457,7 @@ fn manager_failure_preserves_its_cause_without_replaying_or_releasing_resources(
         .iter()
         .find(|entry| entry.effect == effect)
         .unwrap();
-    assert_eq!(pending.state, OsRecoveryState::Pending);
+    assert_eq!(pending.state, ServicesRecoveryState::Pending);
     assert_eq!(pending.stage, Some("query unit"));
     assert_eq!(
         pending.error.as_deref(),

@@ -47,7 +47,7 @@ fn empty_generation_stops_only_recorded_invocation_and_retains_prior_generation(
     assert_eq!(report.resources.len(), 1);
     assert_eq!(
         report.resources[0].state,
-        OsApplyResourceState::Stopped
+        ServicesApplyResourceState::Stopped
     );
     assert_eq!(
         manager

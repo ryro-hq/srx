@@ -1,6 +1,6 @@
 use super::{
-    OpenedRecovery, OsRecoveryEffect, OsRecoveryError, OsRecoveryReport, OsRecoveryRequest,
-    OsRecoveryState, failure, failure_with,
+    OpenedRecovery, ServicesRecoveryEffect, ServicesRecoveryError, ServicesRecoveryReport,
+    ServicesRecoveryRequest, ServicesRecoveryState, failure, failure_with,
 };
 use crate::deployment::services::activation::{
     ActivationSnapshot, EffectKind, EffectState, ExecutionEpoch,
@@ -21,7 +21,7 @@ use invocation::ObservedInvocation;
 mod resources;
 use resources::HistoricalResources;
 
-type Result<T> = std::result::Result<T, OsRecoveryError>;
+type Result<T> = std::result::Result<T, ServicesRecoveryError>;
 /// Constructed only after live authenticated reconciliation. Neither a boolean
 /// nor deserialized state can be supplied as a substitute for the kernel proofs.
 pub(crate) struct ManagerEpochSettlement {
@@ -106,12 +106,12 @@ fn transition_pin(state: &ActivationSnapshot, change: &str) -> Result<ContentDig
 
 pub(super) fn reconcile(
     opened: &OpenedRecovery,
-    request: &OsRecoveryRequest,
+    request: &ServicesRecoveryRequest,
     current: &ExecutionEpoch,
     manager: &mut SystemdManager,
     cancel: &Cancellation,
     deadline: Instant,
-) -> std::result::Result<OsRecoveryReport, OsRecoveryError> {
+) -> std::result::Result<ServicesRecoveryReport, ServicesRecoveryError> {
     let change = opened
         .journal
         .begin_manager_change(&request.operation, current, cancel, deadline)
@@ -148,7 +148,7 @@ pub(super) fn reconcile(
 }
 struct Reconciler<'a> {
     opened: &'a OpenedRecovery,
-    request: &'a OsRecoveryRequest,
+    request: &'a ServicesRecoveryRequest,
     current: &'a ExecutionEpoch,
     manager: &'a mut SystemdManager,
     cancel: &'a Cancellation,
@@ -253,7 +253,7 @@ impl Reconciler<'_> {
         &mut self,
         name: &str,
         resource: &crate::deployment::services::activation::manager_change::ChangedResource,
-        contract: &crate::systemd::persistent::OsUnitContract,
+        contract: &crate::systemd::persistent::ServicesUnitContract,
     ) -> Result<PinnedResource> {
         self.loaded(contract)?;
         let reference = self
@@ -414,39 +414,39 @@ impl Reconciler<'_> {
 }
 fn report(
     opened: &OpenedRecovery,
-    request: &OsRecoveryRequest,
+    request: &ServicesRecoveryRequest,
     state: &ActivationSnapshot,
     change: &str,
-    error: Option<OsRecoveryError>,
-) -> OsRecoveryReport {
+    error: Option<ServicesRecoveryError>,
+) -> ServicesRecoveryReport {
     let error_stage = error.as_ref().map(|error| error.stage);
     let cause = error.and_then(|error| error.source.map(|source| source.to_string()));
     let transition = &state.manager_changes[change];
     let mut effects: Vec<_> = transition
         .resources
         .keys()
-        .map(|resource| OsRecoveryEffect {
+        .map(|resource| ServicesRecoveryEffect {
             effect: change.into(),
             resource: resource.clone(),
             kind: "manager_change",
             state: if transition.settled {
-                OsRecoveryState::ManagerFenced
+                ServicesRecoveryState::ManagerFenced
             } else {
-                OsRecoveryState::Pending
+                ServicesRecoveryState::Pending
             },
             stage: error_stage,
             error: cause.clone(),
         })
         .collect();
     if effects.is_empty() {
-        effects.push(OsRecoveryEffect {
+        effects.push(ServicesRecoveryEffect {
             effect: change.into(),
             resource: "manager".into(),
             kind: "manager_change",
             state: if transition.settled {
-                OsRecoveryState::ManagerFenced
+                ServicesRecoveryState::ManagerFenced
             } else {
-                OsRecoveryState::Pending
+                ServicesRecoveryState::Pending
             },
             stage: error_stage,
             error: cause.clone(),
@@ -459,11 +459,11 @@ fn report(
                 EffectState::Observed { .. } | EffectState::NotApplied
             )
         {
-            effects.push(OsRecoveryEffect {
+            effects.push(ServicesRecoveryEffect {
                 effect: id.clone(),
                 resource: effect.resource.clone(),
                 kind: "publish",
-                state: OsRecoveryState::Pending,
+                state: ServicesRecoveryState::Pending,
                 stage: Some("publication reconciliation remains required"),
                 error: None,
             });
@@ -471,8 +471,8 @@ fn report(
     }
     let pending = effects
         .iter()
-        .any(|effect| effect.state == OsRecoveryState::Pending);
-    OsRecoveryReport {
+        .any(|effect| effect.state == ServicesRecoveryState::Pending);
+    ServicesRecoveryReport {
         operation: request.operation.clone(),
         candidate: opened.candidate.digest(),
         effects,

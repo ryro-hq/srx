@@ -3,10 +3,10 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use syrox_engine::{
-    cancellation::Cancellation, config::UserConfiguration, deployment::services::OsCandidatePhase,
-    deployment::services::OsGenerationSummary, deployment::services::OsPreparation, plan::PlanConsumerKind,
-    project::CheckConfiguration, project::reference::ProjectReference, store::ContentDigest,
-    store::Store,
+    cancellation::Cancellation, config::UserConfiguration,
+    deployment::services::ServicesCandidatePhase, deployment::services::ServicesGenerationSummary,
+    deployment::services::ServicesPreparation, plan::PlanConsumerKind, project::CheckConfiguration,
+    project::reference::ProjectReference, store::ContentDigest, store::Store,
 };
 
 mod apply;
@@ -124,7 +124,7 @@ impl ExecutionArguments {
         &self,
         candidate: ContentDigest,
         expected: Option<ContentDigest>,
-    ) -> Result<syrox_engine::deployment::services::OsApplyRequest, String> {
+    ) -> Result<syrox_engine::deployment::services::ServicesApplyRequest, String> {
         let scope = match (&self.systemd_user_bus, self.systemd_system) {
             (Some(bus_socket), false) => syrox_engine::systemd::SystemdScope::User {
                 bus_socket: bus_socket.clone(),
@@ -132,22 +132,24 @@ impl ExecutionArguments {
             (None, true) => syrox_engine::systemd::SystemdScope::System,
             _ => return Err("select exactly one explicit systemd manager".into()),
         };
-        Ok(syrox_engine::deployment::services::OsApplyRequest {
-            installation: self
-                .installation
-                .clone()
-                .ok_or("--installation is required")?,
-            store: self.store.clone().ok_or("--store is required")?,
-            units: self.units.clone().ok_or("--units is required")?,
-            cwd: self.cwd.clone().ok_or("--cwd is required")?,
-            candidate,
-            expected,
-            scope,
-            uid: self.uid.ok_or("--uid is required")?,
-            gid: self.gid.ok_or("--gid is required")?,
-            start_timeout: Duration::from_secs(self.start_timeout_seconds.unwrap_or(30)),
-            stop_timeout: Duration::from_secs(self.stop_timeout_seconds.unwrap_or(5)),
-        })
+        Ok(
+            syrox_engine::deployment::services::ServicesApplyRequest {
+                installation: self
+                    .installation
+                    .clone()
+                    .ok_or("--installation is required")?,
+                store: self.store.clone().ok_or("--store is required")?,
+                units: self.units.clone().ok_or("--units is required")?,
+                cwd: self.cwd.clone().ok_or("--cwd is required")?,
+                candidate,
+                expected,
+                scope,
+                uid: self.uid.ok_or("--uid is required")?,
+                gid: self.gid.ok_or("--gid is required")?,
+                start_timeout: Duration::from_secs(self.start_timeout_seconds.unwrap_or(30)),
+                stop_timeout: Duration::from_secs(self.stop_timeout_seconds.unwrap_or(5)),
+            },
+        )
     }
 }
 
@@ -212,7 +214,7 @@ fn execute(
                 .map(|loaded| loaded.profile.installation.as_path())
                 .or(installation.as_deref())
                 .ok_or("--installation or --profile is required")?;
-            let opened = syrox_engine::deployment::services::open_os_installation(
+            let opened = syrox_engine::deployment::services::open_services_installation(
                 installation,
                 cancel,
                 deadline(),
@@ -233,8 +235,8 @@ fn execute(
                 match entry.phase {
                     Ok(phase) => {
                         let phase = match phase {
-                            OsCandidatePhase::Preparing => "preparing",
-                            OsCandidatePhase::Prepared => "prepared",
+                            ServicesCandidatePhase::Preparing => "preparing",
+                            ServicesCandidatePhase::Prepared => "prepared",
                         };
                         if !json {
                             println!("{} journal={phase}", entry.pin);
@@ -262,7 +264,7 @@ fn execute(
             json,
         } => {
             let store = Store::open(store).map_err(|error| error.to_string())?;
-            let summary = syrox_engine::deployment::services::inspect_os_generation(
+            let summary = syrox_engine::deployment::services::inspect_services_generation(
                 installation,
                 &store,
                 *pin,
@@ -280,7 +282,7 @@ fn execute(
             store,
         } => {
             let store = Store::open(store).map_err(|error| error.to_string())?;
-            let diff = syrox_engine::deployment::services::diff_os_generations(
+            let diff = syrox_engine::deployment::services::diff_services_generations(
                 installation,
                 &store,
                 *previous,
@@ -328,7 +330,7 @@ fn prepare(
         Some(&arguments.store),
     )
     .map_err(|error| error.to_string())?;
-    let installation = syrox_engine::deployment::services::initialize_os_installation(
+    let installation = syrox_engine::deployment::services::initialize_services_installation(
         &arguments.installation,
         cancel,
         deadline(),
@@ -345,9 +347,9 @@ fn prepare(
     )
     .map_err(|error| error.to_string())?;
     let store = Store::initialize(user.store()).map_err(|error| error.to_string())?;
-    let summary = syrox_engine::deployment::services::prepare_os_generation(
+    let summary = syrox_engine::deployment::services::prepare_services_generation(
         prepared,
-        &OsPreparation {
+        &ServicesPreparation {
             installation: &installation,
             store: &store,
             launcher: &worker,
@@ -361,7 +363,7 @@ fn prepare(
     Ok(0)
 }
 
-fn print_summary(summary: &OsGenerationSummary, json: bool) {
+fn print_summary(summary: &ServicesGenerationSummary, json: bool) {
     if json {
         println!(
             "{}",

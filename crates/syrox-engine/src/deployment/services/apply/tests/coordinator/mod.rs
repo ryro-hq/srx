@@ -3,9 +3,9 @@ use crate::deployment::services::activation::{ActivationJournal, EffectState, Ex
 use crate::deployment::services::apply::conservation::{PreservedResource, prepare_conservation};
 use crate::deployment::services::apply::manager::{ApplyManagerError, Budget};
 use crate::deployment::services::apply::preparation::{ResourcePreparation, prepare_resources};
-use crate::deployment::services::launch_binding::{OsLaunchBinding, OsLaunchContext};
+use crate::deployment::services::launch_binding::{ServicesLaunchBinding, ServicesLaunchContext};
 use crate::deployment::services::{LauncherIdentity, PreparedGeneration};
-use crate::systemd::persistent::OsUnitContract;
+use crate::systemd::persistent::ServicesUnitContract;
 use crate::{
     cancellation::Cancellation, store::Store, systemd::SystemdFdStoreObserved,
     systemd::SystemdJobCompletion, systemd::SystemdJobResult, systemd::SystemdScope,
@@ -63,7 +63,7 @@ struct Fixture {
     directories: Vec<tempfile::TempDir>,
     installation: GenerationInstallation,
     candidate: RetainedGeneration,
-    paths: OsExecutionPaths,
+    paths: ServicesExecutionPaths,
     units: UnitFiles,
     journal: ActivationJournal,
     operation: String,
@@ -109,7 +109,7 @@ impl Fixture {
         let candidate = installation
             .prepare(&prepared, &store, &worker, &cancel, deadline())
             .unwrap();
-        let paths = OsExecutionPaths::open(
+        let paths = ServicesExecutionPaths::open(
             install.path(),
             &store_path,
             cwd.path(),
@@ -117,7 +117,7 @@ impl Fixture {
             deadline(),
         )
         .unwrap();
-        let context = OsLaunchContext::new(
+        let context = ServicesLaunchContext::new(
             SystemdScope::System,
             store_path,
             units_dir.path().join("placeholder.service"),
@@ -188,7 +188,7 @@ impl Fixture {
         &self,
         manager: &mut Fake<'_>,
         resources: &BTreeMap<String, PreparedResource>,
-    ) -> OsApplyReport {
+    ) -> ServicesApplyReport {
         self.run_preserved(manager, resources, &BTreeMap::new())
     }
     fn run_preserved(
@@ -196,7 +196,7 @@ impl Fixture {
         manager: &mut Fake<'_>,
         resources: &BTreeMap<String, PreparedResource>,
         preserved: &BTreeMap<String, PreservedResource>,
-    ) -> OsApplyReport {
+    ) -> ServicesApplyReport {
         let driver = ApplyManager {
             manager,
             journal: &self.journal,
@@ -218,7 +218,7 @@ impl Fixture {
 }
 struct Fake<'a> {
     fixture: &'a Fixture,
-    binding: Option<OsLaunchBinding>,
+    binding: Option<ServicesLaunchBinding>,
     lose_reload: bool,
     started: bool,
     invocation: u8,
@@ -230,7 +230,7 @@ struct Fake<'a> {
 }
 type FakeResult<T> = std::result::Result<T, ApplyManagerError>;
 impl<'a> Fake<'a> {
-    fn new(fixture: &'a Fixture, binding: Option<OsLaunchBinding>) -> Self {
+    fn new(fixture: &'a Fixture, binding: Option<ServicesLaunchBinding>) -> Self {
         Self {
             fixture,
             binding,
@@ -320,7 +320,11 @@ impl Manager for Fake<'_> {
         self.calls.push("job");
         Ok(true)
     }
-    fn loaded(&mut self, contract: &OsUnitContract, _: &Budget<'_>) -> FakeResult<ContentDigest> {
+    fn loaded(
+        &mut self,
+        contract: &ServicesUnitContract,
+        _: &Budget<'_>,
+    ) -> FakeResult<ContentDigest> {
         self.calls.push("loaded");
         assert_eq!(
             self.fixture
@@ -455,7 +459,7 @@ fn publication_reload_and_start_are_ordered_with_durable_intents() {
     assert!(!report.needs_reconciliation);
     assert_eq!(
         report.resources[0].state,
-        OsApplyResourceState::Started
+        ServicesApplyResourceState::Started
     );
     let effects: Vec<_> = manager
         .calls
@@ -486,7 +490,7 @@ fn publication_reload_and_start_are_ordered_with_durable_intents() {
     assert!(!repeated.needs_reconciliation);
     assert_eq!(
         repeated.resources[0].state,
-        OsApplyResourceState::Unchanged
+        ServicesApplyResourceState::Unchanged
     );
     assert!(
         manager.calls[previous_calls..]
@@ -514,7 +518,7 @@ fn unowned_unit_is_preserved_without_reload_or_start() {
     assert!(report.needs_reconciliation);
     assert_eq!(
         report.resources[0].state,
-        OsApplyResourceState::Pending
+        ServicesApplyResourceState::Pending
     );
     assert_eq!(
         fs::read(binding.context().fragment()).unwrap(),
@@ -543,7 +547,7 @@ fn lost_reload_reply_preserves_unknown_and_never_starts() {
     assert!(report.needs_reconciliation);
     assert_eq!(
         report.resources[0].state,
-        OsApplyResourceState::Pending
+        ServicesApplyResourceState::Pending
     );
     assert_eq!(
         manager.effects(EffectKind::Reload, &EffectState::Unknown),
@@ -575,7 +579,7 @@ fn lost_reload_reply_preserves_unknown_and_never_starts() {
     assert!(repeated.needs_reconciliation);
     assert_eq!(
         repeated.resources[0].state,
-        OsApplyResourceState::Pending
+        ServicesApplyResourceState::Pending
     );
     assert_eq!(
         manager.calls, calls,
@@ -613,7 +617,7 @@ fn started_fixture() -> Fixture {
     let report = fixture.run(&mut manager, &resources);
     assert_eq!(
         report.resources[0].state,
-        OsApplyResourceState::Started
+        ServicesApplyResourceState::Started
     );
     assert!(!report.needs_reconciliation);
     drop(manager);
@@ -744,7 +748,7 @@ fn cross_generation_preservation_keeps_binding_unit_and_authorization_unchanged(
     let report = fixture.run_preserved(&mut manager, &fixture.resources, &preserved);
     assert_eq!(
         report.resources[0].state,
-        OsApplyResourceState::Unchanged
+        ServicesApplyResourceState::Unchanged
     );
     assert!(!report.needs_reconciliation);
     assert!(
@@ -799,7 +803,7 @@ fn inactive_preservable_resource_starts_the_new_candidate() {
     let report = fixture.run_preserved(&mut manager, &fixture.resources, &preserved);
     assert_eq!(
         report.resources[0].state,
-        OsApplyResourceState::Started
+        ServicesApplyResourceState::Started
     );
     assert!(!report.needs_reconciliation);
     assert_eq!(
@@ -848,7 +852,7 @@ fn preservation_cannot_adopt_a_replaced_invocation() {
     let report = fixture.run_preserved(&mut manager, &fixture.resources, &preserved);
     assert_eq!(
         report.resources[0].state,
-        OsApplyResourceState::Pending
+        ServicesApplyResourceState::Pending
     );
     assert!(report.needs_reconciliation);
     assert!(
@@ -886,7 +890,7 @@ fn supersession_during_live_observation_cannot_report_current_preservation() {
     let report = fixture.run_preserved(&mut manager, &fixture.resources, &preserved);
     assert_eq!(
         report.resources[0].state,
-        OsApplyResourceState::Pending
+        ServicesApplyResourceState::Pending
     );
     assert!(report.needs_reconciliation);
     assert!(
@@ -959,7 +963,7 @@ fn fresh_selection_after_abandonment_preserves_the_existing_authorized_invocatio
     assert!(!report.needs_reconciliation, "{report:?}");
     assert_eq!(
         report.resources[0].state,
-        OsApplyResourceState::Unchanged
+        ServicesApplyResourceState::Unchanged
     );
     assert!(
         manager

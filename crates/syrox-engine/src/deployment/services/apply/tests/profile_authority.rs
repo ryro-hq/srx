@@ -30,7 +30,7 @@ fn profile_identity_and_operation_cas_fail_before_contacting_a_manager() {
             deadline,
         )
         .unwrap();
-    let mut request = OsApplyRequest {
+    let mut request = ServicesApplyRequest {
         installation: installation_path,
         store: store_path,
         units: units.clone(),
@@ -45,12 +45,12 @@ fn profile_identity_and_operation_cas_fail_before_contacting_a_manager() {
         start_timeout: Duration::from_secs(30),
         stop_timeout: Duration::from_secs(5),
     };
-    let mut authority = OsSelectionAuthority {
+    let mut authority = ServicesSelectionAuthority {
         installation: "incorrect-installation".into(),
         active_operation: None,
     };
     assert_eq!(
-        apply_os_generation_with_authority(&request, &authority, false, &cancel, deadline)
+        apply_services_generation_with_authority(&request, &authority, false, &cancel, deadline)
             .unwrap_err()
             .stage,
         "profile installation identity comparison"
@@ -82,7 +82,7 @@ fn profile_identity_and_operation_cas_fail_before_contacting_a_manager() {
         .unwrap();
     let before = serde_json::to_vec(&journal.snapshot(&cancel, deadline).unwrap()).unwrap();
     assert_eq!(
-        apply_os_generation_with_authority(&request, &authority, false, &cancel, deadline)
+        apply_services_generation_with_authority(&request, &authority, false, &cancel, deadline)
             .unwrap_err()
             .stage,
         "profile active operation comparison"
@@ -92,7 +92,7 @@ fn profile_identity_and_operation_cas_fail_before_contacting_a_manager() {
         before
     );
     assert_eq!(std::fs::read_dir(&units).unwrap().count(), 0);
-    let recovery = recovery::OsRecoveryRequest {
+    let recovery = recovery::ServicesRecoveryRequest {
         installation: request.installation.clone(),
         store: request.store.clone(),
         units: request.units.clone(),
@@ -107,7 +107,7 @@ fn profile_identity_and_operation_cas_fail_before_contacting_a_manager() {
         stop_timeout: request.stop_timeout,
     };
     assert_eq!(
-        recovery::recover_os_generation_with_identity(
+        recovery::recover_services_generation_with_identity(
             &recovery,
             "incorrect-installation",
             &cancel,
@@ -120,7 +120,7 @@ fn profile_identity_and_operation_cas_fail_before_contacting_a_manager() {
     authority.active_operation = Some(newer);
     request.expected = None;
     assert_eq!(
-        apply_os_generation_with_authority(&request, &authority, false, &cancel, deadline)
+        apply_services_generation_with_authority(&request, &authority, false, &cancel, deadline)
             .unwrap_err()
             .stage,
         "desired generation comparison"

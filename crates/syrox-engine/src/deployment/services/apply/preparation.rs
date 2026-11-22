@@ -4,12 +4,14 @@ use crate::deployment::services::{
         GenerationConfiguration, GenerationInstallation, GenerationLauncher, InstallationError,
         RetainedGeneration,
     },
-    launch_binding::{LaunchBindingError, LaunchBindingInput, OsLaunchBinding, OsLaunchContext},
-    paths::{OsExecutionPaths, OsPathsError},
-    runtime::{OsRuntimeError, prepare_os_runtime},
+    launch_binding::{
+        LaunchBindingError, LaunchBindingInput, ServicesLaunchBinding, ServicesLaunchContext,
+    },
+    paths::{ServicesExecutionPaths, ServicesPathsError},
+    runtime::{ServicesRuntimeError, prepare_services_runtime},
 };
 use crate::platform::linux::fd::{self as linux_fd, OpenedPath};
-use crate::systemd::persistent::{OsUnitContract, OsUnitInput};
+use crate::systemd::persistent::{ServicesUnitContract, ServicesUnitInput};
 use crate::{
     cancellation::Cancellation, store::ContentDigest, store::Store, systemd::SystemdError,
     systemd::SystemdScope, systemd::SystemdUnitName,
@@ -32,11 +34,11 @@ pub(crate) enum PreparationError {
     #[error(transparent)]
     Store(#[from] crate::store::StoreError),
     #[error(transparent)]
-    Paths(#[from] OsPathsError),
+    Paths(#[from] ServicesPathsError),
     #[error(transparent)]
     Installation(#[from] InstallationError),
     #[error(transparent)]
-    Runtime(#[from] OsRuntimeError),
+    Runtime(#[from] ServicesRuntimeError),
     #[error(transparent)]
     Binding(#[from] LaunchBindingError),
     #[error(transparent)]
@@ -48,7 +50,7 @@ pub(crate) struct ResourcePreparation<'a> {
     pub installation: &'a GenerationInstallation,
     pub generation: &'a RetainedGeneration,
     pub store: &'a Store,
-    pub paths: &'a OsExecutionPaths,
+    pub paths: &'a ServicesExecutionPaths,
     pub units: &'a Path,
     pub epoch: &'a ExecutionEpoch,
     pub scope: SystemdScope,
@@ -71,8 +73,8 @@ impl ResourcePreparation<'_> {
 
 #[derive(Debug)]
 pub(crate) struct PreparedResource {
-    pub binding: OsLaunchBinding,
-    pub contract: OsUnitContract,
+    pub binding: ServicesLaunchBinding,
+    pub contract: ServicesUnitContract,
 }
 
 pub(crate) fn prepare_resources(
@@ -183,7 +185,7 @@ fn resources(
 fn contexts(
     input: &ResourcePreparation<'_>,
     generation: &RetainedGeneration,
-) -> Result<BTreeMap<String, (SystemdUnitName, OsLaunchContext)>> {
+) -> Result<BTreeMap<String, (SystemdUnitName, ServicesLaunchContext)>> {
     // Check the scope even for a data-only generation with no process to render.
     let context = context_for_unit(
         input,
@@ -208,8 +210,8 @@ fn contexts(
 pub(super) fn context_for_unit(
     input: &ResourcePreparation<'_>,
     unit: &SystemdUnitName,
-) -> Result<OsLaunchContext> {
-    Ok(OsLaunchContext::new(
+) -> Result<ServicesLaunchContext> {
+    Ok(ServicesLaunchContext::new(
         input.scope.clone(),
         input.paths.store().into(),
         input.units.join(unit.as_str()),
@@ -225,7 +227,7 @@ fn compose_resource(
     generation: &RetainedGeneration,
     launcher: &GenerationLauncher,
     configuration: &GenerationConfiguration,
-    resource: (&str, SystemdUnitName, OsLaunchContext),
+    resource: (&str, SystemdUnitName, ServicesLaunchContext),
     cancellation: &Cancellation,
 ) -> Result<PreparedResource> {
     let (key, unit, context) = resource;
@@ -234,7 +236,7 @@ fn compose_resource(
         .ok_or(PreparationError::Invalid("invalid process key"))?;
     let command = &generation.manifest().commands[&generation.manifest().processes[key].command];
     let (descriptor, configuration_path) = configuration.service(service)?;
-    let runtime = prepare_os_runtime(
+    let runtime = prepare_services_runtime(
         generation,
         service,
         process,
@@ -247,7 +249,7 @@ fn compose_resource(
         .canonical_bytes()
         .map_err(|_| PreparationError::Invalid("invalid runtime specification"))?;
     let fragment = context.fragment().to_owned();
-    let binding = OsLaunchBinding::new(LaunchBindingInput {
+    let binding = ServicesLaunchBinding::new(LaunchBindingInput {
         installation: input.installation.id().into(),
         generation: generation.digest(),
         service: service.into(),
@@ -261,7 +263,7 @@ fn compose_resource(
         configuration: configuration_path,
         cwd: input.paths.cwd().into(),
     })?;
-    let contract = OsUnitContract::new(OsUnitInput {
+    let contract = ServicesUnitContract::new(ServicesUnitInput {
         restart: binding.context().restart(),
         unit,
         scope: input.scope.clone(),
@@ -287,7 +289,7 @@ fn unit_name(installation: &str, process: &str) -> Result<SystemdUnitName> {
         ContentDigest::sha256(process.as_bytes())
     ))?)
 }
-fn open_units(path: &Path, paths: &OsExecutionPaths) -> Result<OpenedPath> {
+fn open_units(path: &Path, paths: &ServicesExecutionPaths) -> Result<OpenedPath> {
     let text = path.to_str().ok_or(PreparationError::Invalid(
         "non-UTF8 unit directory",
     ))?;
@@ -421,8 +423,8 @@ mod tests {
                 store,
             }
         }
-        fn paths(&self, cwd: &Path) -> OsExecutionPaths {
-            OsExecutionPaths::open(
+        fn paths(&self, cwd: &Path) -> ServicesExecutionPaths {
+            ServicesExecutionPaths::open(
                 self.installation_directory.path(),
                 &self.project.path().join("store"),
                 cwd,
@@ -433,7 +435,7 @@ mod tests {
         }
         fn input<'a>(
             &'a self,
-            paths: &'a OsExecutionPaths,
+            paths: &'a ServicesExecutionPaths,
             epoch: &'a ExecutionEpoch,
         ) -> ResourcePreparation<'a> {
             ResourcePreparation {
@@ -450,8 +452,8 @@ mod tests {
                 stop_timeout: Duration::from_secs(10),
             }
         }
-        fn epoch(&self, paths: &OsExecutionPaths) -> ExecutionEpoch {
-            let context = OsLaunchContext::new(
+        fn epoch(&self, paths: &ServicesExecutionPaths) -> ExecutionEpoch {
+            let context = ServicesLaunchContext::new(
                 SystemdScope::System,
                 paths.store().into(),
                 self.units.path().join("example.service"),

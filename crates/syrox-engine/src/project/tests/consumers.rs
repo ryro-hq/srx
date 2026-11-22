@@ -420,7 +420,7 @@ fn local_nominal_lookalikes_are_not_projected_or_accepted_as_consumers() {
 }
 
 #[test]
-fn os_forced_through_a_generic_recipe_reference_is_not_a_consumer_output() {
+fn services_forced_through_a_generic_recipe_reference_is_not_a_consumer_output() {
     let error = package_plan(
         r"
         struct Wrapper { reference: std::RecipeRef<std::Services>; }
@@ -805,7 +805,7 @@ fn restart_source(policy: &str, consumer: &str) -> String {
 }
 
 #[test]
-fn process_restart_is_explicit_bounded_and_os_only() {
+fn process_restart_is_explicit_bounded_and_services_only() {
     for consumer in ["Services", "Shell"] {
         let plan = package_plan(&restart_source("", consumer)).unwrap();
         let process = &plan.consumers().next().unwrap().services()[0].processes()[0];

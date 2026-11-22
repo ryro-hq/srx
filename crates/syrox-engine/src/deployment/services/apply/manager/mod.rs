@@ -1,6 +1,6 @@
 use crate::deployment::services::activation::{ActivationJournal, EffectKind, ExecutionEpoch};
-use crate::deployment::services::launch_binding::OsLaunchBinding;
-use crate::systemd::persistent::OsUnitContract;
+use crate::deployment::services::launch_binding::ServicesLaunchBinding;
+use crate::systemd::persistent::ServicesUnitContract;
 use crate::{
     cancellation::Cancellation, store::ContentDigest, systemd::SystemdFdStoreObserved,
     systemd::SystemdJob, systemd::SystemdJobCompletion, systemd::SystemdJobResult,
@@ -82,7 +82,11 @@ pub(super) trait Manager {
         budget: &Budget<'_>,
     ) -> Result<Option<SystemdFdStoreObserved>>;
     fn recorded_job_absent(&mut self, path: &str, budget: &Budget<'_>) -> Result<bool>;
-    fn loaded(&mut self, contract: &OsUnitContract, budget: &Budget<'_>) -> Result<ContentDigest>;
+    fn loaded(
+        &mut self,
+        contract: &ServicesUnitContract,
+        budget: &Budget<'_>,
+    ) -> Result<ContentDigest>;
     fn reload(&mut self, budget: &Budget<'_>) -> Result<()>;
     fn start(&mut self, unit: &SystemdUnitName, budget: &Budget<'_>) -> Result<Self::Job>;
     fn stop(&mut self, unit: &SystemdUnitName, budget: &Budget<'_>) -> Result<Self::Job>;
@@ -148,8 +152,12 @@ impl Manager for SystemdManager {
         self.recorded_job_absent(path, budget.remaining()?, budget.cancellation)
             .map_err(|source| ApplyManagerError::caused_by("observe recorded stop job", source))
     }
-    fn loaded(&mut self, contract: &OsUnitContract, budget: &Budget<'_>) -> Result<ContentDigest> {
-        self.observe_os_unit(contract, budget.remaining()?, budget.cancellation)
+    fn loaded(
+        &mut self,
+        contract: &ServicesUnitContract,
+        budget: &Budget<'_>,
+    ) -> Result<ContentDigest> {
+        self.observe_services_unit(contract, budget.remaining()?, budget.cancellation)
             .map(|observed| observed.fingerprint())
             .map_err(|error| {
                 eprintln!(
@@ -344,7 +352,7 @@ impl<M: Manager> ApplyManager<'_, M> {
         &mut self,
         resource: &str,
         target: ContentDigest,
-        contracts: &[&OsUnitContract],
+        contracts: &[&ServicesUnitContract],
     ) -> Result<EffectOutcome> {
         if contracts.is_empty() || contracts.len() > 1024 || reload_target(contracts) != target {
             return Err(ApplyManagerError::new("invalid reload batch"));
@@ -381,8 +389,8 @@ impl<M: Manager> ApplyManager<'_, M> {
     pub(super) fn verify_running(
         &mut self,
         resource: &str,
-        binding: &OsLaunchBinding,
-        contract: &OsUnitContract,
+        binding: &ServicesLaunchBinding,
+        contract: &ServicesUnitContract,
         expected_invocation: &[u8; 16],
     ) -> Result<bool> {
         Ok(self
@@ -392,8 +400,8 @@ impl<M: Manager> ApplyManager<'_, M> {
     fn running_evidence(
         &mut self,
         resource: &str,
-        binding: &OsLaunchBinding,
-        contract: &OsUnitContract,
+        binding: &ServicesLaunchBinding,
+        contract: &ServicesUnitContract,
         expected_invocation: &[u8; 16],
     ) -> Result<Option<ContentDigest>> {
         let target = binding
@@ -489,8 +497,8 @@ impl<M: Manager> ApplyManager<'_, M> {
     pub(super) fn start(
         &mut self,
         resource: &str,
-        binding: &OsLaunchBinding,
-        contract: &OsUnitContract,
+        binding: &ServicesLaunchBinding,
+        contract: &ServicesUnitContract,
     ) -> Result<EffectOutcome> {
         let target = binding
             .digest()
@@ -513,8 +521,8 @@ impl<M: Manager> ApplyManager<'_, M> {
         &mut self,
         effect: &str,
         resource: &str,
-        binding: &OsLaunchBinding,
-        contract: &OsUnitContract,
+        binding: &ServicesLaunchBinding,
+        contract: &ServicesUnitContract,
         target: ContentDigest,
     ) -> Result<Observation> {
         let budget = Budget {
@@ -628,7 +636,7 @@ fn invocation_hex(invocation: &[u8; 16]) -> String {
     text
 }
 /// Identity of the desired rendered batch, distinct from effective observations.
-pub(super) fn reload_target(contracts: &[&OsUnitContract]) -> ContentDigest {
+pub(super) fn reload_target(contracts: &[&ServicesUnitContract]) -> ContentDigest {
     let sorted: BTreeMap<_, _> = contracts
         .iter()
         .map(|contract| (contract.unit().as_str(), contract.file_digest()))

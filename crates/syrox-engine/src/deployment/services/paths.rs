@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 use std::time::Instant;
 
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum OsPathsError {
+pub(crate) enum ServicesPathsError {
     #[error("invalid Services execution paths: {0}")]
     Invalid(&'static str),
     #[error("Services execution path observation cancelled")]
@@ -15,7 +15,7 @@ pub(crate) enum OsPathsError {
     #[error(transparent)]
     Io(#[from] io::Error),
 }
-type Result<T> = std::result::Result<T, OsPathsError>;
+type Result<T> = std::result::Result<T, ServicesPathsError>;
 
 #[derive(Debug)]
 struct Directory {
@@ -30,7 +30,7 @@ impl Directory {
         let opened = linux_fd::open_top_directory(&path).map_err(open_error)?;
         check(cancel, deadline)?;
         if linux_fd::directory_path(&opened)? != path {
-            return Err(OsPathsError::Invalid(
+            return Err(ServicesPathsError::Invalid(
                 "directory spelling or identity changed",
             ));
         }
@@ -47,7 +47,7 @@ impl Directory {
         if current.metadata().identity() != self.identity
             || linux_fd::directory_path(&self.opened)? != self.path
         {
-            return Err(OsPathsError::Invalid(
+            return Err(ServicesPathsError::Invalid(
                 "selected directory was renamed or replaced",
             ));
         }
@@ -56,12 +56,12 @@ impl Directory {
 }
 
 #[derive(Debug)]
-pub(crate) struct OsExecutionPaths {
+pub(crate) struct ServicesExecutionPaths {
     installation: Directory,
     store: Directory,
     cwd: Directory,
 }
-impl OsExecutionPaths {
+impl ServicesExecutionPaths {
     pub(crate) fn open(
         installation: &Path,
         store: &Path,
@@ -78,7 +78,7 @@ impl OsExecutionPaths {
         ];
         separated(&paths)?;
         if !resources::valid_managed_working_directory(&paths[2]) {
-            return Err(OsPathsError::Invalid(
+            return Err(ServicesPathsError::Invalid(
                 "working directory overlaps managed filesystems",
             ));
         }
@@ -113,14 +113,14 @@ impl OsExecutionPaths {
         for left in 0..directories.len() {
             for right in left + 1..directories.len() {
                 if directories[left].identity == directories[right].identity {
-                    return Err(OsPathsError::Invalid(
+                    return Err(ServicesPathsError::Invalid(
                         "selected directories alias the same inode",
                     ));
                 }
             }
         }
         if !resources::valid_managed_working_directory(self.cwd()) {
-            return Err(OsPathsError::Invalid(
+            return Err(ServicesPathsError::Invalid(
                 "working directory overlaps managed filesystems",
             ));
         }
@@ -132,7 +132,7 @@ fn separated(paths: &[PathBuf; 3]) -> Result<()> {
     for left in 0..paths.len() {
         for right in left + 1..paths.len() {
             if paths[left].starts_with(&paths[right]) || paths[right].starts_with(&paths[left]) {
-                return Err(OsPathsError::Invalid(
+                return Err(ServicesPathsError::Invalid(
                     "installation, Store and cwd must not overlap",
                 ));
             }
@@ -143,7 +143,7 @@ fn separated(paths: &[PathBuf; 3]) -> Result<()> {
 fn normalized(path: &Path) -> Result<PathBuf> {
     let text = path
         .to_str()
-        .ok_or(OsPathsError::Invalid("path is not UTF-8"))?;
+        .ok_or(ServicesPathsError::Invalid("path is not UTF-8"))?;
     if text.is_empty()
         || text.len() > 4096
         || text.chars().any(char::is_control)
@@ -151,17 +151,19 @@ fn normalized(path: &Path) -> Result<PathBuf> {
             .components()
             .any(|part| matches!(part, Component::ParentDir))
     {
-        return Err(OsPathsError::Invalid(
+        return Err(ServicesPathsError::Invalid(
             "path must be bounded and contain no parent traversal or controls",
         ));
     }
     let absolute = std::path::absolute(path)?;
     let normalized: PathBuf = absolute.components().collect();
-    let absolute_text = normalized.to_str().ok_or(OsPathsError::Invalid(
-        "absolute path is not UTF-8",
-    ))?;
+    let absolute_text = normalized
+        .to_str()
+        .ok_or(ServicesPathsError::Invalid(
+            "absolute path is not UTF-8",
+        ))?;
     if absolute_text.len() > 4096 || absolute_text.chars().any(char::is_control) {
-        return Err(OsPathsError::Invalid(
+        return Err(ServicesPathsError::Invalid(
             "absolute path exceeds bound or contains controls",
         ));
     }
@@ -169,16 +171,18 @@ fn normalized(path: &Path) -> Result<PathBuf> {
 }
 fn check(cancel: &Cancellation, deadline: Instant) -> Result<()> {
     if cancel.is_cancelled() {
-        return Err(OsPathsError::Cancelled);
+        return Err(ServicesPathsError::Cancelled);
     }
     if Instant::now() >= deadline {
-        return Err(OsPathsError::Deadline);
+        return Err(ServicesPathsError::Deadline);
     }
     Ok(())
 }
-fn open_error(error: linux_fd::OpenError) -> OsPathsError {
+fn open_error(error: linux_fd::OpenError) -> ServicesPathsError {
     match error {
-        linux_fd::OpenError::Symlink => OsPathsError::Invalid("directory path traverses a symlink"),
+        linux_fd::OpenError::Symlink => {
+            ServicesPathsError::Invalid("directory path traverses a symlink")
+        }
         linux_fd::OpenError::Other(error) | linux_fd::OpenError::Unsupported(error) => error.into(),
     }
 }
@@ -200,8 +204,8 @@ mod tests {
         }
         (temp, paths)
     }
-    fn open(paths: &[PathBuf; 3]) -> Result<OsExecutionPaths> {
-        OsExecutionPaths::open(
+    fn open(paths: &[PathBuf; 3]) -> Result<ServicesExecutionPaths> {
+        ServicesExecutionPaths::open(
             &paths[0],
             &paths[1],
             &paths[2],
@@ -243,7 +247,7 @@ mod tests {
                 // A missing child cannot distract from the pre-I/O overlap check.
                 assert!(matches!(
                     open(&nested),
-                    Err(OsPathsError::Invalid(
+                    Err(ServicesPathsError::Invalid(
                         "installation, Store and cwd must not overlap"
                     ))
                 ));
@@ -302,29 +306,29 @@ mod tests {
         let cancel = Cancellation::default();
         cancel.cancel();
         assert!(matches!(
-            OsExecutionPaths::open(
+            ServicesExecutionPaths::open(
                 &paths[0],
                 &paths[1],
                 &paths[2],
                 &cancel,
                 deadline()
             ),
-            Err(OsPathsError::Cancelled)
+            Err(ServicesPathsError::Cancelled)
         ));
         assert!(matches!(
-            OsExecutionPaths::open(
+            ServicesExecutionPaths::open(
                 &paths[0],
                 &paths[1],
                 &paths[2],
                 &Cancellation::default(),
                 Instant::now()
             ),
-            Err(OsPathsError::Deadline)
+            Err(ServicesPathsError::Deadline)
         ));
         let selected = open(&paths).unwrap();
         assert!(matches!(
             selected.revalidate(&cancel, deadline()),
-            Err(OsPathsError::Cancelled)
+            Err(ServicesPathsError::Cancelled)
         ));
         let mut absent = paths.clone();
         absent[1] = temp.path().join("absent");

@@ -3,9 +3,9 @@ use crate::deployment::services::{
     activation::{ActivationSnapshot, manager_change::ManagerChange},
     apply::conservation::{ExistingSnapshots, snapshot_contract},
     installation::RetainedGeneration,
-    launch_binding::OsLaunchBinding,
+    launch_binding::ServicesLaunchBinding,
 };
-use crate::systemd::persistent::OsUnitContract;
+use crate::systemd::persistent::ServicesUnitContract;
 use crate::{cancellation::Cancellation, store::ContentDigest};
 use std::collections::{BTreeMap, btree_map::Entry};
 use std::time::Instant;
@@ -16,7 +16,7 @@ struct Generation {
 }
 pub(super) struct HistoricalResources {
     generations: BTreeMap<ContentDigest, Generation>,
-    pub contracts: BTreeMap<String, OsUnitContract>,
+    pub contracts: BTreeMap<String, ServicesUnitContract>,
 }
 impl HistoricalResources {
     pub(super) fn open(
@@ -95,7 +95,7 @@ impl HistoricalResources {
         pin: &str,
         cancel: &Cancellation,
         deadline: Instant,
-    ) -> Result<OsLaunchBinding> {
+    ) -> Result<ServicesLaunchBinding> {
         let binding = opened
             .installation
             .read_launch_binding(
@@ -125,7 +125,7 @@ impl HistoricalResources {
     fn admit(
         &mut self,
         opened: &OpenedRecovery,
-        binding: &OsLaunchBinding,
+        binding: &ServicesLaunchBinding,
         bytes: &mut usize,
         cancel: &Cancellation,
         deadline: Instant,

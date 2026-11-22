@@ -1,11 +1,11 @@
 use super::conservation::PreservedResource;
 use super::manager::{ApplyManager, EffectOutcome, EffectStatus, Manager, reload_target};
 use super::preparation::PreparedResource;
-use super::{OsApplyReport, OsApplyResource, OsApplyResourceState};
+use super::{ServicesApplyReport, ServicesApplyResource, ServicesApplyResourceState};
 use crate::deployment::services::{
     activation::{ActivationSnapshot, EffectKind},
     installation::{GenerationInstallation, RetainedGeneration},
-    paths::OsExecutionPaths,
+    paths::ServicesExecutionPaths,
     unit_files::UnitFiles,
 };
 use crate::{store::ContentDigest, systemd::SystemdUnitName};
@@ -19,11 +19,11 @@ pub(super) fn apply<M: Manager>(
     driver: ApplyManager<'_, M>,
     installation: &GenerationInstallation,
     candidate: &RetainedGeneration,
-    paths: &OsExecutionPaths,
+    paths: &ServicesExecutionPaths,
     units: &UnitFiles,
     resources: &BTreeMap<String, PreparedResource>,
     preserved: &BTreeMap<String, PreservedResource>,
-) -> OsApplyReport {
+) -> ServicesApplyReport {
     let mut coordinator = Coordinator {
         driver,
         installation,
@@ -32,7 +32,7 @@ pub(super) fn apply<M: Manager>(
         units,
         preserved,
     };
-    let mut report = OsApplyReport {
+    let mut report = ServicesApplyReport {
         operation: coordinator.driver.operation.into(),
         candidate: candidate.digest(),
         resources: Vec::new(),
@@ -66,10 +66,10 @@ pub(super) fn apply<M: Manager>(
             Ok(state) => (state, None),
             Err(stage) => {
                 report.needs_reconciliation = true;
-                (OsApplyResourceState::Pending, Some(stage))
+                (ServicesApplyResourceState::Pending, Some(stage))
             }
         };
-        report.resources.push(OsApplyResource {
+        report.resources.push(ServicesApplyResource {
             resource: key,
             unit,
             state,
@@ -83,7 +83,7 @@ struct Coordinator<'a, M: Manager> {
     driver: ApplyManager<'a, M>,
     installation: &'a GenerationInstallation,
     candidate: &'a RetainedGeneration,
-    paths: &'a OsExecutionPaths,
+    paths: &'a ServicesExecutionPaths,
     units: &'a UnitFiles,
     preserved: &'a BTreeMap<String, PreservedResource>,
 }
@@ -93,15 +93,15 @@ impl<M: Manager> Coordinator<'_, M> {
         key: &str,
         next: Option<&PreparedResource>,
         snapshot: &ActivationSnapshot,
-    ) -> Result<OsApplyResourceState> {
+    ) -> Result<ServicesApplyResourceState> {
         self.paths
             .revalidate(self.driver.cancellation, self.driver.deadline)
             .map_err(|_| "execution paths changed")?;
         if self.settle_previous(key, next, snapshot)? {
-            return Ok(OsApplyResourceState::Unchanged);
+            return Ok(ServicesApplyResourceState::Unchanged);
         }
         let Some(next) = next else {
-            return Ok(OsApplyResourceState::Stopped);
+            return Ok(ServicesApplyResourceState::Stopped);
         };
         let publication = self.publish(key, next)?;
         let contracts = [&next.contract];
@@ -132,7 +132,7 @@ impl<M: Manager> Coordinator<'_, M> {
                 .start(key, &next.binding, &next.contract)
                 .map_err(|_| "plan start")?,
         )?;
-        Ok(OsApplyResourceState::Started)
+        Ok(ServicesApplyResourceState::Started)
     }
     fn settle_previous(
         &mut self,
@@ -231,8 +231,8 @@ impl<M: Manager> Coordinator<'_, M> {
     fn verify_preserved(
         &mut self,
         key: &str,
-        binding: &crate::deployment::services::launch_binding::OsLaunchBinding,
-        contract: &crate::systemd::persistent::OsUnitContract,
+        binding: &crate::deployment::services::launch_binding::ServicesLaunchBinding,
+        contract: &crate::systemd::persistent::ServicesUnitContract,
         authorization: &str,
         invocation: &[u8; 16],
     ) -> Result<bool> {

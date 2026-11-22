@@ -8,8 +8,8 @@ use std::time::Duration;
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(10)
 }
-fn context() -> crate::deployment::services::launch_binding::OsLaunchContext {
-    crate::deployment::services::launch_binding::OsLaunchContext::new(
+fn context() -> crate::deployment::services::launch_binding::ServicesLaunchContext {
+    crate::deployment::services::launch_binding::ServicesLaunchContext::new(
         crate::systemd::SystemdScope::User {
             bus_socket: "/run/user/1000/bus".into(),
         },
@@ -58,7 +58,8 @@ impl ActivationJournal {
             process: "server".into(),
             command: "run".into(),
             unit: unit(),
-            launcher: crate::deployment::services::LauncherIdentity::new(pin(b"launcher"), 1).unwrap(),
+            launcher: crate::deployment::services::LauncherIdentity::new(pin(b"launcher"), 1)
+                .unwrap(),
             spec: pin(b"spec"),
             epoch: epoch(),
             context: context(),
@@ -66,8 +67,8 @@ impl ActivationJournal {
             cwd: "/project".into(),
         }
     }
-    fn binding(&self) -> OsLaunchBinding {
-        OsLaunchBinding::new(self.binding_input()).unwrap()
+    fn binding(&self) -> ServicesLaunchBinding {
+        ServicesLaunchBinding::new(self.binding_input()).unwrap()
     }
     fn binding_pin(&self) -> ContentDigest {
         self.binding().digest().unwrap()
@@ -638,18 +639,19 @@ fn authorization_joins_typed_binding_to_operation_and_publication() {
         |input| input.epoch.manager = "other manager".into(),
         |input| input.epoch.boot = BootId::parse("22222222-2222-2222-2222-222222222222").unwrap(),
         |input| {
-            input.context = crate::deployment::services::launch_binding::OsLaunchContext::new(
-                crate::systemd::SystemdScope::User {
-                    bus_socket: "/run/user/2000/bus".into(),
-                },
-                "/private/store".into(),
-                "/private/units/syrox-os-test.service".into(),
-                2000,
-                2000,
-                Duration::from_secs(30),
-                Duration::from_secs(5),
-            )
-            .unwrap();
+            input.context =
+                crate::deployment::services::launch_binding::ServicesLaunchContext::new(
+                    crate::systemd::SystemdScope::User {
+                        bus_socket: "/run/user/2000/bus".into(),
+                    },
+                    "/private/store".into(),
+                    "/private/units/syrox-os-test.service".into(),
+                    2000,
+                    2000,
+                    Duration::from_secs(30),
+                    Duration::from_secs(5),
+                )
+                .unwrap();
             input.epoch.scope = input.context.scope_key();
         },
     ];
@@ -658,7 +660,7 @@ fn authorization_joins_typed_binding_to_operation_and_publication() {
         let cancel = Cancellation::default();
         let mut input = journal.binding_input();
         change(&mut input);
-        let binding = OsLaunchBinding::new(input).unwrap();
+        let binding = ServicesLaunchBinding::new(input).unwrap();
         let target = binding.digest().unwrap();
         let effect = journal
             .plan_effect(

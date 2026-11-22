@@ -1,6 +1,6 @@
 use super::{
-    Cancellation, ContentDigest, Duration, Instant, OsLaunchBinding, OsWorkerError, PathBuf,
-    invalid,
+    Cancellation, ContentDigest, Duration, Instant, PathBuf, ServicesLaunchBinding,
+    ServicesWorkerError, invalid,
 };
 use sha2::{Digest as _, Sha256};
 use std::ffi::OsString;
@@ -14,7 +14,7 @@ pub(super) struct Arguments {
     pub binding: ContentDigest,
 }
 impl Arguments {
-    pub(super) fn parse(args: &[OsString]) -> Result<Self, OsWorkerError> {
+    pub(super) fn parse(args: &[OsString]) -> Result<Self, ServicesWorkerError> {
         let [installation, store, binding] = args else {
             return Err(invalid(
                 "expected installation, Store and binding pin",
@@ -41,7 +41,7 @@ impl Arguments {
         })
     }
 }
-fn path(value: &OsString) -> Result<PathBuf, OsWorkerError> {
+fn path(value: &OsString) -> Result<PathBuf, ServicesWorkerError> {
     let text = value
         .to_str()
         .ok_or_else(|| invalid("worker path is not UTF-8"))?;
@@ -59,7 +59,7 @@ fn path(value: &OsString) -> Result<PathBuf, OsWorkerError> {
     }
     Ok(PathBuf::from(text))
 }
-pub(super) fn invocation(text: &str) -> Result<[u8; 16], OsWorkerError> {
+pub(super) fn invocation(text: &str) -> Result<[u8; 16], ServicesWorkerError> {
     if text.len() != 32
         || text
             .bytes()
@@ -77,7 +77,7 @@ pub(super) fn invocation(text: &str) -> Result<[u8; 16], OsWorkerError> {
     }
     Ok(value)
 }
-pub(super) fn identity(binding: &OsLaunchBinding) -> Result<(), OsWorkerError> {
+pub(super) fn identity(binding: &ServicesLaunchBinding) -> Result<(), ServicesWorkerError> {
     // SAFETY: credential queries have no process-global mutations.
     let actual = unsafe {
         (
@@ -106,7 +106,7 @@ pub(super) fn verify_image(
     expected: ContentDigest,
     cancel: &Cancellation,
     deadline: Instant,
-) -> Result<(), OsWorkerError> {
+) -> Result<(), ServicesWorkerError> {
     check(deadline, cancel)?;
     let image = running_image()?;
     if hash_reader(image, MAX_IMAGE, cancel, deadline)? != expected {
@@ -116,7 +116,7 @@ pub(super) fn verify_image(
     }
     Ok(())
 }
-pub(super) fn running_image() -> Result<File, OsWorkerError> {
+pub(super) fn running_image() -> Result<File, ServicesWorkerError> {
     let own_proc = PathBuf::from(format!("/proc/{}", std::process::id()));
     let proc = crate::platform::linux::fd::open_top_directory(&own_proc)
         .map_err(|_| invalid("cannot pin own proc entry"))?;
@@ -139,7 +139,7 @@ pub(super) fn hash_reader(
     maximum: u64,
     cancel: &Cancellation,
     deadline: Instant,
-) -> Result<ContentDigest, OsWorkerError> {
+) -> Result<ContentDigest, ServicesWorkerError> {
     let mut hash = Sha256::new();
     let mut total = 0_u64;
     let mut buffer = [0_u8; 16 * 1024];
@@ -160,14 +160,14 @@ pub(super) fn hash_reader(
         hash.finalize().into(),
     ))
 }
-pub(super) fn check(deadline: Instant, cancel: &Cancellation) -> Result<(), OsWorkerError> {
+pub(super) fn check(deadline: Instant, cancel: &Cancellation) -> Result<(), ServicesWorkerError> {
     if cancel.is_cancelled() {
         return Err(io::Error::other("Services startup cancelled").into());
     }
     remaining(deadline)?;
     Ok(())
 }
-pub(super) fn remaining(deadline: Instant) -> Result<Duration, OsWorkerError> {
+pub(super) fn remaining(deadline: Instant) -> Result<Duration, ServicesWorkerError> {
     let duration = deadline.saturating_duration_since(Instant::now());
     if duration.is_zero() {
         Err(io::Error::new(

@@ -348,10 +348,12 @@ fn verify(
             deadline,
         )
         .map_err(|error| match error {
-            crate::deployment::services::runtime::OsRuntimeError::Cancelled => {
+            crate::deployment::services::runtime::ServicesRuntimeError::Cancelled => {
                 InstallationError::Cancelled
             }
-            crate::deployment::services::runtime::OsRuntimeError::Deadline => InstallationError::Deadline,
+            crate::deployment::services::runtime::ServicesRuntimeError::Deadline => {
+                InstallationError::Deadline
+            }
             _ => InstallationError::Invalid("configuration tree differs from retained generation"),
         })?;
         services.insert(id.into(), directory);
@@ -407,7 +409,8 @@ fn sync_tree(
 fn grouped(
     generation: &RetainedGeneration,
 ) -> BTreeMap<&str, Vec<&crate::deployment::services::manifest::Config>> {
-    let mut groups: BTreeMap<&str, Vec<&crate::deployment::services::manifest::Config>> = BTreeMap::new();
+    let mut groups: BTreeMap<&str, Vec<&crate::deployment::services::manifest::Config>> =
+        BTreeMap::new();
     for config in generation.manifest().configs.values() {
         groups
             .entry(&config.service)

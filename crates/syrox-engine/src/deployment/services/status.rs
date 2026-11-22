@@ -5,26 +5,26 @@ use std::time::Instant;
 
 #[derive(Debug, thiserror::Error)]
 #[error("cannot observe Services installation journal")]
-pub struct OsStatusError;
+pub struct ServicesStatusError;
 
 #[derive(Debug)]
-pub struct OsStatus {
+pub struct ServicesStatus {
     pub installation: String,
     pub desired: Option<ContentDigest>,
     pub active_operation: Option<String>,
     pub active_kind: Option<&'static str>,
-    pub boot_fences: Vec<OsStatusBootFence>,
+    pub boot_fences: Vec<ServicesStatusBootFence>,
     pub abandoned_operations: Vec<String>,
-    pub bindings: Vec<OsStatusBinding>,
-    pub pending_effects: Vec<OsStatusEffect>,
+    pub bindings: Vec<ServicesStatusBinding>,
+    pub pending_effects: Vec<ServicesStatusEffect>,
 }
 #[derive(Debug)]
-pub struct OsStatusBootFence {
+pub struct ServicesStatusBootFence {
     pub previous_boot: String,
-    pub current: OsStatusEpoch,
+    pub current: ServicesStatusEpoch,
 }
 #[derive(Debug)]
-pub struct OsStatusBinding {
+pub struct ServicesStatusBinding {
     pub invocation: Option<String>,
     pub invocation_error: Option<String>,
     pub resource: String,
@@ -32,16 +32,16 @@ pub struct OsStatusBinding {
     pub pin: ContentDigest,
     pub unit: String,
     pub authorized: bool,
-    pub epoch: OsStatusEpoch,
+    pub epoch: ServicesStatusEpoch,
 }
 #[derive(Debug)]
-pub struct OsStatusEpoch {
+pub struct ServicesStatusEpoch {
     pub boot: String,
     pub manager: String,
     pub scope: String,
 }
 #[derive(Debug)]
-pub struct OsStatusEffect {
+pub struct ServicesStatusEffect {
     pub operation: String,
     pub effect: String,
     pub kind: &'static str,
@@ -53,16 +53,16 @@ pub struct OsStatusEffect {
 
 /// Read one coherent, validated snapshot of existing installation evidence.
 /// This never selects a generation, repairs state, or observes live services.
-pub fn inspect_os_status(
+pub fn inspect_services_status(
     installation: &Path,
     cancellation: &Cancellation,
     deadline: Instant,
-) -> Result<OsStatus, OsStatusError> {
+) -> Result<ServicesStatus, ServicesStatusError> {
     let journal = ActivationJournal::open_existing(installation, cancellation, deadline)
-        .map_err(|_| OsStatusError)?;
+        .map_err(|_| ServicesStatusError)?;
     let snapshot = journal
         .snapshot(cancellation, deadline)
-        .map_err(|_| OsStatusError)?;
+        .map_err(|_| ServicesStatusError)?;
     let active_kind = snapshot
         .active_operation
         .as_ref()
@@ -70,7 +70,7 @@ pub fn inspect_os_status(
             snapshot
                 .operations
                 .get(id)
-                .ok_or(OsStatusError)
+                .ok_or(ServicesStatusError)
                 .map(|operation| match operation.kind {
                     OperationKind::Apply => "apply",
                     OperationKind::Rollback => "rollback",
@@ -89,8 +89,8 @@ pub fn inspect_os_status(
             };
             Ok((resource.clone(), observation))
         })
-        .collect::<Result<std::collections::BTreeMap<_, _>, OsStatusError>>()?;
-    let mut result = OsStatus {
+        .collect::<Result<std::collections::BTreeMap<_, _>, ServicesStatusError>>()?;
+    let mut result = ServicesStatus {
         installation: snapshot.installation,
         desired: snapshot
             .desired
@@ -106,9 +106,9 @@ pub fn inspect_os_status(
     };
     for (previous_boot, current) in snapshot.boot_fences {
         check(cancellation, deadline)?;
-        result.boot_fences.push(OsStatusBootFence {
+        result.boot_fences.push(ServicesStatusBootFence {
             previous_boot,
-            current: OsStatusEpoch {
+            current: ServicesStatusEpoch {
                 boot: current.boot.as_str().into(),
                 manager: current.manager,
                 scope: current.scope,
@@ -117,7 +117,7 @@ pub fn inspect_os_status(
     }
     for (resource, binding) in snapshot.bindings {
         check(cancellation, deadline)?;
-        result.bindings.push(OsStatusBinding {
+        result.bindings.push(ServicesStatusBinding {
             invocation: invocations[&resource].0.clone(),
             invocation_error: invocations[&resource].1.clone(),
             resource,
@@ -125,7 +125,7 @@ pub fn inspect_os_status(
             pin: digest(&binding.pin)?,
             unit: binding.unit,
             authorized: binding.authorized,
-            epoch: OsStatusEpoch {
+            epoch: ServicesStatusEpoch {
                 boot: binding.epoch.boot.as_str().into(),
                 manager: binding.epoch.manager,
                 scope: binding.epoch.scope,
@@ -158,7 +158,7 @@ pub fn inspect_os_status(
                     ..
                 } => continue,
             };
-            result.pending_effects.push(OsStatusEffect {
+            result.pending_effects.push(ServicesStatusEffect {
                 operation: operation.clone(),
                 effect,
                 kind: match record.kind {
@@ -177,12 +177,12 @@ pub fn inspect_os_status(
     check(cancellation, deadline)?;
     Ok(result)
 }
-fn digest(value: &str) -> Result<ContentDigest, OsStatusError> {
-    value.parse().map_err(|_| OsStatusError)
+fn digest(value: &str) -> Result<ContentDigest, ServicesStatusError> {
+    value.parse().map_err(|_| ServicesStatusError)
 }
-fn check(cancellation: &Cancellation, deadline: Instant) -> Result<(), OsStatusError> {
+fn check(cancellation: &Cancellation, deadline: Instant) -> Result<(), ServicesStatusError> {
     if cancellation.is_cancelled() || Instant::now() >= deadline {
-        return Err(OsStatusError);
+        return Err(ServicesStatusError);
     }
     Ok(())
 }
@@ -194,7 +194,7 @@ mod tests {
         LauncherIdentity,
         activation::ExecutionEpoch,
         installation::GenerationInstallation,
-        launch_binding::{LaunchBindingInput, OsLaunchBinding, OsLaunchContext},
+        launch_binding::{LaunchBindingInput, ServicesLaunchBinding, ServicesLaunchContext},
     };
     use crate::{systemd::SystemdScope, systemd::SystemdUnitName};
     use std::fs;
@@ -213,8 +213,8 @@ mod tests {
             .tempdir()
             .unwrap()
     }
-    fn context() -> OsLaunchContext {
-        OsLaunchContext::new(
+    fn context() -> ServicesLaunchContext {
+        ServicesLaunchContext::new(
             SystemdScope::System,
             "/private/store".into(),
             "/private/units/syrox-status-test.service".into(),
@@ -240,8 +240,8 @@ mod tests {
         journal: &ActivationJournal,
         operation: &str,
         cancel: &Cancellation,
-    ) -> OsLaunchBinding {
-        let binding = OsLaunchBinding::new(LaunchBindingInput {
+    ) -> ServicesLaunchBinding {
+        let binding = ServicesLaunchBinding::new(LaunchBindingInput {
             installation: installation.id().into(),
             generation: pin(b"old generation"),
             service: "alpha".into(),
@@ -362,7 +362,7 @@ mod tests {
             .record_unknown(&current, &unknown, &cancel, deadline())
             .unwrap();
         let before = journal.snapshot(&cancel, deadline()).unwrap();
-        let status = inspect_os_status(root.path(), &cancel, deadline()).unwrap();
+        let status = inspect_services_status(root.path(), &cancel, deadline()).unwrap();
         assert_eq!(status.installation, installation.id());
         assert_eq!(status.desired, Some(pin(b"new generation")));
         assert_eq!(
@@ -400,7 +400,7 @@ mod tests {
     fn missing_cancelled_expired_and_corrupt_status_never_initialize_or_repair() {
         let root = directory();
         let missing = root.path().join("missing");
-        assert!(inspect_os_status(&missing, &Cancellation::default(), deadline()).is_err());
+        assert!(inspect_services_status(&missing, &Cancellation::default(), deadline()).is_err());
         assert!(!missing.exists());
         let cancel = Cancellation::default();
         GenerationInstallation::initialize(root.path(), &cancel, deadline()).unwrap();
@@ -409,9 +409,9 @@ mod tests {
             .map(|e| e.unwrap().file_name())
             .collect();
         cancel.cancel();
-        assert!(inspect_os_status(root.path(), &cancel, deadline()).is_err());
+        assert!(inspect_services_status(root.path(), &cancel, deadline()).is_err());
         assert!(
-            inspect_os_status(
+            inspect_services_status(
                 root.path(),
                 &Cancellation::default(),
                 Instant::now()
@@ -437,7 +437,7 @@ mod tests {
         )
         .unwrap();
         let error =
-            inspect_os_status(root.path(), &Cancellation::default(), deadline()).unwrap_err();
+            inspect_services_status(root.path(), &Cancellation::default(), deadline()).unwrap_err();
         assert!(!error.to_string().contains("private"));
         assert_eq!(
             fs::read(root.path().join("activation")).unwrap(),
@@ -490,7 +490,7 @@ mod tests {
             .record_unknown(&operation, &pending, &cancel, deadline())
             .unwrap();
         let before = serde_json::to_vec(&journal.snapshot(&cancel, deadline()).unwrap()).unwrap();
-        let status = inspect_os_status(root.path(), &cancel, deadline()).unwrap();
+        let status = inspect_services_status(root.path(), &cancel, deadline()).unwrap();
         assert_eq!(status.desired, Some(candidate));
         assert_eq!(status.pending_effects.len(), 1);
         assert_eq!(status.pending_effects[0].effect, pending);
@@ -534,7 +534,7 @@ mod tests {
         journal
             .abandon(&first, &cancel, deadline())
             .unwrap();
-        let status = inspect_os_status(root.path(), &cancel, deadline()).unwrap();
+        let status = inspect_services_status(root.path(), &cancel, deadline()).unwrap();
         assert!(status.desired.is_none());
         assert!(status.active_operation.is_none());
         assert!(status.active_kind.is_none());
@@ -560,7 +560,7 @@ mod tests {
                 deadline(),
             )
             .unwrap();
-        let selected = inspect_os_status(root.path(), &cancel, deadline()).unwrap();
+        let selected = inspect_services_status(root.path(), &cancel, deadline()).unwrap();
         assert_eq!(selected.desired, Some(pin(b"next generation")));
         assert_eq!(
             selected.active_operation.as_deref(),
@@ -575,7 +575,7 @@ mod tests {
             .abandon(&next, &cancel, deadline())
             .unwrap();
         let before = journal.snapshot(&cancel, deadline()).unwrap();
-        let status = inspect_os_status(root.path(), &cancel, deadline()).unwrap();
+        let status = inspect_services_status(root.path(), &cancel, deadline()).unwrap();
         let mut expected = vec![first, next];
         expected.sort();
         assert_eq!(status.abandoned_operations, expected);
@@ -656,7 +656,7 @@ mod tests {
             .fence_previous_boot(&operation, &current, &cancel, deadline())
             .unwrap();
         let before = serde_json::to_vec(&journal.snapshot(&cancel, deadline()).unwrap()).unwrap();
-        let status = inspect_os_status(root.path(), &cancel, deadline()).unwrap();
+        let status = inspect_services_status(root.path(), &cancel, deadline()).unwrap();
         assert_eq!(status.boot_fences.len(), 1);
         let fence = &status.boot_fences[0];
         assert_eq!(fence.previous_boot, old.boot.as_str());

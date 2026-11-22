@@ -9,9 +9,9 @@ pub(crate) use crate::execution::{resources as service_spec, transport};
 
 mod admission;
 pub(crate) mod coordinator;
+pub(crate) mod owner;
 #[allow(unsafe_code)]
 pub(crate) mod services;
-pub(crate) mod owner;
 pub(crate) const RETENTION: &[u8] = b"syrox-owner-v1 retention";
 pub(crate) const PROCESSED: &[u8] = b"syrox-owner-v1 processed";
 pub(crate) const COMMIT: &[u8] = b"syrox-owner-v1 commit";

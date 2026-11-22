@@ -1,4 +1,4 @@
-use super::persistent::OsUnitContract;
+use super::persistent::ServicesUnitContract;
 use super::{
     Budget, Cancellation, SERVICE_INTERFACE, SystemdError, SystemdManager, SystemdManagerIdentity,
     SystemdScope, SystemdUnitName, UNIT_INTERFACE,
@@ -71,9 +71,9 @@ impl LoadedOsUnitObserved {
     }
 }
 impl SystemdManager {
-    pub(crate) fn observe_os_unit(
+    pub(crate) fn observe_services_unit(
         &mut self,
-        contract: &OsUnitContract,
+        contract: &ServicesUnitContract,
         timeout: Duration,
         cancellation: &Cancellation,
     ) -> Result<LoadedOsUnitObserved, SystemdError> {
@@ -325,7 +325,7 @@ fn exit_statuses(r: &mut super::wire::Reader<'_>, maximum: i32) -> Result<Vec<i3
     }
     Ok(values)
 }
-pub(super) fn properties(c: &OsUnitContract) -> Vec<Property> {
+pub(super) fn properties(c: &ServicesUnitContract) -> Vec<Property> {
     let mut p = Vec::new();
     unit_properties(c, &mut p);
     service_properties(c, &mut p);
@@ -333,7 +333,7 @@ pub(super) fn properties(c: &OsUnitContract) -> Vec<Property> {
     dependency_properties(c, &mut p);
     p
 }
-fn restart_properties(c: &OsUnitContract, p: &mut Vec<Property>) {
+fn restart_properties(c: &ServicesUnitContract, p: &mut Vec<Property>) {
     let (mode, delay, window, burst) = c.restart_properties();
     for (interface, name, expected) in [
         (
@@ -394,7 +394,7 @@ fn restart_properties(c: &OsUnitContract, p: &mut Vec<Property>) {
         });
     }
 }
-fn unit_properties(c: &OsUnitContract, p: &mut Vec<Property>) {
+fn unit_properties(c: &ServicesUnitContract, p: &mut Vec<Property>) {
     let mut add = |interface, name, expected| {
         p.push(Property {
             interface,
@@ -441,7 +441,7 @@ fn unit_properties(c: &OsUnitContract, p: &mut Vec<Property>) {
         );
     }
 }
-fn service_properties(c: &OsUnitContract, p: &mut Vec<Property>) {
+fn service_properties(c: &ServicesUnitContract, p: &mut Vec<Property>) {
     // No condition/pre/post/stop/reload executor is allowed outside the single
     // authenticated MainPID inventory. A live manager control process refuses it.
     p.push(Property {
@@ -551,7 +551,7 @@ fn service_properties(c: &OsUnitContract, p: &mut Vec<Property>) {
         );
     }
 }
-fn dependency_properties(c: &OsUnitContract, p: &mut Vec<Property>) {
+fn dependency_properties(c: &ServicesUnitContract, p: &mut Vec<Property>) {
     let system = matches!(c.scope(), SystemdScope::System);
     for (name, required, extra) in [
         (
@@ -605,8 +605,8 @@ fn dependency_properties(c: &OsUnitContract, p: &mut Vec<Property>) {
 mod tests {
     use super::*;
     use crate::systemd::wire::{Frame, Writer};
-    fn contract() -> OsUnitContract {
-        OsUnitContract::new(super::super::persistent::tests::input()).unwrap()
+    fn contract() -> ServicesUnitContract {
+        ServicesUnitContract::new(super::super::persistent::tests::input()).unwrap()
     }
     fn frame(signature: &str, body: Vec<u8>) -> Frame {
         Frame {
@@ -763,7 +763,7 @@ mod tests {
     }
     #[test]
     #[ignore = "requires real user manager and a separately provisioned exact Services unit; never starts it"]
-    fn real_loaded_os_unit_observation_gate() {
+    fn real_loaded_services_unit_observation_gate() {
         use std::path::PathBuf;
         let env =
             |name| PathBuf::from(std::env::var_os(name).expect("explicit fixture field required"));
@@ -784,13 +784,13 @@ mod tests {
             .unwrap();
         input.uid = uid;
         input.gid = gid;
-        let expected = OsUnitContract::new(input).unwrap();
+        let expected = ServicesUnitContract::new(input).unwrap();
         let cancellation = Cancellation::default();
         let timeout = Duration::from_secs(30);
         let mut manager =
             SystemdManager::connect(expected.scope().clone(), timeout, &cancellation).unwrap();
         let observation = manager
-            .observe_os_unit(&expected, timeout, &cancellation)
+            .observe_services_unit(&expected, timeout, &cancellation)
             .unwrap();
         assert_eq!(observation.unit(), expected.unit());
         assert_eq!(observation.manager().scope(), expected.scope());
@@ -803,7 +803,7 @@ mod tests {
         input.restart = crate::execution::restart::ProcessRestart::OnFailure(
             crate::execution::restart::RestartLimits::new(2, 30, 4).unwrap(),
         );
-        let p = properties(&OsUnitContract::new(input).unwrap());
+        let p = properties(&ServicesUnitContract::new(input).unwrap());
         for name in [
             "Restart",
             "RestartUSec",
