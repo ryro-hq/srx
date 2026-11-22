@@ -4,8 +4,8 @@
 //! disk, a message between processes, a hash domain or a published identity.
 //! Each [`Format`] states which boundary it crosses, which module owns it and
 //! which older tags its reader still accepts. `cargo xtask formats` renders
-//! [`ALL`] into `docs/formats.md`, and `cargo xtask check` rejects versioned tag
-//! literals outside this file.
+//! [`ALL`] into `docs/formats.md`, and `cargo xtask check` rejects literals of
+//! registered or versioned tags outside this file.
 //!
 //! Tags are byte-exact. Changing one here changes every record, message and
 //! digest that uses it, so a tag changes only together with a deliberate format

@@ -326,7 +326,7 @@ impl Drop for AdmissionLockProfile {
     fn drop(&mut self) {
         if std::env::var_os("SYROX_PROFILE_LOCKS").is_some() {
             eprintln!(
-                "syrox-lock producer-admission wait_us={} held_us={}",
+                "lock-profile producer-admission wait_us={} held_us={}",
                 self.wait.as_micros(),
                 self.acquired.elapsed().as_micros()
             );

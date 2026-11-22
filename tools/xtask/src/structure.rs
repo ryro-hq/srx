@@ -4,9 +4,11 @@
 //! when their names and code already explain their role. Directories with `mod.rs`
 //! remain reserved for modules with production children.
 //!
-//! Versioned format tags (`"syrox-...-vN"`) are spelled only in
-//! `syrox_encoding::formats`. Tests, test-gated items and examples may spell them
-//! out, so fixtures double as golden checks of the registry bytes.
+//! Format tags are spelled only in `syrox_encoding::formats`. A string literal
+//! that starts with a registered tag, current or still read, or with any
+//! versioned `syrox-...-vN` tag is rejected elsewhere. Tests, test-gated items
+//! and examples may spell them out, so fixtures double as golden checks of the
+//! registry bytes.
 
 use std::fs;
 use std::io;
@@ -201,15 +203,25 @@ fn production_modules(source: &str) -> Vec<String> {
     modules
 }
 
-/// Versioned `syrox-...-vN` tag opening a string literal token.
+/// Format tag opening a string literal token: a tag in the registry, current
+/// or still read, or any versioned `syrox-...-vN` tag, which only the registry
+/// may introduce.
 fn format_tag(token: &str) -> Option<&str> {
     let body = token.strip_prefix('"')?;
     let end = body
         .find(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_'))
         .unwrap_or(body.len());
     let tag = &body[..end];
-    let (_, version) = tag.strip_prefix("syrox-")?.rsplit_once("-v")?;
-    (!version.is_empty() && version.bytes().all(|b| b.is_ascii_digit())).then_some(tag)
+    let registered = syrox_encoding::formats::ALL
+        .iter()
+        .any(|format| format.tag == tag || format.reads.contains(&tag));
+    let versioned = tag
+        .strip_prefix("syrox-")
+        .and_then(|name| name.rsplit_once("-v"))
+        .is_some_and(|(_, version)| {
+            !version.is_empty() && version.bytes().all(|b| b.is_ascii_digit())
+        });
+    (registered || versioned).then_some(tag)
 }
 
 /// Format tags spelled as literals outside items gated on `cfg(test)`.
@@ -447,8 +459,11 @@ mod tests {
             fn scope() -> String { format!("syrox-scope-v1:{}", 1) }
             const PROFILE: &str = r#"syrox-profile-x86_64-v3"#;
             const NAME: &str = "syrox-build-namespace";
-            const UNIT: &str = "syrox-services-unit.service";
+            const UNIT: &str = "syrox-services-probe.service";
             const OTHER: &str = "prefix syrox-inline-v1";
+            const LOCK: &[u8] = b"syrox-lock\nhash sha256\n";
+            const STORE: &str = "syrox-store";
+            const NEAR: &str = "syrox-locked";
             #[cfg(test)]
             const FIXTURE: &[u8] = b"syrox-fixture-v1\n";
             #[cfg(test)]
@@ -466,6 +481,8 @@ mod tests {
                 "syrox-header-v2",
                 "syrox-scope-v1",
                 "syrox-profile-x86_64-v3",
+                "syrox-lock",
+                "syrox-store",
                 "syrox-record-v1",
                 "syrox-after-v4"
             ]
