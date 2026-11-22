@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
+use syrox_encoding::formats;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -133,7 +134,7 @@ impl BuilderLimits {
 
     pub fn fingerprint(&self) -> [u8; 32] {
         let mut hasher = Sha256::new();
-        hasher.update(b"syrox-builder-limits-v1\n");
+        hasher.update(formats::BUILDER_LIMITS_LINE);
         for (_, value) in self.maximum.resources() {
             hasher.update(value.to_le_bytes());
         }

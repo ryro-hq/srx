@@ -18,11 +18,12 @@ use std::{
     io,
     os::{fd::BorrowedFd, unix::fs::MetadataExt as _},
 };
+use syrox_encoding::formats;
 
 mod received;
 pub use received::{AttachedWorkspace, ReceivedWorkspace};
 
-const HEADER: &[u8] = b"syrox-system-workspace-layout-v1\n";
+const HEADER: &[u8] = formats::SYSTEM_WORKSPACE_LAYOUT_LINE.as_bytes();
 
 /// Deterministic geometry for two separately bounded filesystems. The global
 /// inode ceiling is split in proportion to scratch/output byte ceilings, then

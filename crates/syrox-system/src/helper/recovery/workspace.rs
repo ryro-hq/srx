@@ -11,6 +11,7 @@ use crate::{
 };
 use sha2::{Digest as _, Sha256};
 use std::{fs::File, io, os::unix::fs::MetadataExt as _};
+use syrox_encoding::formats;
 use syrox_system::helper_protocol::Request;
 
 fn request(evidence: &Evidence) -> io::Result<(String, String, syrox_system::budget::BuildBudget)> {
@@ -205,7 +206,7 @@ fn inspect(
 
 fn hash(plan: &serde_json::Value) -> io::Result<String> {
     let mut hash = Sha256::new();
-    hash.update(b"syrox-private-workspace-recovery-plan-v1\n");
+    hash.update(formats::PRIVATE_WORKSPACE_RECOVERY_PLAN_LINE);
     hash.update(serde_json::to_vec(plan)?);
     Ok(syrox_encoding::hex(&hash.finalize()))
 }

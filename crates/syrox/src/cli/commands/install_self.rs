@@ -11,6 +11,7 @@ use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::fs::{PermissionsExt as _, symlink};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use syrox_encoding::formats;
 
 use sha2::{Digest as _, Sha256};
 
@@ -70,7 +71,8 @@ fn digest(bytes: &[u8]) -> String {
 
 fn release_manifest(srx: &[u8], worker: &[u8]) -> (String, String) {
     let manifest = format!(
-        "syrox-release-v1\nsrx {} {}\nworker {} {}\n",
+        "{}srx {} {}\nworker {} {}\n",
+        formats::RELEASE_LINE,
         digest(srx),
         srx.len(),
         digest(worker),

@@ -6,6 +6,7 @@ use std::io::{self, Read as _};
 use std::os::fd::{AsFd as _, AsRawFd as _};
 use std::os::unix::fs::MetadataExt as _;
 use std::path::Path;
+use syrox_encoding::formats;
 use syrox_system::descriptor;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -92,7 +93,7 @@ pub(super) fn load(state: &File, name: &str) -> io::Result<Evidence> {
     }
     names.sort();
     let mut hash = Sha256::new();
-    hash.update(b"syrox-private-scratch-journal-v1\n");
+    hash.update(formats::PRIVATE_SCRATCH_JOURNAL_LINE);
     let mut records = Vec::new();
     for (sequence, name) in names.iter().enumerate() {
         let file = open(&directory, name, false)?;

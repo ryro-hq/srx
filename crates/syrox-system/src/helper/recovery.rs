@@ -9,6 +9,7 @@ use sha2::{Digest as _, Sha256};
 use std::fs::File;
 use std::io;
 use std::os::unix::fs::MetadataExt as _;
+use syrox_encoding::formats;
 
 mod evidence;
 mod runtime;
@@ -45,7 +46,7 @@ pub(super) struct Plan {
 impl Plan {
     pub fn sha256(&self) -> io::Result<String> {
         let mut hash = Sha256::new();
-        hash.update(b"syrox-private-scratch-recovery-plan-v1\n");
+        hash.update(formats::PRIVATE_SCRATCH_RECOVERY_PLAN_LINE);
         hash.update(serde_json::to_vec(self)?);
         Ok(syrox_encoding::hex(&hash.finalize()))
     }

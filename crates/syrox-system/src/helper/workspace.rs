@@ -17,6 +17,7 @@ use std::{
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
+use syrox_encoding::formats;
 use syrox_system::{
     budget::BuilderLimits,
     descriptor::{self, FlockMode, PeerCredentials},
@@ -106,7 +107,7 @@ pub(super) fn serve(
     let formatter = policy.formatter.snapshot()?;
     let checker = policy.checker.snapshot()?;
     let mut authorization = Sha256::new();
-    authorization.update(b"syrox-private-workspace-authorization-v1\n");
+    authorization.update(formats::PRIVATE_WORKSPACE_AUTHORIZATION_LINE);
     authorization.update(policy_sha256);
     authorization.update(peer.uid.to_le_bytes());
     authorization.update(peer.gid.to_le_bytes());

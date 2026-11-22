@@ -7,6 +7,7 @@
 use std::fmt::Write as _;
 use std::io;
 use std::path::{Component, Path, PathBuf};
+use syrox_encoding::formats;
 
 pub const SOCKET_UNIT: &str = "syrox-system-helper.socket";
 pub const SERVICE_UNIT: &str = "syrox-system-helper@.service";
@@ -74,11 +75,15 @@ impl HelperActivation {
             ));
         }
         let socket = format!(
-            "# syrox-private-scratch-activation-v1\n[Unit]\nDescription=SRX private scratch activation\n\n[Socket]\nListenSequentialPacket={socket}\nAccept=yes\nSocketUser=0\nSocketGroup={}\nSocketMode=0660\nDirectoryMode=0755\nMaxConnections={}\nMaxConnectionsPerSource={}\nRemoveOnStop=yes\nFileDescriptorName=connection\n\n[Install]\nWantedBy=sockets.target\n",
-            self.socket_group, limits.connections, limits.connections
+            "{marker}[Unit]\nDescription=SRX private scratch activation\n\n[Socket]\nListenSequentialPacket={socket}\nAccept=yes\nSocketUser=0\nSocketGroup={}\nSocketMode=0660\nDirectoryMode=0755\nMaxConnections={}\nMaxConnectionsPerSource={}\nRemoveOnStop=yes\nFileDescriptorName=connection\n\n[Install]\nWantedBy=sockets.target\n",
+            self.socket_group,
+            limits.connections,
+            limits.connections,
+            marker = formats::PRIVATE_SCRATCH_ACTIVATION_MARKER,
         );
-        let mut service = String::from(
-            "# syrox-private-scratch-activation-v1\n[Unit]\nDescription=SRX private scratch connection\nCollectMode=inactive-or-failed\n\n[Service]\nType=exec\nUser=0\nGroup=0\nDynamicUser=no\nRestart=no\nKillMode=control-group\nSendSIGKILL=yes\nTimeoutStopSec=10s\nOOMPolicy=kill\nUMask=0077\nWorkingDirectory=/\nStandardInput=null\nStandardOutput=journal\nStandardError=journal\nNoNewPrivileges=yes\nPrivateMounts=yes\nPrivateNetwork=yes\nProtectSystem=strict\nProtectHome=yes\nProtectKernelTunables=yes\nProtectKernelModules=yes\nProtectControlGroups=yes\nDevicePolicy=closed\nDeviceAllow=/dev/null rw\nDeviceAllow=/dev/loop-control rw\nDeviceAllow=block-loop rw\nCapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETGID CAP_SETPCAP CAP_SYS_ADMIN CAP_SYS_CHROOT\nRestrictAddressFamilies=AF_UNIX\n",
+        let mut service = String::from(formats::PRIVATE_SCRATCH_ACTIVATION_MARKER);
+        service.push_str(
+            "[Unit]\nDescription=SRX private scratch connection\nCollectMode=inactive-or-failed\n\n[Service]\nType=exec\nUser=0\nGroup=0\nDynamicUser=no\nRestart=no\nKillMode=control-group\nSendSIGKILL=yes\nTimeoutStopSec=10s\nOOMPolicy=kill\nUMask=0077\nWorkingDirectory=/\nStandardInput=null\nStandardOutput=journal\nStandardError=journal\nNoNewPrivileges=yes\nPrivateMounts=yes\nPrivateNetwork=yes\nProtectSystem=strict\nProtectHome=yes\nProtectKernelTunables=yes\nProtectKernelModules=yes\nProtectControlGroups=yes\nDevicePolicy=closed\nDeviceAllow=/dev/null rw\nDeviceAllow=/dev/loop-control rw\nDeviceAllow=block-loop rw\nCapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETGID CAP_SETPCAP CAP_SYS_ADMIN CAP_SYS_CHROOT\nRestrictAddressFamilies=AF_UNIX\n",
         );
         // ':' disables environment substitution; quote doubles '%' separately
         // because systemd expands specifiers even inside quoted command words.

@@ -11,6 +11,7 @@ use std::os::fd::{AsFd as _, AsRawFd as _};
 use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use syrox_encoding::formats;
 use syrox_system::{
     budget::BuilderLimits,
     descriptor::{self, FlockMode, PeerCredentials},
@@ -107,7 +108,7 @@ pub(super) fn serve(socket: File, policy: Policy, policy_sha256: [u8; 32]) -> io
         ));
     }
     let mut authorization = Sha256::new();
-    authorization.update(b"syrox-private-scratch-authorization-v1\n");
+    authorization.update(formats::PRIVATE_SCRATCH_AUTHORIZATION_LINE);
     authorization.update(policy_sha256);
     authorization.update(peer.uid.to_le_bytes());
     authorization.update(peer.gid.to_le_bytes());

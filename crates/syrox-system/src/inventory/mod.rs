@@ -12,6 +12,7 @@ use std::fs;
 use std::io::{self, Read as _};
 use std::os::unix::fs::{FileTypeExt as _, MetadataExt as _};
 use std::path::{Path, PathBuf};
+use syrox_encoding::formats;
 
 mod mounts;
 pub use mounts::Mount;
@@ -138,7 +139,7 @@ impl SystemInventory {
     /// The digest identifies evidence, without conferring device authority.
     pub fn fingerprint(&self) -> Result<String> {
         let mut hasher = Sha256::new();
-        hasher.update(b"syrox-system-inventory-v1\n");
+        hasher.update(formats::SYSTEM_INVENTORY_LINE);
         hasher.update(serde_json::to_vec(self)?);
         let mut result = String::with_capacity(64);
         for byte in hasher.finalize() {

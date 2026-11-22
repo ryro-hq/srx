@@ -8,6 +8,7 @@ use crate::budget::AdmittedBudget;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use syrox_encoding::formats;
 
 mod initramfs;
 pub use initramfs::{ArchiveError, ComponentReader, WrittenArchive};
@@ -137,7 +138,7 @@ impl SystemTree {
     /// Canonical, versioned metadata. File contents remain in authenticated
     /// components. This encoding also defines the tree's SHA-256 identity.
     pub fn canonical_bytes(&self) -> Vec<u8> {
-        let mut bytes = b"syrox-system-tree-v1\n".to_vec();
+        let mut bytes = formats::SYSTEM_TREE_LINE.as_bytes().to_vec();
         serde_json::to_writer(&mut bytes, self).expect("serializable tree metadata");
         bytes
     }
@@ -157,7 +158,7 @@ impl SystemTree {
         }
         let fields: EncodedTree = serde_json::from_slice(
             bytes
-                .strip_prefix(b"syrox-system-tree-v1\n")
+                .strip_prefix(formats::SYSTEM_TREE_LINE.as_bytes())
                 .ok_or(ImageError::Manifest)?,
         )
         .map_err(|_| ImageError::Manifest)?;

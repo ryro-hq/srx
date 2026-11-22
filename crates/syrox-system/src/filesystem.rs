@@ -11,6 +11,7 @@ use std::{
     io,
     os::{fd::AsFd as _, unix::fs::MetadataExt as _},
 };
+use syrox_encoding::formats;
 
 #[allow(unsafe_code)]
 mod kernel;
@@ -117,7 +118,7 @@ impl FilesystemObservation {
         use sha2::{Digest as _, Sha256};
         use std::fmt::Write as _;
         let mut hasher = Sha256::new();
-        hasher.update(b"syrox-filesystem-observation-v1\n");
+        hasher.update(formats::FILESYSTEM_OBSERVATION_LINE);
         hasher.update(serde_json::to_vec(self)?);
         let mut text = String::with_capacity(64);
         for byte in hasher.finalize() {
