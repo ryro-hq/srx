@@ -353,7 +353,6 @@ impl Checker<'_> {
     }
 
     // Contextual type, scope, consumption and recovery are independent checker inputs.
-    #[allow(clippy::too_many_arguments)]
     fn check_closure(
         &mut self,
         parameters: &[crate::syntax::Parameter],

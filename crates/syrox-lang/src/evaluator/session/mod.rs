@@ -320,7 +320,6 @@ impl<'a> EvaluationSession<'a> {
     }
 
     // Authentication inputs, origins and limits remain explicit at this boundary.
-    #[allow(clippy::too_many_arguments)]
     fn force_selected(
         &mut self,
         id: &MemoId,

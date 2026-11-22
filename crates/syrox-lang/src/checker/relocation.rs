@@ -257,7 +257,10 @@ pub(crate) trait FactMapper {
 }
 
 // Distinguish an absent optional fact from failure to relocate a present fact.
-#[allow(clippy::option_option)]
+#[expect(
+    clippy::option_option,
+    reason = "outer None reports a failed relocation through `?`; inner None is an absent optional fact"
+)]
 fn optional<T, U>(value: Option<T>, map: impl FnOnce(T) -> Option<U>) -> Option<Option<U>> {
     match value {
         Some(value) => Some(Some(map(value)?)),
