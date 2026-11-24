@@ -20,10 +20,19 @@ Linux kernel, explicit userspace image/runtime/firmware hashes and authenticated
 CLI/worker candidates. KVM is required; do not treat unavailable KVM as a passing run.
 CI runs native and minimum-environment suites for relevant changes and weekly.
 
-Only explicitly whitelisted prose changes skip VM builds. Unknown paths, code,
-std, contracts, dependencies, lock files and workflows run the full lane. Daily
-Cargo audits run independently. The required `verify` aggregate waits for dependency,
-workflow, portable and VM checks, including merge groups.
+Both acceptance lanes also exercise the runnable blocks of
+[Install Syrox](install.md) and [First ten minutes](first-ten-minutes.md).
+The VM starts without an installed CLI and uses the unsigned candidate from
+that run. CI compares the installed CLI and worker with the checked payload,
+then builds and runs Hello, checks nginx over HTTP, stops it and uninstalls the
+CLI. Logs are retained as `onboarding.log`. GitHub attestations are checked
+separately by the release workflow; a candidate test is not release evidence.
+
+Only explicitly whitelisted prose changes skip VM builds. The README and
+onboarding pages run the acceptance lanes even for prose-only changes. Unknown
+paths, code, std, contracts, dependencies, lock files and workflows run the
+full lane. Daily Cargo audits run independently. The required `verify` aggregate
+waits for dependency, workflow, portable and VM checks, including merge groups.
 The old `success` context is transitional until GitHub required rules use `verify`.
 
 Use `cargo xtask security audit`, `cargo xtask security exceptions`, and

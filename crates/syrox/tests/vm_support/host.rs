@@ -431,10 +431,28 @@ async fn run_vm(
             super::evidence::save(&evidence.join("report.json"), report)?;
             Ok(())
         })();
-        let outcome = if let Err(error) = saved.and(effective) {
-            Err(error)
-        } else {
-            execute(
+        let mut outcome = saved.and(effective);
+        if outcome.is_ok()
+            && config.profile == super::config::Profile::Acceptance
+            && std::env::var_os("SYROX_VM_ONBOARDING").is_some()
+        {
+            outcome = execute(
+                &sandbox,
+                "bash /sources/tests/vm/onboarding.sh guest",
+                "onboarding.log",
+                evidence,
+                control,
+                Duration::from_mins(20),
+            )
+            .await;
+            report["onboarding"] = json!(if outcome.is_ok() {
+                "passed"
+            } else {
+                "failed"
+            });
+        }
+        if outcome.is_ok() {
+            outcome = execute(
                 &sandbox,
                 &BOOTSTRAP.replace(
                     "size=128M",
@@ -445,8 +463,8 @@ async fn run_vm(
                 control,
                 Duration::from_hours(2),
             )
-            .await
-        };
+            .await;
+        }
         // Diagnostics are collected before destroying the VM, even on failure.
         let diagnostics = execute(
             &sandbox,

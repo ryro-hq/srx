@@ -4,6 +4,7 @@ on:
     tags: ['v*']
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: core-release-${{ github.ref }}
   cancel-in-progress: false
@@ -43,6 +44,14 @@ jobs:
         with:
           github-token: ${{ github.token }}
           run-id: ${{ needs.admit.outputs.run }}
+          name: kernel-acceptance-${{ matrix.target }}-6.12.109
+          path: kernel-evidence
+      - name: Require successful onboarding for this target
+        run: jq -e '.status == "passed" and .onboarding == "passed"' kernel-evidence/test-evidence/ci-vm/report.json
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.admit.outputs.run }}
           name: release-${{ matrix.target }}
           path: payload
       - name: Reverify and pack the qualified bytes, licenses and evidence
@@ -50,6 +59,7 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           (cd payload && sha256sum --check SHA256SUMS)
+          chmod u+x payload/srx payload/syrox-worker
           cp payload/sbom.spdx.json "srx-$TARGET.spdx.json"
           tar -czf "srx-$TARGET.tar.gz" -C payload .
           sha256sum "srx-$TARGET.tar.gz" > "srx-$TARGET.tar.gz.sha256"
@@ -66,6 +76,9 @@ jobs:
       attestations: write
       id-token: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: publish-*
@@ -94,18 +107,35 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           test "$(gh api "repos/$GITHUB_REPOSITORY/immutable-releases" --jq .enabled)" = true
+          offline_check="$RUNNER_TEMP/srx-offline-check.sh"
+          bash tests/vm/onboarding.sh snippet docs/install.md attest > "$offline_check"
+          verify_offline() {
+            (cd release && sudo unshare --net -- runuser -u "$(id -un)" -- \
+              env -u GH_TOKEN -u GITHUB_TOKEN GH_CONFIG_DIR="$RUNNER_TEMP/srx-offline-gh" \
+                artifact="$1" bundle="$2" tag="$TAG" expected_commit="$GITHUB_SHA" \
+                bash "$offline_check")
+          }
           gh attestation trusted-root > release/trusted_root.jsonl
           for artifact in release/*.tar.gz; do
             gh attestation verify "$artifact" --repo "$GITHUB_REPOSITORY" \
               --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" --source-digest "$GITHUB_SHA"
             (cd release && gh attestation download "${artifact#release/}" --repo "$GITHUB_REPOSITORY")
             digest=$(sha256sum "$artifact" | cut -d' ' -f1)
-            for predicate in https://slsa.dev/provenance/v1 https://spdx.dev/Document; do
-              gh attestation verify "$artifact" --repo "$GITHUB_REPOSITORY" \
-                --bundle "release/sha256:$digest.jsonl" --custom-trusted-root release/trusted_root.jsonl \
-                --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
-                --source-digest "$GITHUB_SHA" --predicate-type "$predicate" --deny-self-hosted-runners
-            done
+            bundle="sha256-$digest.jsonl"
+            mv -- "release/sha256:$digest.jsonl" "release/$bundle"
+            verify_offline "${artifact#release/}" "$bundle"
+
+            # Recompute the sidecar so the negative case exercises the signed
+            # binding, rather than only the unsigned checksum.
+            tampered=$(mktemp "$RUNNER_TEMP/srx-tampered.XXXXXXXX")
+            cp -- "$artifact" "$tampered"
+            printf x >> "$tampered"
+            sha256sum "$tampered" > "$tampered.sha256"
+            if verify_offline "$tampered" "$bundle"; then
+              echo "offline verifier accepted a modified archive" >&2
+              exit 1
+            fi
+            rm -- "$tampered" "$tampered.sha256"
           done
           gh release create "$TAG" --verify-tag --target "$GITHUB_SHA" --draft \
             --title "$TAG" --generate-notes release/*

@@ -37,6 +37,9 @@ Syrox is experimental, currently targets Linux, and is licensed under
 
 ## Get started
 
+[Install a verified release](docs/install.md), follow the
+[first ten minutes](docs/first-ten-minutes.md), or build from source below.
+
 ### Build the CLI
 
 Use x86-64 Linux with Git, [rustup](https://rustup.rs/), HTTPS access to GitHub,

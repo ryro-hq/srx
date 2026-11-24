@@ -315,9 +315,15 @@ pub(super) fn classify(base: &str, head: &str) -> Result {
     Ok(())
 }
 fn documentation(path: &str) -> bool {
+    if matches!(
+        path,
+        "README.md" | "docs/install.md" | "docs/first-ten-minutes.md"
+    ) {
+        return false; // The onboarding commands are executed in the kernel lane.
+    }
     matches!(
         path,
-        "README.md" | "CONTRIBUTING.md" | "SECURITY.md" | "CODE_OF_CONDUCT.md" | "LICENSE"
+        "CONTRIBUTING.md" | "SECURITY.md" | "CODE_OF_CONDUCT.md" | "LICENSE"
     ) || (path.starts_with("docs/")
         && Path::new(path)
             .extension()
@@ -449,6 +455,9 @@ mod tests {
         for path in [
             ".github/workflows/ci.yml",
             "Cargo.lock",
+            "README.md",
+            "docs/install.md",
+            "docs/first-ten-minutes.md",
             "recipes/hello.srx",
             "docs/payload.sh",
             "new-format.unknown",

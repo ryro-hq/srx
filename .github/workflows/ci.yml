@@ -321,12 +321,21 @@ jobs:
             --image-archive "$PWD/target/ci-environment/image.tar" \
             --preparation-image "$(cat target/ci-environment/image.id)" \
             --profile "$PROFILE" --candidate-bundle "$PWD/target/ci-candidates"
-      - name: Run complete kernel suite or eight minimum-environment gates
+      - name: Run complete kernel suite or onboarding and minimum-environment gates
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
           if [ "$PROFILE" = native ]; then
             cargo test --locked -p syrox --test vm -- --suite native
           else
-            cargo test --locked -p syrox --test vm
+            download="$SYROX_VM_EVIDENCE/download"
+            artifact="srx-$TARGET.tar.gz"
+            mkdir -p "$download"
+            (cd target/ci-candidates && sha256sum --strict --quiet --check SHA256SUMS)
+            tar -czf "$download/$artifact" -C target/ci-candidates .
+            (cd "$download" && sha256sum "$artifact" > "$artifact.sha256")
+            printf '%s\n' "$artifact" > "$download/artifact-name"
+            SYROX_VM_ONBOARDING=1 cargo test --locked -p syrox --test vm
           fi
       - name: Check compilation cache is inactive
         if: always()
