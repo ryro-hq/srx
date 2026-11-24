@@ -31,19 +31,65 @@ git -C srx-pkgs checkout --quiet --detach FETCH_HEAD
 test "$(git -C srx-pkgs rev-parse HEAD)" = fa061bf30399571661f9cf52601707dad9d554a2
 mkdir hello-demo
 cd hello-demo
+mkdir assets nginx-work
+cat > assets/nginx.conf <<'NGINX'
+daemon off;
+error_log stderr;
+pid nginx.pid;
+events {}
+http {
+    access_log off;
+    client_body_temp_path client-body;
+    proxy_temp_path proxy;
+    fastcgi_temp_path fastcgi;
+    uwsgi_temp_path uwsgi;
+    scgi_temp_path scgi;
+    server {
+        listen 127.0.0.1:18080;
+        location = /healthz { empty_gif; }
+    }
+}
+NGINX
+
 cat > main.srx <<'SRX'
 inputs { pkgs = "path:../srx-pkgs"; }
 let packages = pkgs.forPlatform { system = "linux-x86_64"; libc = "musl"; };
 
 pub let hello = package_recipe(packages.hello { version = "2.12.1"; });
+let nginx = package_recipe(packages.nginx { version = "1.30.6"; });
+let nginx_args = [
+    CommandArgument::Literal("-p"),
+    CommandArgument::Literal("./"),
+    CommandArgument::Literal("-c"),
+    CommandArgument::File("nginx.conf"),
+];
 
-services.nginx = {
-    package = packages.nginx { version = "1.30.6"; };
-    settings = {
-        listen = 18080;
-        extraConfig = "allow 127.0.0.1; deny all; location = /healthz { empty_gif; }";
+outputs {
+    os: Services = Services {
+        pkgs = [];
+        services = [Service {
+            id = "nginx";
+            files = [ConfigFile {
+                path = "nginx.conf";
+                text = std::files::read_text("assets/nginx.conf");
+            }];
+            commands = [
+                ServiceCommand {
+                    name = "check-config";
+                    command = recipe_command(nginx, "nginx");
+                    arguments = [CommandArgument::Literal("-t")] ++ nginx_args;
+                },
+                ServiceCommand {
+                    name = "serve";
+                    command = recipe_command(nginx, "nginx");
+                    arguments = nginx_args;
+                },
+            ];
+            validators = ["check-config"];
+            processes = [ServiceProcess { id = "server"; command = "serve"; }];
+        }];
     };
-};
+}
 SRX
 
 srx project lock ../srx-pkgs
@@ -53,8 +99,10 @@ srx project plan . --output os
 ```
 
 Locking the disposable catalog checkout can refresh its `Syrox.lock` for the
-installed CLI. The `hello` export selects a catalog recipe; the `services.nginx`
-declaration creates the `os` output of type `Services`.
+installed CLI. The `hello` export selects a catalog recipe. The `os` output uses
+the catalog's nginx binary with a local configuration: `-p ./` keeps its PID
+and scratch files in the writable working directory. This works both in the
+isolated configuration check (which has no host `/tmp`) and in the service.
 
 ## 2. Build and run Hello
 
@@ -90,7 +138,8 @@ stop the profile with the last command.
 
 <!-- onboarding: services -->
 ```sh
-srx services init .#os --name hello-web --user --config ./build.toml --store ./store
+srx services init .#os --name hello-web --user --config ./build.toml --store ./store \
+  --cwd ./nginx-work
 srx services apply --profile hello-web --locked
 srx services status --profile hello-web
 curl --fail --silent --show-error --noproxy '*' --max-time 5 \
