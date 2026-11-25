@@ -23,7 +23,8 @@ Windows or a non-systemd service manager is supported.
 
 Once a stable release is published, download the installer, inspect it and
 run it. This requires Bash, curl, Git, `sha256sum`, `tar` and a current
-GitHub CLI (`gh`) with attestation support. Authenticate `gh` if needed.
+GitHub CLI (`gh`) with attestation support. If `gh` is not authenticated,
+run `gh auth login` first.
 No compiler or `sudo` is needed.
 
 ```sh
@@ -45,12 +46,13 @@ those archive attestations. Use the manual instructions below if you prefer
 not to run a downloaded script or need offline verification.
 
 Use `bash install-srx.sh --help` for options. Pass `--version vX.Y.Z` to
-select an exact published version, `--libc musl` for the musl archive or
+select an exact published tag (including its suffix for a prerelease),
+`--libc musl` for the musl archive or
 `--prefix /absolute/path` for a dedicated alternate install location.
 To upgrade, repeat the quick install with the same prefix. If no release is
 published yet, use the [source-build instructions](../README.md#build-from-source).
 
-## Download and verify manually
+## Download and verify
 
 Use Bash, Git, `sha256sum`, `tar`, and a current GitHub CLI (`gh`) with
 `gh attestation verify --custom-trusted-root` support. Authenticate `gh` for
