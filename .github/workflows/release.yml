@@ -138,6 +138,6 @@ jobs:
             rm -- "$tampered" "$tampered.sha256"
           done
           gh release create "$TAG" --verify-tag --target "$GITHUB_SHA" --draft \
-            --title "$TAG" --generate-notes release/*
+            --title "$TAG" --generate-notes release/* install.sh
           gh release edit "$TAG" --draft=false
           test "$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .immutable)" = true
