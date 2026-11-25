@@ -65,6 +65,7 @@ jobs:
           cargo xtask security tools --output "$RUNNER_TEMP/srx-tools" --tool workflows
           echo "$RUNNER_TEMP/srx-tools" >> "$GITHUB_PATH"
       - run: cargo xtask security workflows
+      - run: bash tests/install.sh
   quality:
     needs: [changes, build]
     if: always() && needs.changes.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped')
