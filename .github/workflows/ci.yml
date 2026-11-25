@@ -65,7 +65,10 @@ jobs:
           cargo xtask security tools --output "$RUNNER_TEMP/srx-tools" --tool workflows
           echo "$RUNNER_TEMP/srx-tools" >> "$GITHUB_PATH"
       - run: cargo xtask security workflows
-      - run: bash tests/install.sh
+      - name: Check installer shell and simulated release paths
+        run: |
+          shellcheck install.sh tests/install.sh
+          bash tests/install.sh
   quality:
     needs: [changes, build]
     if: always() && needs.changes.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped')
@@ -175,6 +178,8 @@ jobs:
           mkdir -p "target/candidates/$TARGET"
           cp "$CARGO_TARGET_DIR/$TARGET/release/srx" "$CARGO_TARGET_DIR/$TARGET/release/syrox-worker" "target/candidates/$TARGET/"
           RUSTFLAGS="" cargo run --locked -p syrox-engine --example ci_candidates -- "$PWD/target/candidates/$TARGET" "$TARGET"
+      - name: Install and reinstall the static release candidate
+        run: bash tests/install.sh "$TARGET" "target/candidates/$TARGET"
       - name: Install the digest-pinned vulnerability scanner
         run: |
           RUSTFLAGS='' cargo xtask security tools --output "$RUNNER_TEMP/release-tools" --tool grype
