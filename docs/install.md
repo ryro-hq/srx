@@ -19,7 +19,38 @@ covers Debian and Ubuntu 24.04 userspaces with a custom kernel and provisioned
 tools. Neither matrix implies a stock distro kernel, ARM64, 32-bit Linux, macOS,
 Windows or a non-systemd service manager is supported.
 
-## Download and verify
+## Quick install
+
+Once a stable release is published, download the installer, inspect it and
+run it. This requires Bash, curl, Git, `sha256sum`, `tar` and a current
+GitHub CLI (`gh`) with attestation support. Authenticate `gh` if needed.
+No compiler or `sudo` is needed.
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL \
+  https://github.com/ryro-hq/srx/releases/latest/download/install.sh \
+  -o install-srx.sh
+```
+
+```sh
+bash install-srx.sh
+export PATH="$HOME/.local/srx/bin:$PATH"
+srx --version
+```
+
+The script resolves the latest stable release, checks the archive checksum
+and verifies the build provenance and SPDX attestations online before
+installing the CLI and its worker. The script itself is not covered by
+those archive attestations. Use the manual instructions below if you prefer
+not to run a downloaded script or need offline verification.
+
+Use `bash install-srx.sh --help` for options. Pass `--version vX.Y.Z` to
+select an exact published version, `--libc musl` for the musl archive or
+`--prefix /absolute/path` for a dedicated alternate install location.
+To upgrade, repeat the quick install with the same prefix. If no release is
+published yet, use the [source-build instructions](../README.md#build-from-source).
+
+## Download and verify manually
 
 Use Bash, Git, `sha256sum`, `tar`, and a current GitHub CLI (`gh`) with
 `gh attestation verify --custom-trusted-root` support. Authenticate `gh` for
