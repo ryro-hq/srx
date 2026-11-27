@@ -50,7 +50,7 @@ select an exact published tag (including its suffix for a prerelease),
 `--libc musl` for the musl archive or
 `--prefix /absolute/path` for a dedicated alternate install location.
 To upgrade, repeat the quick install with the same prefix. If no release is
-published yet, use the [source-build instructions](../README.md#build-from-source).
+published yet, use the [source-build instructions](../README.md#build-the-cli).
 
 ## Download and verify
 
