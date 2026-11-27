@@ -103,7 +103,7 @@ commit. SHA-256 alone does not authenticate a download.
 ```sh
 set -eu
 sha256sum --strict --check "$artifact.sha256"
-for predicate in https://slsa.dev/provenance/v1 https://spdx.dev/Document; do
+for predicate in https://slsa.dev/provenance/v1 https://spdx.dev/Document/v2.3; do
   gh attestation verify "$artifact" --repo ryro-hq/srx \
     --bundle "$bundle" --custom-trusted-root trusted_root.jsonl \
     --signer-workflow ryro-hq/srx/.github/workflows/release.yml \

@@ -76,7 +76,7 @@ url="https://github.com/$repo/releases/download/$tag"
   [[ $(sha256sum "$artifact") == "$(<"$artifact.sha256")" ]] ||
     die "checksum mismatch for $artifact"
 
-  for predicate in https://slsa.dev/provenance/v1 https://spdx.dev/Document; do
+  for predicate in https://slsa.dev/provenance/v1 https://spdx.dev/Document/v2.3; do
     gh attestation verify "$artifact" --repo "$repo" \
       --signer-workflow "$repo/.github/workflows/release.yml" \
       --source-ref "$ref" --source-digest "$commit" \

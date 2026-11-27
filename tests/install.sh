@@ -56,7 +56,7 @@ case "$*" in
     commit=$(printf '%040d' "$((2 - ${lightweight:-0}))")
     [[ $* == "attestation verify srx-x86_64-unknown-linux-"*".tar.gz --repo ryro-hq/srx --signer-workflow ryro-hq/srx/.github/workflows/release.yml --source-ref refs/tags/$test_tag --source-digest $commit --deny-self-hosted-runners --predicate-type ${*: -1}" ]]
     predicate=${*: -1}
-    [[ $predicate == https://slsa.dev/provenance/v1 || $predicate == https://spdx.dev/Document ]]
+    [[ $predicate == https://slsa.dev/provenance/v1 || $predicate == https://spdx.dev/Document/v2.3 ]]
     [[ $predicate != "${reject_predicate:-}" ]]
     printf '%s\n' "$predicate" >> "$fixture/verified" ;;
 esac
@@ -76,7 +76,7 @@ if [[ -n $candidate ]]; then
   for _ in 1 2; do
     rm -f "$fixture/verified"
     bash "$installer" --version "$test_tag" --libc "${candidate##*-}"
-    cmp "$fixture/verified" <(printf '%s\n' https://slsa.dev/provenance/v1 https://spdx.dev/Document)
+    cmp "$fixture/verified" <(printf '%s\n' https://slsa.dev/provenance/v1 https://spdx.dev/Document/v2.3)
     cmp "$HOME/.local/srx/bin/srx" "$fixture/payload/srx"
     cmp "$HOME/.local/srx/current/syrox-worker" "$fixture/payload/syrox-worker"
     test "$("$HOME/.local/srx/bin/srx" --version)" = "$version"
@@ -87,7 +87,7 @@ fi
 cat > "$fixture/payload/srx" <<'EOF'
 #!/usr/bin/env bash
 set -eu
-[[ $(cat "$fixture/verified") == $'https://slsa.dev/provenance/v1\nhttps://spdx.dev/Document' ]]
+[[ $(cat "$fixture/verified") == $'https://slsa.dev/provenance/v1\nhttps://spdx.dev/Document/v2.3' ]]
 if [[ $* == --version ]]; then
   printf 'srx %s\n' "${binary_version:-${test_tag#v}}"
   exit 0
@@ -142,7 +142,7 @@ expect_failure 'missing value' bash "$installer" --version
 expect_failure 'invalid release tag' bash "$installer" --version ../invalid
 expect_failure 'absolute path other than /' bash "$installer" --prefix /
 expect_failure 'use --libc gnu or --libc musl' bash "$installer" --libc other
-reject 'could not verify https://spdx.dev/Document' env reject_predicate=https://spdx.dev/Document bash
+reject 'could not verify https://spdx.dev/Document/v2.3' env reject_predicate=https://spdx.dev/Document/v2.3 bash
 reject 'binary version does not match' env binary_version=9.9.9 bash
 
 artifact=srx-x86_64-unknown-linux-gnu.tar.gz
