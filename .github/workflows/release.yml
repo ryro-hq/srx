@@ -106,7 +106,8 @@ jobs:
           TAG: ${{ github.ref_name }}
           GH_REPO: ${{ github.repository }}
         run: |
-          test "$(gh api "repos/$GITHUB_REPOSITORY/immutable-releases" --jq .enabled)" = true
+          # The immutable-releases setting needs repository administration access,
+          # which GITHUB_TOKEN never has. The published release is checked below.
           offline_check="$RUNNER_TEMP/srx-offline-check.sh"
           bash tests/vm/onboarding.sh snippet docs/install.md attest > "$offline_check"
           verify_offline() {
