@@ -402,6 +402,7 @@ pub fn select(request: Selection) -> PackageRef<catalog::contract::Settings> {{
         schema: 1,
         defaults: BTreeMap::from([("fixture".into(), "1.0.0".into())]),
         channels: vec![crate::catalog::Channel {
+            redirect_origins: vec![],
             name: "fixture".into(),
             releases: "https://example.test/releases".into(),
             origin: "https://example.test/".into(),

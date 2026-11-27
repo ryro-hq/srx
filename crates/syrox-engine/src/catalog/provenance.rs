@@ -22,7 +22,7 @@ impl Catalog {
             let bytes = download(
                 &package.source_url,
                 package.source_maximum_bytes,
-                &channel.origin,
+                channel,
             )?;
             if ContentDigest::sha256(&bytes).to_string() != package.source_sha256 {
                 return Err(invalid(
@@ -30,7 +30,7 @@ impl Catalog {
                 ));
             }
             if let Some(signature) = &package.signature_url {
-                let signature = download(signature, 64 * 1024, &channel.origin)?;
+                let signature = download(signature, 64 * 1024, channel)?;
                 verify_signature(root, channel, &bytes, &signature)?;
                 evidence.push(format!(
                     "{} {} sha256={} signing-key={}",
@@ -50,11 +50,41 @@ impl Catalog {
     }
 }
 
-pub(super) fn download(url: &str, limit: u64, origin: &str) -> Result<Vec<u8>, CatalogError> {
-    let host = url::Url::parse(origin).map_err(|error| invalid(error.to_string()))?;
+pub(super) fn redirect_origins(channel: &Channel) -> Result<Vec<url::Origin>, CatalogError> {
+    use crate::acquire::https::validate_https_origin;
+
+    if channel.redirect_origins.len() > 8
+        || (!channel.redirect_origins.is_empty() && channel.signing_key.is_none())
+    {
+        return Err(invalid(
+            "only signed channels may pin up to eight redirect origins",
+        ));
+    }
+    let root = url::Url::parse(&channel.origin).map_err(|error| invalid(error.to_string()))?;
+    let mut origins = vec![root.origin()];
+    for value in &channel.redirect_origins {
+        let origin = validate_https_origin(value).map_err(|error| invalid(error.to_string()))?;
+        if origins.contains(&origin) {
+            return Err(invalid("duplicate channel redirect origin"));
+        }
+        origins.push(origin);
+    }
+    Ok(origins)
+}
+
+pub(super) fn download(url: &str, limit: u64, channel: &Channel) -> Result<Vec<u8>, CatalogError> {
+    let host = url::Url::parse(&channel.origin).map_err(|error| invalid(error.to_string()))?;
+    let initial = url::Url::parse(url).map_err(|error| invalid(error.to_string()))?;
+    if initial.origin() != host.origin() {
+        return Err(invalid(
+            "download URL is outside the channel origin",
+        ));
+    }
     let host = host
         .host_str()
         .ok_or_else(|| invalid("origin has no host"))?;
+    let hosts = [host];
+    let origins = redirect_origins(channel)?;
     crate::acquire::https::download_authenticated(
         crate::acquire::https::DownloadRequest {
             url,
@@ -62,8 +92,11 @@ pub(super) fn download(url: &str, limit: u64, origin: &str) -> Result<Vec<u8>, C
             policy: crate::acquire::https::HttpsTransportPolicy::default(),
             test_certificate: None,
             accept: None,
-            hosts: Some(&[host]),
-            redirect_origins: None,
+            hosts: channel
+                .redirect_origins
+                .is_empty()
+                .then_some(&hosts[..]),
+            redirect_origins: Some(&origins),
         },
         std::time::Instant::now(),
         &crate::cancellation::Cancellation::default(),

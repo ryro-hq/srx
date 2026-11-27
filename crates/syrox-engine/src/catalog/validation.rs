@@ -56,9 +56,10 @@ impl Catalog {
                     "signing fingerprint and key file must be pinned together",
                 ));
             }
+            super::provenance::redirect_origins(channel)?;
             if !matches!(
                 channel.release_policy.as_str(),
-                "numeric" | "even-minor"
+                "numeric" | "even-minor" | "github-release-tag"
             ) {
                 return Err(invalid("unknown stable release policy"));
             }

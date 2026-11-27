@@ -24,6 +24,14 @@ pub struct HttpQualification {
     pub validate_arguments: Vec<String>,
     pub run_arguments: Vec<String>,
     pub response: String,
+    pub tls: Option<TlsQualification>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TlsQualification {
+    #[serde(default)]
+    pub gzip: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -64,7 +72,10 @@ impl Qualification {
         }
         if let Some(http) = &result.http
             && (!filename(&http.filename)
-                || http.filename == "index.html"
+                || matches!(
+                    http.filename.as_str(),
+                    "index.html" | "server.pem" | "server-key.pem"
+                )
                 || !arguments(&http.validate_arguments)
                 || !arguments(&http.run_arguments)
                 || http.response.is_empty()

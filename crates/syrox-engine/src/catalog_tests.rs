@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 fn channel(policy: &str) -> Channel {
     Channel {
+        redirect_origins: vec![],
         name: "nginx".into(),
         releases: "https://nginx.org/en/download.html".into(),
         origin: "https://nginx.org/".into(),
@@ -27,6 +28,44 @@ fn stable_discovery_excludes_mainline_prerelease_and_overflow_versions() {
         channel("numeric").latest(html).as_deref(),
         Some("1.31.7")
     );
+}
+
+#[test]
+fn github_discovery_requires_an_exact_stable_tag() {
+    let html = r#"<a href="/fixture/repo/releases/tag/nginx-1.30.8">
+        <a href="/fixture/repo/releases/tag/nginx-1.32.0-rc1">
+        <a href="/fixture/repo/releases/tag/nginx-1.31.0/not-a-tag">
+        nginx-1.50.0.tar.gz"#;
+    assert_eq!(
+        channel("github-release-tag")
+            .latest(html)
+            .as_deref(),
+        Some("1.30.8")
+    );
+}
+
+#[test]
+fn catalog_redirect_authority_is_explicit_and_requires_signed_sources() {
+    let mut selected = channel("even-minor");
+    selected.redirect_origins = vec!["https://cdn.example/".into()];
+    let catalog = |channel| Catalog {
+        schema: 1,
+        defaults: BTreeMap::new(),
+        packages: vec![lock("1").versions.remove(0).package],
+        channels: vec![channel],
+    };
+    assert!(catalog(selected.clone()).validate().is_err());
+    selected.signing_key = Some("a".repeat(40));
+    selected.key_file = Some("key.asc".into());
+    assert!(catalog(selected.clone()).validate().is_ok());
+    for unauthorized in [
+        "http://cdn.example/",
+        "https://cdn.example/a",
+        "https://nginx.org:443/",
+    ] {
+        selected.redirect_origins = vec![unauthorized.into()];
+        assert!(catalog(selected.clone()).validate().is_err());
+    }
 }
 
 #[test]

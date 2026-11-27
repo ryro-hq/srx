@@ -43,7 +43,7 @@ impl Catalog {
             if channel.signing_key.is_none() {
                 continue;
             }
-            let bytes = download(&channel.releases, MAX_BYTES, &channel.origin)
+            let bytes = download(&channel.releases, MAX_BYTES, channel)
                 .map_err(|error| invalid(format!("{} release feed: {error}", channel.name)))?;
             let html =
                 std::str::from_utf8(&bytes).map_err(|_| invalid("release feed is not UTF-8"))?;
@@ -119,17 +119,13 @@ impl Catalog {
                 "source and signature URLs must be version-specific",
             ));
         }
-        let bytes = download(
-            &source_url,
-            first.source_maximum_bytes,
-            &channel.origin,
-        )?;
+        let bytes = download(&source_url, first.source_maximum_bytes, channel)?;
         let hash = ContentDigest::sha256(&bytes).to_string();
         verify_signature(
             root,
             channel,
             &bytes,
-            &download(&signature_url, 64 * 1024, &channel.origin)?,
+            &download(&signature_url, 64 * 1024, channel)?,
         )?;
         let signature_url = Some(signature_url);
         if self.schema == 2 {
@@ -269,11 +265,21 @@ impl Channel {
     /// Only numbered stable archives are accepted. HTML markup and prereleases
     /// cannot become version components or paths in a generated catalog entry.
     pub fn latest(&self, html: &str) -> Option<String> {
-        html.split(&self.archive_prefix)
+        let (prefix, suffix_end) = if self.release_policy == "github-release-tag" {
+            (
+                format!("/releases/tag/{}", self.archive_prefix),
+                "\"",
+            )
+        } else {
+            (
+                self.archive_prefix.clone(),
+                self.archive_suffix.as_str(),
+            )
+        };
+        html.split(&prefix)
             .skip(1)
             .filter_map(|suffix| {
-                let end = suffix.find(&self.archive_suffix)?;
-                let version = &suffix[..end];
+                let (version, _) = suffix.split_once(suffix_end)?;
                 let numbers = stable_version(version)?;
                 if self.release_policy == "even-minor" && !numbers[1].is_multiple_of(2) {
                     return None;

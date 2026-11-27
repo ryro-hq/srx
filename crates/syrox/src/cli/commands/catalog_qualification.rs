@@ -7,8 +7,10 @@ use std::io::{Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned, pki_types::ServerName};
 use sha2::{Digest as _, Sha256};
 use syrox_engine::{
     bundle::{export_bundle, import_bundle},
@@ -269,7 +271,18 @@ fn qualify_http(
     let port = port_reservation.local_addr()?.port();
     let text =
         Qualification::text(path, &http.configuration)?.replace("@{port}", &port.to_string());
-    let directory = NativeConfiguration::new(&http.filename, &text, &http.response)?;
+    let tls = http
+        .tls
+        .as_ref()
+        .map(|tls| TlsProbe::new(tls.gzip))
+        .transpose()?;
+    let certificate_files = tls.as_ref().map(|tls| &tls.files);
+    let directory = NativeConfiguration::new(
+        &http.filename,
+        &text,
+        &http.response,
+        certificate_files,
+    )?;
     let configuration = directory.configuration()?;
     let config_argument = format!("/syrox/config/qualification/{}", http.filename);
     let arguments = |values: &[String]| {
@@ -292,6 +305,7 @@ fn qualify_http(
         &http.filename,
         &Qualification::text(path, &http.invalid_configuration)?,
         &http.response,
+        certificate_files,
     )?;
     let invalid_configuration = invalid_directory.configuration()?;
     let invalid = run_runtime_configured_with_cancellation(
@@ -328,6 +342,18 @@ fn qualify_http(
                     Duration::from_millis(100),
                 ) {
                     stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+                    stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+                    if let Some(tls) = &tls {
+                        let connection = ClientConnection::new(
+                            Arc::clone(&tls.client),
+                            ServerName::try_from("localhost")?,
+                        )?;
+                        return qualify_https_response(
+                            StreamOwned::new(connection, stream),
+                            tls.gzip,
+                            &http.response,
+                        );
+                    }
                     stream.write_all(b"GET / HTTP/1.0\r\nHost: localhost\r\n\r\n")?;
                     let mut bytes = Vec::new();
                     stream.take(4096).read_to_end(&mut bytes)?;
@@ -361,6 +387,124 @@ fn qualify_http(
         }
         Ok(())
     })
+}
+
+struct TlsProbe {
+    client: Arc<ClientConfig>,
+    files: [(&'static str, String); 2],
+    gzip: bool,
+}
+
+impl TlsProbe {
+    fn new(gzip: bool) -> Result<Self> {
+        use rcgen::{
+            BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, Issuer,
+            KeyPair, KeyUsagePurpose,
+        };
+
+        // The CA never leaves this process. Only the generated server key and
+        // certificate are supplied to the isolated native runtime.
+        let mut ca = CertificateParams::default();
+        ca.distinguished_name
+            .push(DnType::CommonName, "srx qualification CA");
+        ca.is_ca = IsCa::Ca(BasicConstraints::Constrained(0));
+        ca.key_usages = vec![KeyUsagePurpose::KeyCertSign];
+        let ca_key = KeyPair::generate()?;
+        let mut roots = RootCertStore::empty();
+        roots.add(ca.self_signed(&ca_key)?.der().clone())?;
+        let issuer = Issuer::new(ca, ca_key);
+        let mut server = CertificateParams::new(vec!["localhost".into()])?;
+        server
+            .distinguished_name
+            .push(DnType::CommonName, "localhost");
+        server.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
+        server.key_usages = vec![KeyUsagePurpose::DigitalSignature];
+        let server_key = KeyPair::generate()?;
+        let certificate = server.signed_by(&server_key, &issuer)?;
+        Ok(Self {
+            client: Arc::new(
+                ClientConfig::builder_with_provider(Arc::new(
+                    rustls::crypto::ring::default_provider(),
+                ))
+                .with_safe_default_protocol_versions()?
+                .with_root_certificates(roots)
+                .with_no_client_auth(),
+            ),
+            files: [
+                ("server.pem", certificate.pem()),
+                ("server-key.pem", server_key.serialize_pem()),
+            ],
+            gzip,
+        })
+    }
+}
+
+fn qualify_https_response(
+    mut stream: impl std::io::Read + std::io::Write,
+    gzip: bool,
+    expected: &str,
+) -> Result<()> {
+    const MAX_RESPONSE: u64 = 16 * 1024;
+
+    let encoding = if gzip {
+        "Accept-Encoding: gzip\r\n"
+    } else {
+        ""
+    };
+    write!(
+        stream,
+        "GET / HTTP/1.0\r\nHost: localhost\r\n{encoding}Connection: close\r\n\r\n"
+    )?;
+    stream.flush()?;
+    let mut bytes = Vec::new();
+    stream
+        .take(MAX_RESPONSE + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_RESPONSE {
+        return Err("HTTPS qualification response exceeds limit".into());
+    }
+    check_https_response(&bytes, gzip, expected)
+}
+
+fn check_https_response(bytes: &[u8], gzip: bool, expected: &str) -> Result<()> {
+    let header_end = bytes
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .ok_or("HTTPS qualification response lacks HTTP headers")?;
+    let mut headers = std::str::from_utf8(&bytes[..header_end])?.split("\r\n");
+    let status = headers.next().unwrap_or_default();
+    if !matches!(
+        status
+            .split_ascii_whitespace()
+            .take(2)
+            .collect::<Vec<_>>()
+            .as_slice(),
+        ["HTTP/1.0" | "HTTP/1.1", "200"]
+    ) {
+        return Err("HTTPS qualification requires HTTP 200".into());
+    }
+    let body = &bytes[header_end + 4..];
+    if gzip {
+        if !headers
+            .filter_map(|header| header.split_once(':'))
+            .any(|(name, value)| {
+                name.eq_ignore_ascii_case("content-encoding")
+                    && value.trim().eq_ignore_ascii_case("gzip")
+            })
+        {
+            return Err("HTTPS qualification response is not gzip-encoded".into());
+        }
+        let mut decoded = Vec::new();
+        flate2::read::GzDecoder::new(body)
+            .take(expected.len() as u64 + 1)
+            .read_to_end(&mut decoded)?;
+        if decoded != expected.as_bytes() {
+            return Err("HTTPS qualification decoded response differs".into());
+        }
+    } else if body != expected.as_bytes() {
+        return Err("HTTPS qualification response differs".into());
+    }
+    Ok(())
 }
 
 struct NativeConfiguration(tempfile::TempDir);
@@ -521,12 +665,24 @@ fn qualify_service_configuration(
 }
 
 impl NativeConfiguration {
-    fn new(filename: &str, text: &str, response: &str) -> Result<Self> {
+    fn new(
+        filename: &str,
+        text: &str,
+        response: &str,
+        certificate_files: Option<&[(&str, String); 2]>,
+    ) -> Result<Self> {
         let result = Self(tempfile::tempdir()?);
         for (name, content) in [
             (filename, text),
             ("index.html", response),
-        ] {
+        ]
+        .into_iter()
+        .chain(
+            certificate_files
+                .into_iter()
+                .flatten()
+                .map(|(name, value)| (*name, value.as_str())),
+        ) {
             let path = result.0.path().join(name);
             fs::write(&path, content)?;
             fs::set_permissions(path, fs::Permissions::from_mode(0o400))?;
@@ -547,5 +703,102 @@ impl NativeConfiguration {
 impl Drop for NativeConfiguration {
     fn drop(&mut self) {
         let _ = fs::set_permissions(self.0.path(), fs::Permissions::from_mode(0o700));
+    }
+}
+
+#[cfg(test)]
+mod https_tests {
+    use super::*;
+
+    #[test]
+    fn https_response_requires_status_exact_body_and_decodable_gzip() {
+        let body = "verified response";
+        let plain = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nverified response";
+        assert!(check_https_response(plain, false, body).is_ok());
+        assert!(check_https_response(plain, true, body).is_err());
+        assert!(check_https_response(plain, false, "verified").is_err());
+        assert!(
+            check_https_response(
+                b"HTTP/1.0 404 Not Found\r\n\r\nverified response",
+                false,
+                body
+            )
+            .is_err()
+        );
+        let mut response = b"HTTP/1.1 200 OK\r\nContent-Encoding: GZip\r\n\r\n".to_vec();
+        let mut encoder = flate2::write::GzEncoder::new(&mut response, flate2::Compression::fast());
+        encoder.write_all(body.as_bytes()).unwrap();
+        encoder.finish().unwrap();
+        assert!(check_https_response(&response, true, body).is_ok());
+        response.pop();
+        assert!(check_https_response(&response, true, body).is_err());
+    }
+
+    #[test]
+    fn https_uses_its_ephemeral_ca_and_validates_hostname() {
+        use rustls::{
+            ServerConfig, ServerConnection,
+            pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject as _},
+        };
+
+        let fixture = TlsProbe::new(false).unwrap();
+        let unrelated = TlsProbe::new(false).unwrap();
+        let certificate = CertificateDer::from_pem_slice(fixture.files[0].1.as_bytes()).unwrap();
+        let key = PrivateKeyDer::from_pem_slice(fixture.files[1].1.as_bytes()).unwrap();
+        let server = Arc::new(
+            ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_no_client_auth()
+                .with_single_cert(vec![certificate], key)
+                .unwrap(),
+        );
+        for (client, hostname, accepted) in [
+            (&fixture.client, "localhost", true),
+            (&fixture.client, "wrong.example", false),
+            (&unrelated.client, "localhost", false),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let socket = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+            let (mut peer, _) = listener.accept().unwrap();
+            std::thread::scope(|scope| {
+                let server = Arc::clone(&server);
+                let worker = scope.spawn(move || {
+                    let timeout = Some(Duration::from_secs(2));
+                    peer.set_read_timeout(timeout).unwrap();
+                    peer.set_write_timeout(timeout).unwrap();
+                    let mut connection = ServerConnection::new(server).unwrap();
+                    while connection.is_handshaking() {
+                        connection.complete_io(&mut peer)?;
+                    }
+                    let mut stream = StreamOwned::new(connection, peer);
+                    let mut request = Vec::new();
+                    let mut byte = [0_u8; 1];
+                    while !request.ends_with(b"\r\n\r\n") && request.len() < 256 {
+                        stream.read_exact(&mut byte)?;
+                        request.push(byte[0]);
+                    }
+                    assert!(request.starts_with(b"GET / HTTP/1.0\r\nHost: localhost\r\n"));
+                    stream.write_all(b"HTTP/1.0 200 OK\r\n\r\nready")?;
+                    stream.conn.send_close_notify();
+                    stream.flush()
+                });
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                socket
+                    .set_write_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let client = ClientConnection::new(
+                    Arc::clone(client),
+                    ServerName::try_from(hostname).unwrap(),
+                )
+                .unwrap();
+                let result =
+                    qualify_https_response(StreamOwned::new(client, socket), false, "ready");
+                assert_eq!(result.is_ok(), accepted, "{hostname}: {result:?}");
+                assert_eq!(worker.join().unwrap().is_ok(), accepted);
+            });
+        }
     }
 }

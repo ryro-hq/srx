@@ -178,6 +178,8 @@ pub struct Channel {
     pub name: String,
     pub releases: String,
     pub origin: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub redirect_origins: Vec<String>,
     pub archive_prefix: String,
     pub archive_suffix: String,
     pub signing_key: Option<String>,

@@ -4613,6 +4613,8 @@ dependencies = [
  "flate2",
  "libc 1.0.0-alpha.5",
  "microsandbox",
+ "rcgen",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.11.0",
